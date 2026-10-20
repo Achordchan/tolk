@@ -59,7 +59,13 @@ func translate(text, source, target string) (TranslateResult, error) {
 	if err != nil {
 		return TranslateResult{}, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Apple's on-device translator may be waiting on the user to approve a
+	// language-pack download, which can take minutes; network engines keep 30s.
+	timeout := 30 * time.Second
+	if api == "apple" {
+		timeout = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
 	start := time.Now()

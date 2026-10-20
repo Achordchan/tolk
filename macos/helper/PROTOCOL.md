@@ -42,7 +42,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 
 | op | 参数 | 结果 |
 |---|---|---|
-| `translate` | `texts`:[string], `source`, `target` | `{"texts":[string]}`，等长同序。Tolk 按用户当前选的引擎翻译（含 Apple 本地翻译时，Go 会反过来调用 `apple.translate`） |
+| `translate` | `texts`:[string], `source`, `target` | `{"texts":[string],"fingerprint":string}`，等长同序；`fingerprint` 是翻译实际用的引擎标识（和 `inputassist.engine` 同一套，翻译期间引擎被换掉时为空串，输入助手此时不写缓存）。Tolk 按用户当前选的引擎翻译（含 Apple 本地翻译时，Go 会反过来调用 `apple.translate`） |
 | `log` | （事件）`level`: `debug/info/warn/error`, `msg` | |
 
 截图相关事件（helper → Go）：
@@ -71,6 +71,28 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 ## 划词（`selection.get` / `selection.replace`）
 
 参考 `dazuofanyiguan/InputAssist/Capture/*` 和 `Replacement/*`：只保留「读取当前选区文字」和「把译文替换回去」两个动作，不要带候选面板、键盘监听、缓存等 InputAssist 的其他部分。
+
+## 输入助手（选中文字 → 快捷键 → 多语言候选 → 替换）
+
+移植自 bagayalu 的 `InputAssist/`。在任意应用里选中文字，按触发快捷键（默认 ⌥⇧Space），helper 在选区旁弹出候选面板，每个目标语言一行并行翻译，选中一行就把译文替换回原位（做不到原位替换时复制到剪贴板并提示）。**helper 负责全部交互和界面**；设置存在 Tolk 的配置里，由 Go 通过 `inputassist.configure` 推给 helper；翻译一律走 helper → Go 的 `translate`，helper 里不实现翻译引擎。默认关闭（不能因为升级就自动打开系统级监听）。
+
+Go → helper：
+
+| op | 参数 | 结果 |
+|---|---|---|
+| `inputassist.configure` | `enabled`:bool、`targets`:[语言标签]（1 到 6 个，Tolk 中文标签，不含「自动检测」）、`shortcutKeyCode`:int、`shortcutModifiers`:int（Carbon 修饰键位：⌘ 256、⇧ 512、⌥ 2048、⌃ 4096 的按位或，即老版 `carbonModifiers`）、`scope`:`global`\|`allowlist`、`blocklist`:[string]、`allowlist`:[string]（每项可以是 bundle id、应用名或可执行文件名，匹配规则同老版 `InputAssistAppFilter`）、`autoShow`:bool（选区完成后自动弹出，默认 false）、`cacheBadge`:bool（缓存命中显示 ⚡）、`appearance`:`system`\|`light`\|`dark`\|`pink` | `{"active":bool,"error":"<中文原因，可省略>"}`；`active` = 开关打开且辅助功能已授权且快捷键注册成功。可重复调用；`enabled:false` 关掉热键、选区监听并收起面板。缺辅助功能权限时**不弹窗**，只回 `active:false` 和 `error` |
+| `inputassist.trigger` | 无 | `{}`，等同按下快捷键（设置页「测试」按钮用） |
+
+helper → Go：
+
+| op | 参数 | 结果 |
+|---|---|---|
+| `inputassist.engine` | 无 | `{"fingerprint":"<当前翻译引擎的标识，如 google、openai_compat:模型名@base_url，不含密钥>","title":"<引擎显示名>"}`，用于缓存键：换引擎、换模型后旧缓存不再命中 |
+| `translate` | 同上文 | 每个目标语言各发一次（`source` 为检测到的语言标签，检测不出用「自动检测」）。引擎是 Apple 本地翻译时 Go 会回调 `apple.translate`，helper 应对这种引擎把各语言串行发出，避免互相打断 |
+
+事件（helper → Go）：`{"event":"inputassist.status","active":bool,"error":"<中文原因，可省略>"}`——注册状态变化时发（例如用户在系统设置里给了辅助功能权限，或快捷键被别的应用占用）。
+
+用户可见文字沿用老版措辞（面板、提示、气泡）。统计 `InputAssistMetrics` 不移植。设置页、测试页、新功能引导（`InputAssistSettingsPane` / `InputAssistTestView` / `InputAssistOnboardingView`）不在 helper 里做，由 Tolk 的网页设置页承担。
 
 ## 旧版数据（`legacy.read`）
 

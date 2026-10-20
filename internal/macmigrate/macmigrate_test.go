@@ -1,9 +1,11 @@
 package macmigrate
 
 import (
+	"reflect"
 	"testing"
 
 	"tolk/internal/engine"
+	"tolk/internal/inputassist"
 )
 
 func TestApplyMapsOldMacSettings(t *testing.T) {
@@ -103,5 +105,85 @@ func TestEveryMacCodeIsAKnownLanguage(t *testing.T) {
 	}
 	if len(codeNames) != 38 {
 		t.Fatalf("Mac has 38 entries, got %d", len(codeNames))
+	}
+}
+
+func oldInputAssist() Data {
+	return Data{Defaults: map[string]any{
+		"inputAssistEnabled": true, "inputAssistTargetLanguages": "ja, en,xx,auto,ja,zh-CN",
+		"inputAssistShortcutKeyCode": 17.0, "inputAssistShortcutModifiers": 2304.0,
+		"inputAssistAppScope": "allowlistOnly", "inputAssistBlocklist": "A\nB", "inputAssistAllowlist": "Notes",
+		"inputAssistSelectionAutoShowEnabled": true, "inputAssistShowsCacheBadge": false,
+	}}
+}
+
+func TestApplyMapsInputAssist(t *testing.T) {
+	cfg := map[string]any{}
+	Apply(cfg, oldInputAssist())
+	ia := cfg["tolk"].(map[string]any)["input_assist"].(map[string]any)
+	got := inputassist.FromConfig(cfg)
+	want := inputassist.Config{Enabled: true, Targets: []string{"日语", "英语", "简体中文"}, ShortcutKeyCode: 17, ShortcutModifiers: 2304,
+		Scope: "allowlist", Blocklist: "A\nB", Allowlist: "Notes", AutoShow: true, CacheBadge: false}
+	if !reflect.DeepEqual(got, want) || ia["scope"] != "allowlist" {
+		t.Fatalf("%+v", got)
+	}
+	if cfg["tolk"].(map[string]any)[InputAssistDone] != true || InputAssistPending(cfg) {
+		t.Fatal("the full import must also settle the one-time import")
+	}
+}
+
+func TestApplyWithoutInputAssistKeysWritesNothing(t *testing.T) {
+	cfg := map[string]any{}
+	Apply(cfg, Data{Defaults: map[string]any{"inputAssistTargetLanguages": "xx,auto", "inputAssistAppScope": "weird"}})
+	if _, ok := cfg["tolk"].(map[string]any)["input_assist"]; ok {
+		t.Fatalf("%v", cfg)
+	}
+}
+
+func TestApplyInputAssistOnceOnlyTouchesItsKeys(t *testing.T) {
+	cfg := map[string]any{"theme": "dark", "tolk": map[string]any{Done: true, "double_copy": false}}
+	if !InputAssistPending(cfg) {
+		t.Fatal("imported config without the marker must be pending")
+	}
+	d := oldInputAssist()
+	d.Defaults["doubleCopyEnabled"] = true // must not be re-imported
+	d.Defaults["appearance"] = "light"
+	if !ApplyInputAssist(cfg, d) {
+		t.Fatal("not applied")
+	}
+	tk := cfg["tolk"].(map[string]any)
+	if tk["double_copy"] != false || cfg["theme"] != "dark" || tk[InputAssistDone] != true {
+		t.Fatalf("touched other settings: %v", cfg)
+	}
+	if got := inputassist.FromConfig(cfg); !got.Enabled || got.Scope != "allowlist" || got.Targets[0] != "日语" {
+		t.Fatalf("%+v", got)
+	}
+	tk["input_assist"].(map[string]any)["enabled"] = false // user turned it off afterwards
+	if ApplyInputAssist(cfg, d) || tk["input_assist"].(map[string]any)["enabled"] != false || InputAssistPending(cfg) {
+		t.Fatal("ran twice")
+	}
+}
+
+func TestInputAssistPendingSkipsConfigsThatCannotNeedIt(t *testing.T) {
+	for name, tk := range map[string]map[string]any{
+		"never imported": {},
+		"already done":   {Done: true, InputAssistDone: true},
+	} {
+		if InputAssistPending(map[string]any{"tolk": tk}) {
+			t.Errorf("%s: should not read the old app's settings", name)
+		}
+	}
+	if InputAssistPending(map[string]any{}) {
+		t.Error("empty config")
+	}
+}
+
+func TestApplyInputAssistKeepsExistingTolkSettings(t *testing.T) {
+	cfg := map[string]any{"tolk": map[string]any{Done: true, "input_assist": map[string]any{"enabled": false, "targets": []any{"法语"}}}}
+	if ApplyInputAssist(cfg, oldInputAssist()) {
+		t.Fatal("overwrote a saved Tolk setting")
+	}
+	if got := inputassist.FromConfig(cfg); got.Enabled || got.Targets[0] != "法语" || InputAssistPending(cfg) {
+		t.Fatalf("%+v", got)
 	}
 }

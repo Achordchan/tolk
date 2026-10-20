@@ -14,11 +14,33 @@ export interface About {
   helper: string;
 }
 
+export interface Config {
+  enabled: boolean;
+  targets: string[];
+  shortcutKeyCode: number;
+  shortcutModifiers: number;
+  scope: string;
+  blocklist: string;
+  allowlist: string;
+  autoShow: boolean;
+  cacheBadge: boolean;
+}
+
 export interface Entry {
   id: number;
   time: number;
   level: string;
   text: string;
+}
+
+/**
+ * InputAssistState is what the settings page shows for 输入助手: the saved
+ * settings plus whether the helper has it running.
+ */
+export interface InputAssistState {
+  settings: Config;
+  active: boolean;
+  error: string;
 }
 
 /** MacStatus is what the "截图与权限" pane shows. */
@@ -32,6 +54,9 @@ export interface MacStatus {
   screenRecording: boolean;
   hotkeyRunning: boolean;
   hotkeyError: string;
+  /** 输入助手 in the helper: running, or why not (for example no Accessibility). */
+  inputAssistActive: boolean;
+  inputAssistError: string;
 }
 
 /** MiniState is sent to the bubble page. */
@@ -164,6 +189,10 @@ export const Tolk = {
   consoleLines(after: number): Promise<Entry[]> {
     return call("Tolk.ConsoleLines", after);
   },
+  /** GetInputAssist returns the 输入助手 settings and the helper's status. */
+  getInputAssist(): Promise<InputAssistState> {
+    return call("Tolk.GetInputAssist");
+  },
   /** GetPrefs returns the switches and the language pair. */
   getPrefs(): Promise<Prefs> {
     return call("Tolk.GetPrefs");
@@ -175,6 +204,10 @@ export const Tolk = {
   /** HideMini closes the bubble and drops the request in flight. */
   hideMini(): Promise<void> {
     return call("Tolk.HideMini");
+  },
+  /** InputAssistTrigger does what the shortcut does (the settings page's 测试). */
+  inputAssistTrigger(): Promise<void> {
+    return call("Tolk.InputAssistTrigger");
   },
   /**
    * InstallUpdate downloads the update found by CheckUpdate and swaps it in. It
@@ -244,6 +277,13 @@ export const Tolk = {
   /** SetEngine switches the active service from the main window's picker. */
   setEngine(engine: string): Promise<void> {
     return call("Tolk.SetEngine", engine);
+  },
+  /**
+   * SetInputAssist validates and saves the settings, then pushes them to the
+   * native helper and returns the resulting status.
+   */
+  setInputAssist(s: Config): Promise<InputAssistState> {
+    return call("Tolk.SetInputAssist", s);
   },
   /** SetLanguages remembers the language pair in the shared config. */
   setLanguages(source: string, target: string): Promise<void> {

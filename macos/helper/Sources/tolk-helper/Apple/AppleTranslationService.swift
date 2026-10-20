@@ -119,6 +119,8 @@ final class AppleTranslationService {
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
     }
 
+    private var previousFrontApp: NSRunningApplication?
+
     private func setDownloadPromptVisible(_ visible: Bool) {
         guard let window = hostWindow else { return }
         if visible {
@@ -127,10 +129,22 @@ final class AppleTranslationService {
             window.level = .floating
             window.collectionBehavior = [.moveToActiveSpace]
             window.center()
+            if !NSApp.isActive {
+                let front = NSWorkspace.shared.frontmostApplication
+                if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                    previousFrontApp = front
+                }
+            }
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
         } else {
             applyHiddenState(to: window)
+            // 下载提示是我们自己拉起来的，收起后把焦点还给原应用，
+            // 否则输入助手随后的替换会因为前台不是目标应用而退化成复制。
+            if NSApp.isActive, let app = previousFrontApp, !app.isTerminated {
+                app.activate(options: [])
+            }
+            previousFrontApp = nil
         }
     }
 

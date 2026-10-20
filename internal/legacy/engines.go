@@ -45,25 +45,7 @@ func BuildEngine(m map[string]any, api string) (engine.Engine, error) {
 		d, _ := m["deepl"].(map[string]any)
 		return engine.NewDeepL(str(d, "api_key"))
 	case "openai_compat":
-		oc, _ := m["openai_compat"].(map[string]any)
-		base, model, key := str(oc, "base_url"), str(oc, "model"), str(oc, "api_key")
-		// Per-vendor profiles win, as in the Python app.
-		if vendor := str(oc, "vendor"); vendor != "" {
-			if ps, ok := oc["profiles"].(map[string]any); ok {
-				if p, ok := ps[vendor].(map[string]any); ok {
-					if v := str(p, "base_url"); v != "" {
-						base = v
-					}
-					if v := str(p, "model"); v != "" {
-						model = v
-					}
-					// The key comes from the selected profile only: falling
-					// back to the mirrored top-level key would send another
-					// vendor's credential to this endpoint.
-					key = str(p, "api_key")
-				}
-			}
-		}
+		base, model, key := OpenAICompat(m)
 		return engine.NewOpenAICompat(base, model, key)
 	case "microsoft":
 		ms, _ := m["microsoft"].(map[string]any)
@@ -81,4 +63,28 @@ func BuildEngine(m map[string]any, api string) (engine.Engine, error) {
 		return nil, fmt.Errorf("Apple 本地翻译只在 macOS 上可用，请在设置里换一个翻译服务")
 	}
 	return nil, fmt.Errorf("未知的翻译服务：%s", api)
+}
+
+// OpenAICompat resolves the active AI vendor's base URL, model and key from a
+// config map. Per-vendor profiles win, as in the Python app.
+func OpenAICompat(m map[string]any) (base, model, key string) {
+	oc, _ := m["openai_compat"].(map[string]any)
+	base, model, key = str(oc, "base_url"), str(oc, "model"), str(oc, "api_key")
+	if vendor := str(oc, "vendor"); vendor != "" {
+		if ps, ok := oc["profiles"].(map[string]any); ok {
+			if p, ok := ps[vendor].(map[string]any); ok {
+				if v := str(p, "base_url"); v != "" {
+					base = v
+				}
+				if v := str(p, "model"); v != "" {
+					model = v
+				}
+				// The key comes from the selected profile only: falling
+				// back to the mirrored top-level key would send another
+				// vendor's credential to this endpoint.
+				key = str(p, "api_key")
+			}
+		}
+	}
+	return base, model, key
 }

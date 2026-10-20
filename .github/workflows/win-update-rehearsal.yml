@@ -1,0 +1,127 @@
+name: Windows update rehearsal
+
+# 演练老用户的真实升级路径：用老版大佐翻译官（dazuo-win 仓库）自带的"替换文件"脚本，
+# 把一个已发布的 Tolk Windows 更新包装进一个模拟的旧安装目录，然后检查：
+#   - 新程序替换成功，旧文件被清掉，卸载程序文件保留；
+#   - 用户配置 ~/.dzfyq/config.json 原封不动；
+#   - 升级后重新启动的新程序真的能起来并保持运行。
+# 不使用任何 Secret，只读已发布的 Release。
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/win-update-rehearsal.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 要演练的 Tolk 版本（已发布的 Release，如 2.0.1）
+        required: true
+        default: "2.0.1"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ inputs.version || '2.0.1' }}
+    steps:
+      - name: Check inputs
+        shell: bash
+        run: '[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "版本号必须是 x.y.z" >&2; exit 1; }'
+      - name: Fetch the old client's code (data only)
+        uses: actions/checkout@v4
+        with:
+          repository: Achordchan/dazuo-win
+          ref: main
+          path: old
+      - name: Download the published update package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p pkg
+          gh release download "v$VERSION" --repo Achordchan/tolk --dir pkg --pattern "dazuofanyiguan_full.for.windows_${VERSION}.zip"
+          ls -l pkg
+      - name: Extract the old client's apply script
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re, pathlib
+          src = pathlib.Path("old/src/gongju/update.py").read_text(encoding="utf-8")
+          m = re.search(r"def _build_apply_script\(self\) -> str:\s*return r'''(.*?)'''", src, re.S)
+          assert m, "找不到 _build_apply_script"
+          pathlib.Path("apply.ps1").write_text(m.group(1), encoding="utf-8-sig", newline="\r\n")
+          print("apply.ps1:", len(m.group(1)), "chars")
+          PY
+      - name: Simulate an old install and run the upgrade
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $work = Join-Path $env:RUNNER_TEMP "rehearsal"
+          $target = Join-Path $work "install"
+          $source = Join-Path $work "source"
+          New-Item -ItemType Directory -Force $target, $source | Out-Null
+
+          # 旧安装：旧主程序、PyInstaller 留下的东西、卸载程序文件。
+          Copy-Item "$env:SystemRoot\System32\notepad.exe" (Join-Path $target "大佐翻译官.exe")
+          New-Item -ItemType Directory -Force (Join-Path $target "PyQt5\qt-plugins") | Out-Null
+          Set-Content (Join-Path $target "PyQt5\qt-plugins\old.dll") "old"
+          Set-Content (Join-Path $target "unins000.exe") "uninstaller"
+          Set-Content (Join-Path $target "unins000.dat") "uninstaller-data"
+          Set-Content (Join-Path $target "old-only.txt") "should disappear"
+
+          # 用户配置在用户目录里，升级不能动它。
+          $cfgDir = Join-Path $env:USERPROFILE ".dzfyq"
+          New-Item -ItemType Directory -Force $cfgDir | Out-Null
+          $cfg = Join-Path $cfgDir "config.json"
+          Set-Content $cfg '{"sentinel":"keep-me"}' -Encoding UTF8
+          $cfgHash = (Get-FileHash $cfg).Hash
+
+          Expand-Archive -Path (Join-Path "pkg" "dazuofanyiguan_full.for.windows_$env:VERSION.zip") -DestinationPath $source
+          $newHash = (Get-FileHash (Join-Path $source "大佐翻译官.exe")).Hash
+
+          # 一个已经退出的进程号：脚本要等"旧进程"退出，这里让它一开始就不存在。
+          $p = Start-Process cmd -ArgumentList "/c exit" -PassThru -Wait
+
+          $env:DZFYQ_UPDATE_SOURCE_DIR = $source
+          $env:DZFYQ_UPDATE_TARGET_DIR = $target
+          $env:DZFYQ_UPDATE_EXE_NAME = "大佐翻译官.exe"
+          $env:DZFYQ_UPDATE_PROCESS_ID = [string]$p.Id
+          $env:DZFYQ_UPDATE_PROCESS_CREATED_FILETIME = "0"
+          $env:DZFYQ_UPDATE_BACKUP_DIR = Join-Path $work "backup"
+          $env:DZFYQ_UPDATE_LOG_PATH = Join-Path $work "apply.log"
+          $env:DZFYQ_UPDATE_RESULT_PATH = Join-Path $work "result.json"
+          $env:DZFYQ_UPDATE_PENDING_PATH = Join-Path $work "pending.json"
+          $env:DZFYQ_UPDATE_EXPECTED_VERSION = $env:VERSION
+
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PWD\apply.ps1"
+          $code = $LASTEXITCODE
+          Write-Host "---- apply.log ----"
+          Get-Content $env:DZFYQ_UPDATE_LOG_PATH
+          Write-Host "---- result.json ----"
+          Get-Content $env:DZFYQ_UPDATE_RESULT_PATH
+          if ($code -ne 0) { throw "升级脚本退出码 $code" }
+
+          $result = Get-Content $env:DZFYQ_UPDATE_RESULT_PATH -Raw | ConvertFrom-Json
+          if ($result.status -ne "success") { throw "升级结果不是 success：$($result.status)" }
+          if ((Get-FileHash (Join-Path $target "大佐翻译官.exe")).Hash -ne $newHash) { throw "主程序没有换成新的" }
+          if (Test-Path (Join-Path $target "old-only.txt")) { throw "旧文件没有被清掉" }
+          if (Test-Path (Join-Path $target "PyQt5")) { throw "旧的 PyQt5 目录没有被清掉" }
+          foreach ($f in "unins000.exe", "unins000.dat") {
+            if (-not (Test-Path (Join-Path $target $f))) { throw "卸载程序文件 $f 丢了" }
+          }
+          if ((Get-FileHash $cfg).Hash -ne $cfgHash) { throw "用户配置被改动了" }
+          Write-Host "文件检查通过"
+
+          # 脚本最后会用 --update-restart 把新程序启动起来：它必须能起来并保持运行。
+          Start-Sleep -Seconds 20
+          $running = Get-Process -Name "大佐翻译官" -ErrorAction SilentlyContinue
+          if (-not $running) { throw "升级后新程序没有在运行（启动后退出了）" }
+          Write-Host "新程序在运行：PID $($running.Id -join ',')"
+          $running | Stop-Process -Force

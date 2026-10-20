@@ -89,3 +89,83 @@ func TestDeepLPlanAndTarget(t *testing.T) {
 		t.Fatal("expected unsupported target error")
 	}
 }
+
+func TestSplitAndJoinKeepsText(t *testing.T) {
+	text := strings.Repeat("这是一句话。", 400)
+	chunks := splitText(text, 1000)
+	if len(chunks) < 2 {
+		t.Fatalf("chunks %d", len(chunks))
+	}
+	var parts []chunkPart
+	for _, c := range chunks {
+		if len([]rune(c)) > 1000 {
+			t.Fatalf("chunk too long: %d", len([]rune(c)))
+		}
+		parts = append(parts, chunkPart{"", c, ""})
+	}
+	if joinChunks(parts) != text {
+		t.Fatal("CJK chunks must rejoin without extra spaces")
+	}
+	got := joinChunks([]chunkPart{{"", "First sentence.", ""}, {"", "Next one.", ""}})
+	if got != "First sentence. Next one." {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestParseWebPage(t *testing.T) {
+	html := `x IG:"ABC123" y data-iid="translator.5024" z params_AbusePreventionHelper = [1700000000000,"tok-en",3600000];`
+	ig, iid, key, tok, exp, err := parseWebPage(html)
+	if err != nil || ig != "ABC123" || iid != "translator.5024" || key != 1700000000000 || tok != "tok-en" || exp.Hours() != 1 {
+		t.Fatalf("got %v %v %v %v %v %v", ig, iid, key, tok, exp, err)
+	}
+	if _, _, _, _, _, err := parseWebPage("<html></html>"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestMicrosoftWebMode(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/translator":
+			w.Write([]byte(`IG:"I" data-iid="D" params_AbusePreventionHelper = [5,"T",3600000];`))
+		case "/ttranslatev3":
+			r.ParseForm()
+			calls++
+			if r.PostForm.Get("token") != "T" || r.PostForm.Get("to") != "zh-Hans" || r.PostForm.Get("text") != "hello" {
+				t.Errorf("form %v", r.PostForm)
+			}
+			w.Write([]byte(`[{"detectedLanguage":{"language":"en"},"translations":[{"text":"你好","to":"zh-Hans"}]}]`))
+		}
+	}))
+	defer srv.Close()
+	m := NewMicrosoft("", "")
+	m.EntryURL = srv.URL + "/translator"
+	res, err := m.Translate(context.Background(), "hello", Auto, "简体中文")
+	if err != nil || res.Text != "你好" || res.Detected != "en" || calls != 1 {
+		t.Fatalf("got %+v, %v, calls %d", res, err, calls)
+	}
+}
+
+func TestMicrosoftAzureMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Ocp-Apim-Subscription-Key") != "k" || r.Header.Get("Ocp-Apim-Subscription-Region") != "eastasia" {
+			t.Errorf("headers %v", r.Header)
+		}
+		w.Write([]byte(`[{"translations":[{"text":"你好"}]}]`))
+	}))
+	defer srv.Close()
+	m := NewMicrosoft("k", "eastasia")
+	m.AzureURL = srv.URL
+	res, err := m.Translate(context.Background(), "hello", "英语", "简体中文")
+	if err != nil || res.Text != "你好" {
+		t.Fatalf("got %+v, %v", res, err)
+	}
+}
+
+func TestParseMicrosoftTokenExpired(t *testing.T) {
+	_, expired, err := parseMicrosoft([]byte(`{"statusCode":205}`))
+	if err == nil || !expired {
+		t.Fatalf("expired=%v err=%v", expired, err)
+	}
+}

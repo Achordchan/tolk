@@ -51,7 +51,10 @@ func BuildEngine(m map[string]any, api string) (engine.Engine, error) {
 			}
 		}
 		return engine.NewOpenAICompat(base, model, key)
-	case "microsoft", "achord_builtin":
+	case "microsoft":
+		ms, _ := m["microsoft"].(map[string]any)
+		return engine.NewMicrosoft(str(ms, "api_key"), str(ms, "region")), nil
+	case "achord_builtin":
 		return nil, fmt.Errorf("该翻译服务还在迁移中，暂时请在设置里选 Google、DeepL 或 AI 翻译")
 	}
 	return nil, fmt.Errorf("未知的翻译服务：%s", api)

@@ -4,6 +4,36 @@ import { call, event } from "mygo-runtime";
 
 // ---- Types ----
 
+/** Profile is one AI vendor's saved settings; the key never leaves Go. */
+export interface Profile {
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+}
+
+/** Settings is what the settings sheet shows. */
+export interface Settings {
+  engine: string;
+  vendor: string;
+  profiles: Record<string, Profile>;
+  deeplHasKey: boolean;
+  microsoftHasKey: boolean;
+  microsoftRegion: string;
+  vendors: Vendor[];
+}
+
+/** SettingsUpdate is what the sheet sends back. An empty key keeps the saved one. */
+export interface SettingsUpdate {
+  engine: string;
+  vendor: string;
+  baseUrl: string;
+  model: string;
+  aiKey: string;
+  deeplKey: string;
+  microsoftKey: string;
+  microsoftRegion: string;
+}
+
 export interface Summary {
   found: boolean;
   path: string;
@@ -21,6 +51,13 @@ export interface TranslateResult {
   durationMs: number;
 }
 
+/** Vendor presets, the same as dazuo-win's VENDOR_DEFAULTS. */
+export interface Vendor {
+  name: string;
+  baseUrl: string;
+  model: string;
+}
+
 // ---- Services ----
 
 /** Tolk is callable from the frontend. */
@@ -29,6 +66,10 @@ export const Tolk = {
   clipboardText(): Promise<string> {
     return call("Tolk.ClipboardText");
   },
+  /** GetSettings returns the current settings without any secret. */
+  getSettings(): Promise<Settings> {
+    return call("Tolk.GetSettings");
+  },
   /** Languages are the labels for the language pickers. */
   languages(): Promise<string[]> {
     return call("Tolk.Languages");
@@ -36,6 +77,14 @@ export const Tolk = {
   /** LegacyConfig summarizes an existing dazuo-win config (no secrets). */
   legacyConfig(): Promise<Summary> {
     return call("Tolk.LegacyConfig");
+  },
+  /** SaveSettings writes the settings back to the shared config file. */
+  saveSettings(u: SettingsUpdate): Promise<void> {
+    return call("Tolk.SaveSettings", u);
+  },
+  /** SetEngine switches the active service from the main window's picker. */
+  setEngine(engine: string): Promise<void> {
+    return call("Tolk.SetEngine", engine);
   },
   /**
    * Translate runs the engine chosen in the legacy config. Newlines are

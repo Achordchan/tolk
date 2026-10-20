@@ -70,7 +70,44 @@ func TestBuildEngineUsesVendorProfile(t *testing.T) {
 	if _, err := BuildEngine(map[string]any{}, "openai_compat"); err == nil {
 		t.Fatal("expected missing url error")
 	}
-	if _, err := BuildEngine(m, "microsoft"); err == nil {
-		t.Fatal("microsoft is not ported yet")
+	if _, err := BuildEngine(m, "achord_builtin"); err == nil {
+		t.Fatal("achord_builtin is not ported yet")
+	}
+}
+
+func TestUpdateKeepsUnknownKeysAndBacksUp(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "sub", "config.json")
+	os.MkdirAll(filepath.Dir(p), 0o700)
+	os.WriteFile(p, []byte(sample), 0o600)
+	err := Update(p, func(m map[string]any) { Sub(m, "translation")["api"] = "deepl" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := Load(p)
+	if APIName(m) != "deepl" {
+		t.Fatal("api not updated")
+	}
+	if _, ok := m["hotkeys"]; !ok {
+		t.Fatal("unknown key lost")
+	}
+	bak, _ := os.ReadFile(p + ".pre-tolk.bak")
+	if string(bak) != sample {
+		t.Fatal("backup differs from the original")
+	}
+	// A second update must not overwrite the first backup.
+	Update(p, func(m map[string]any) { Sub(m, "translation")["api"] = "google" })
+	bak2, _ := os.ReadFile(p + ".pre-tolk.bak")
+	if string(bak2) != sample {
+		t.Fatal("backup was overwritten")
+	}
+}
+
+func TestUpdateCreatesMissingFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "new", "config.json")
+	if err := Update(p, func(m map[string]any) { Sub(m, "translation")["api"] = "google" }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p + ".pre-tolk.bak"); err == nil {
+		t.Fatal("no backup expected for a new file")
 	}
 }

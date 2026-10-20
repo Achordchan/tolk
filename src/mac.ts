@@ -122,12 +122,19 @@ export function macPane(toast: (m: string) => void, close: () => void): MacPane 
 
   iaEnabled.addEventListener("change", () => (iaBody.hidden = !iaEnabled.checked));
   iaScope.addEventListener("change", drawScope);
-  iaTest.addEventListener("click", async () => {
-    try {
-      await Tolk.inputAssistTrigger();
-    } catch (e) {
-      toast(String(e instanceof Error ? e.message : e));
-    }
+  // Clicking here makes Tolk the frontmost app, so triggering at once would try
+  // to read Tolk's own window. Close the sheet, give the user a moment to switch
+  // to the app that holds the selection, then trigger.
+  iaTest.addEventListener("click", () => {
+    close();
+    toast("5 秒后开始测试：请切到其它应用并选中一段文字");
+    window.setTimeout(async () => {
+      try {
+        await Tolk.inputAssistTrigger();
+      } catch (e) {
+        toast(String(e instanceof Error ? e.message : e));
+      }
+    }, 5000);
   });
 
   async function refresh() {

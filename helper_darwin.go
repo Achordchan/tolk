@@ -324,9 +324,16 @@ func macApplyHotkeys() {
 	}
 }
 
+var iaPushMu sync.Mutex
+
 // macPushInputAssist sends the saved 输入助手 settings (and the theme) to the
 // helper and records whether it came up.
 func macPushInputAssist() {
+	// One push at a time, loading the settings inside the lock: a slow push
+	// started earlier (the theme changing) must not land after a newer one and
+	// put stale settings back into the helper.
+	iaPushMu.Lock()
+	defer iaPushMu.Unlock()
 	c, _ := current()
 	if c == nil {
 		return

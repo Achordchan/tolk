@@ -95,6 +95,16 @@ private struct CandidateRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, CandidatePanelLayout.rowVerticalPadding)
+        // 每一行占满弹出时算好的高度：骨架、短译文和多行译文高度不同，
+        // 不固定的话译文陆续回来时行会跳动，用户正要点的那一行会被挤走。
+        .frame(
+            height: CandidatePanelLayout.rowHeight(
+                reservedLineCount: reservedLineCount,
+                isSelected: isSelected,
+                showsDebugInfo: showsDebugInfo
+            ),
+            alignment: .top
+        )
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)

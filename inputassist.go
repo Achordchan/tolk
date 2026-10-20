@@ -74,7 +74,8 @@ func engineIdentity(cfg map[string]any) (fingerprint, title string) {
 	if api == "openai_compat" {
 		base, model, _ := legacy.OpenAICompat(cfg)
 		if u, err := url.Parse(base); err == nil && u.Host != "" {
-			base = u.Host + strings.TrimRight(u.Path, "/")
+			// 协议和端口也是端点身份的一部分（http/https 的 localhost 可能是不同后端）；不带账号和查询参数。
+			base = u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/")
 		} else {
 			base = strings.TrimRight(base, "/")
 		}

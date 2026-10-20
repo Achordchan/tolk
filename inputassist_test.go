@@ -14,12 +14,27 @@ func TestEngineIdentityNeverLeaksKeys(t *testing.T) {
 		},
 	}
 	fp, title := engineIdentity(cfg)
-	if fp != "openai_compat:deepseek-chat@api.deepseek.com/v1" || title != "AI 翻译" || strings.Contains(fp, "sk-") {
+	if fp != "openai_compat:deepseek-chat@https://api.deepseek.com/v1" || title != "AI 翻译" || strings.Contains(fp, "sk-") {
 		t.Fatalf("%q %q", fp, title)
 	}
 	cfg["openai_compat"].(map[string]any)["profiles"].(map[string]any)["DeepSeek"].(map[string]any)["model"] = "other"
 	if fp2, _ := engineIdentity(cfg); fp2 == fp {
 		t.Fatal("a model change must change the fingerprint")
+	}
+}
+
+func TestEngineIdentityKeepsSchemeAndPort(t *testing.T) {
+	mk := func(base string) map[string]any {
+		return map[string]any{
+			"translation":   map[string]any{"api": "openai_compat"},
+			"openai_compat": map[string]any{"base_url": base, "model": "m"},
+		}
+	}
+	a, _ := engineIdentity(mk("http://localhost/v1"))
+	b, _ := engineIdentity(mk("https://localhost/v1"))
+	c, _ := engineIdentity(mk("http://localhost:8080/v1"))
+	if a == b || a == c || b == c {
+		t.Fatalf("scheme and port must be part of the identity: %q %q %q", a, b, c)
 	}
 }
 

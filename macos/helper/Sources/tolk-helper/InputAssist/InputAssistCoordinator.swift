@@ -383,6 +383,21 @@ final class InputAssistCoordinator {
     }
 
     private func startSession(capture: InputAssistCapture, identity: InputAssistAppIdentity?) {
+        // 过滤检查和取词之间用户可能已经切到别的应用：取到的控件必须属于当初批准的进程，
+        // 否则（比如排除列表里的应用）里的文字会被送去翻译。
+        var ownerPid: pid_t = 0
+        if AXUIElementGetPid(capture.element, &ownerPid) == .success, ownerPid > 0 {
+            if let approved = identity?.processIdentifier {
+                guard approved == ownerPid else {
+                    Bridge.log(.info, "选区翻译：取词时前台应用已切换，放弃这次触发")
+                    return
+                }
+            } else if let owner = NSRunningApplication(processIdentifier: ownerPid),
+                      !allowsApplication(InputAssistAppIdentity(application: owner)) {
+                Bridge.log(.info, "选区翻译：选区所在应用在排除范围内，放弃这次触发")
+                return
+            }
+        }
         cancelInFlightTranslations()
         if panelController.isVisible {
             panelController.dismiss(reason: .replacedByNewSession)

@@ -39,7 +39,10 @@ actor InputAssistTranslationCacheStore {
 
     func value(for key: InputAssistCacheKey) -> String? {
         loadIfNeeded()
-        return index.value(for: key.storageKey)
+        guard let value = index.value(for: key.storageKey) else { return nil }
+        // 命中会刷新 LRU 序号，也要落盘，否则重启后淘汰顺序和实际使用对不上。
+        markDirty()
+        return value
     }
 
     func store(_ translatedText: String, for key: InputAssistCacheKey) {

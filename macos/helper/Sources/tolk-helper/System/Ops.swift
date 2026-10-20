@@ -193,20 +193,25 @@ enum Ops {
         }
     }
 
-    /// `inputassist.configure`：参数不对也回 `ok:true`，用 `active:false` + `error` 说明原因。
+    /// `inputassist.configure`：参数不对也回 `ok:true`，`error` 说明原因；
+    /// `active` 回报的是**实际**状态——被拒绝的设置不会改动之前已经在运行的监听。
     private static func configureInputAssist(_ params: [String: JSONValue]) -> [String: JSONValue] {
         let status: InputAssistCoordinator.Status
+        let rejection: String?
         do {
             let config = try InputAssistConfig.parse(params)
             status = inputAssist.configure(config)
+            rejection = nil
         } catch let failure as InputAssistConfigError {
-            return ["active": .bool(false), "error": .string(failure.message)]
+            status = inputAssist.currentStatus()
+            rejection = failure.message
         } catch {
-            return ["active": .bool(false), "error": .string(error.localizedDescription)]
+            status = inputAssist.currentStatus()
+            rejection = error.localizedDescription
         }
         var fields: [String: JSONValue] = ["active": .bool(status.active)]
-        if let error = status.error {
-            fields["error"] = .string(error)
+        if let message = rejection ?? status.error {
+            fields["error"] = .string(message)
         }
         return fields
     }

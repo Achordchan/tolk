@@ -116,7 +116,8 @@ final class InputAssistCoordinator {
         feedbackPanelController.hide()
     }
 
-    private func currentStatus() -> Status {
+    /// 当前真实的运行状态。设置被拒绝时用它回报：之前的快捷键和监听还在原样运行。
+    func currentStatus() -> Status {
         guard config.enabled else { return Status(active: false, error: nil) }
         guard AXIsProcessTrusted() else {
             return Status(active: false, error: Self.missingPermissionMessage)

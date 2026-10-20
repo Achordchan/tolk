@@ -1,0 +1,45 @@
+name: Helper
+
+on:
+  push:
+    paths:
+      - "macos/helper/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  helper:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: macos/helper
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+      - name: Build (universal)
+        run: swift build -c release --arch arm64 --arch x86_64
+      - name: Test
+        run: swift test
+      - name: Collect binary
+        run: |
+          BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/tolk-helper"
+          file "$BIN"
+          lipo -archs "$BIN"
+          cp "$BIN" tolk-helper-macos
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true # the account's Actions artifact quota may be spent
+        with:
+          name: tolk-helper-macos
+          path: macos/helper/tolk-helper-macos
+      # Release assets do not count against the artifact quota.
+      - name: Publish to the proto prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view proto >/dev/null 2>&1 || gh release create proto --prerelease --title "Prototype builds" --notes "Latest prototype builds from CI."
+          gh release upload proto tolk-helper-macos --clobber

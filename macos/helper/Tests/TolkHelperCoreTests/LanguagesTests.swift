@@ -38,3 +38,14 @@ final class LanguagesTests: XCTestCase {
         XCTAssertEqual(TolkLanguages.labelForRequest(code: "nl"), "自动检测")
     }
 }
+
+final class LegacyLanguageMapTests: XCTestCase {
+    func testCodeToLabelCoversAllIncludingAuto() {
+        let map = TolkLanguages.codeToLabel
+        XCTAssertEqual(map.count, 15)
+        XCTAssertEqual(map["auto"], "自动检测")
+        XCTAssertEqual(map["zh-CN"], "简体中文")
+        XCTAssertEqual(map["zh-TW"], "繁体中文")
+        XCTAssertEqual(map["ar"], "阿拉伯语")
+    }
+}

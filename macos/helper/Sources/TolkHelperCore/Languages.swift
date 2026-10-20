@@ -64,4 +64,12 @@ public enum TolkLanguages {
     public static func labelForRequest(code: String) -> String {
         label(forCode: code) ?? autoLabel
     }
+
+    /// 内部代码 -> 中文标签（含 auto），给 `legacy.read` 的 `languages` 字段用：
+    /// 旧版设置里存的是 `zh-CN` 这样的代码，Tolk 迁移时直接查表。
+    public static var codeToLabel: [String: String] {
+        var map: [String: String] = [:]
+        for language in all { map[language.code] = language.label }
+        return map
+    }
 }

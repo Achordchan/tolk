@@ -90,14 +90,11 @@ struct PermissionGuideView: View {
         }
         .frame(width: 620, height: 590)
         .background(Color(nsColor: .windowBackgroundColor))
-        // 用户正是开着这个引导去系统设置授权的；引导拦下退出，
-        // 系统设置里的「退出并重新打开」就会失效。
-        .allowsAppTerminationWhilePresented()
     }
 
     private var guideHeader: some View {
         HStack(spacing: 14) {
-            Image(nsImage: NSApp.applicationIconImage)
+            Image(nsImage: ParentApp.icon)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 52, height: 52)
@@ -180,7 +177,7 @@ struct PermissionGuideView: View {
             .buttonStyle(.plain)
 
             if showFallbackExplanation {
-                Text("可以。在设置中选择“剪贴板监听”后，连续按两次 Command + C 会读取剪贴板并翻译。无法复制的网页或控件不会产生可翻译内容。")
+                Text("可以。不授权时仍可使用剪贴板方式：复制文字后在 Tolk 里翻译。无法复制的网页或控件不会产生可翻译内容。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -213,7 +210,7 @@ struct PermissionGuideView: View {
             .buttonStyle(.plain)
 
             if showPermissionMigrationExplanation {
-                Text("1.3.0 及更早版本的签名每次更新都会变，macOS 会保留一条对不上的旧权限记录。之后的版本改用固定证书签名：升级上来的这一次，请在系统设置中删除旧条目，再把上方应用图标拖入权限列表并开启；完成这一次后，后续更新会沿用同一权限，不用再重新授权。")
+                Text("通常是旧版本留下了一条对不上的权限记录。请在系统设置中删除旧条目，再把上方应用图标拖入权限列表并开启。")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -327,7 +324,7 @@ struct PermissionGuideView: View {
     private var draggableApplicationIcon: some View {
         VStack(spacing: 4) {
             ZStack(alignment: .bottomTrailing) {
-                Image(nsImage: NSApp.applicationIconImage)
+                Image(nsImage: ParentApp.icon)
                     .resizable()
                     .scaledToFit()
                     .frame(width: 42, height: 42)
@@ -349,13 +346,13 @@ struct PermissionGuideView: View {
         .help(Self.dragHelp)
         .overlay {
             PermissionGuideApplicationDragSource(
-                applicationURL: Bundle.main.bundleURL,
+                applicationURL: ParentApp.bundleURL,
                 toolTip: Self.dragHelp
             )
         }
     }
 
-    private static let dragHelp = "将大佐翻译官拖到系统设置的权限列表"
+    private static let dragHelp = "将 Tolk 拖到系统设置的权限列表"
 }
 
 /// 权限引导里「拖到系统设置」的拖拽源：拖拽剪贴板里只放 .app 的文件引用。
@@ -420,7 +417,7 @@ struct PermissionGuideApplicationDragSource: NSViewRepresentable {
                     PermissionGuideApplicationDrag.draggingItem(
                         applicationURL: applicationURL,
                         centeredAt: location,
-                        image: NSApp.applicationIconImage
+                        image: ParentApp.icon
                     )
                 ],
                 event: mouseDownEvent,

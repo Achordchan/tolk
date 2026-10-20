@@ -1,20 +1,34 @@
 import AppKit
 import Foundation
 import ScreenCaptureKit
+import TolkHelperCore
 
+/// 截图 OCR 翻译的总调度。移植自 bagayalu 的 `ScreenshotOCRCoordinator`：
+/// 选区、截图、Vision 识别、回贴译文、钉图的流程保持原样；
+/// 翻译不再在 helper 里做，统一通过协议里的 helper → Go `translate` 请求完成；
+/// 状态、结果和错误用 `screenshot.*` 事件汇报给 Tolk 主程序。
+@available(macOS 14.0, *)
 @MainActor
-final class ScreenshotOCRCoordinator: ObservableObject {
-    @Published private(set) var isRunning: Bool = false
+final class ScreenshotOCRCoordinator {
+    enum Mode: String {
+        /// 框选后自动识别并翻译（默认）。
+        case translate
+        /// 框选后只识别文字，复制到剪贴板。
+        case ocr
+    }
 
-    private let appleTranslationCoordinator: AppleTranslationCoordinator
+    enum StartResult {
+        case started
+        case failed(message: String, needs: String?)
+    }
 
+    private(set) var isRunning: Bool = false
+
+    private var mode: Mode = .translate
     private var session: ScreenshotOCRSession?
     private var selectionWindow: ScreenshotSelectionWindow?
-
     private var pinnedWindows: [PinnedScreenshotWindow] = []
-
     private var globalKeyMonitor: Any?
-
     private var previousFrontmostAppPID: pid_t?
 
     /// 回贴图在后台画，同一时间只画一张；画的时候又来的请求合并成画完后的一次。
@@ -23,52 +37,43 @@ final class ScreenshotOCRCoordinator: ObservableObject {
     /// 同一批识别结果多次重画时复用量过的样式；重新识别时换一个。
     private var overlayStyleCache = ScreenshotTranslationRenderer.StyleCache()
 
-    init(appleTranslationCoordinator: AppleTranslationCoordinator) {
-        self.appleTranslationCoordinator = appleTranslationCoordinator
-    }
+    // MARK: - 对外入口
 
-    func start(settings: AppSettings, log: LogStore, toast: ToastCenter) {
+    func start(sourceLanguageCode: String, targetLanguageCode: String, mode: Mode) async -> StartResult {
         if isRunning {
             cancelAll()
         }
-        isRunning = true
+        self.mode = mode
 
-        Task { @MainActor in
-            // 1) 全局快捷键依赖辅助功能权限（CGEventTap）。没有这个权限，用户会感觉“按了没反应”。
-            // 这里在真正开始前做一次友好检查，引导用户去系统设置授权。
-            if !AXIsProcessTrusted() {
-                toast.show("需要开启“辅助功能”权限才能使用快捷键（Cmd+X+X）", style: .warning)
-                GlobalHotkeyMonitor.openAccessibilitySettings()
-                cancelAll()
-                return
-            }
-
-            // 2) 截图依赖屏幕录制权限。
-            if !ScreenCapturePermission.hasPermission() {
-                toast.show("需要开启“屏幕录制”权限才能截图翻译", style: .warning)
-                ScreenCapturePermission.openScreenRecordingSettings()
-                cancelAll()
-                return
-            }
-
-            let canCapture = await ScreenCapturePermission.ensurePermission()
-            guard canCapture else {
-                toast.show("需要屏幕录制权限才能进行截图翻译", style: .warning)
-                cancelAll()
-                return
-            }
-
-            var frozen: [ScreenshotOCRSession.FrozenBackground] = []
-            if settings.screenshotFreezeBackgroundEnabled {
-                frozen = await captureFrozenBackgrounds(log: log)
-            }
-
-            presentSelection(settings: settings, log: log, toast: toast, frozenBackgrounds: frozen)
+        // 截图依赖屏幕录制权限。没有就触发系统授权（第一次弹窗，之后打开系统设置），并告诉主程序缺什么。
+        guard ScreenCapturePermission.hasPermission() else {
+            PermissionRequester.request(.screenRecording)
+            let message = "需要开启“屏幕录制”权限才能截图翻译"
+            Bridge.emit("screenshot.error", ["error": .string(message), "needs": "screenRecording"])
+            return .failed(message: message, needs: "screenRecording")
         }
+
+        isRunning = true
+        let frozen = await captureFrozenBackgrounds()
+        // 取背景的这一会儿里可能已经被 cancel 了。
+        guard isRunning else {
+            return .failed(message: "截图已取消", needs: nil)
+        }
+        presentSelection(
+            sourceLanguageCode: sourceLanguageCode,
+            targetLanguageCode: targetLanguageCode,
+            frozenBackgrounds: frozen
+        )
+        Bridge.emit("screenshot.state", ["state": "selecting"])
+        return .started
     }
 
+    /// 主程序要求取消：关掉选区层，不发事件（是它自己要取消的）。钉图窗口保留。
     func cancelAll() {
-        appleTranslationCoordinator.cancel()
+        overlayRenderTask?.cancel()
+        overlayRenderTask = nil
+        overlayNeedsRender = false
+
         session = nil
         selectionWindow?.close()
         selectionWindow = nil
@@ -88,7 +93,19 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         isRunning = false
     }
 
-    private func presentSelection(settings: AppSettings, log: LogStore, toast: ToastCenter, frozenBackgrounds: [ScreenshotOCRSession.FrozenBackground]) {
+    /// helper 退出前：连钉图一起关掉。
+    func shutdown() {
+        cancelAll()
+        closeAllPinnedWindows()
+    }
+
+    // MARK: - 选区层
+
+    private func presentSelection(
+        sourceLanguageCode: String,
+        targetLanguageCode: String,
+        frozenBackgrounds: [ScreenshotOCRSession.FrozenBackground]
+    ) {
         if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
            pid != NSRunningApplication.current.processIdentifier {
             previousFrontmostAppPID = pid
@@ -96,53 +113,52 @@ final class ScreenshotOCRCoordinator: ObservableObject {
             previousFrontmostAppPID = nil
         }
 
-        // 源语言跟随主界面设置（默认自动检测）。主界面选的语言 Vision 认不出时退回自动检测：
-        // 以前是退回英语，中日韩文字会被当成英文去认，结果整段乱码。
+        // Vision 认不出的源语言退回自动检测：以前是退回英语，中日韩文字会被当成英文去认，结果整段乱码。
         let selectable = Set(VisionOCRService.selectableSourceLanguages.map(\.code))
-        let source = selectable.contains(settings.sourceLanguageCode)
-            ? settings.sourceLanguageCode
+        let source = selectable.contains(sourceLanguageCode)
+            ? sourceLanguageCode
             : LanguagePreset.auto.code
 
         let session = ScreenshotOCRSession(
             sourceLanguageCode: source,
-            targetLanguageCode: settings.targetLanguageCode
+            targetLanguageCode: targetLanguageCode
         )
         session.frozenBackgrounds = frozenBackgrounds
         self.session = session
 
         let window = ScreenshotSelectionWindow(
             session: session,
-            appleTranslationCoordinator: appleTranslationCoordinator,
             onCancel: { [weak self] in
                 Task { @MainActor in
-                    self?.cancelAll()
+                    self?.userDismissed()
                 }
             },
             onSelectionConfirmed: { [weak self] _ in
                 Task { @MainActor in
-                    await self?.captureSelectionIfPossible(settings: settings, log: log, toast: toast)
+                    await self?.captureSelectionIfPossible()
                 }
             },
             onTranslateTapped: { [weak self] in
                 Task { @MainActor in
-                    await self?.runOCRAndTranslateIfPossible(settings: settings, log: log, toast: toast)
+                    await self?.runOCRAndTranslateIfPossible()
                 }
             },
             onExtractTapped: { [weak self] in
                 Task { @MainActor in
-                    await self?.extractOCRToPasteboardIfPossible(settings: settings, log: log, toast: toast)
+                    await self?.extractOCRToPasteboardIfPossible()
                 }
             },
             onPinTapped: { [weak self] in
                 Task { @MainActor in
-                    await self?.pinSelectionIfPossible(settings: settings, log: log, toast: toast)
+                    await self?.pinSelectionIfPossible()
                 }
             },
             onFinishTapped: { [weak self] in
                 Task { @MainActor in
                     // 按钮这时是灰的；真点进来了也别往下走，什么都没复制就退出，用户会以为复制好了。
                     guard self?.session?.canExport == true else { return }
-                    await self?.finishCaptureToPasteboardIfPossible(settings: settings, log: log)
+                    guard await self?.finishCaptureToPasteboardIfPossible() == true else { return }
+                    self?.emitDone()
                     try? await Task.sleep(nanoseconds: 650_000_000)
                     self?.cancelAll()
                 }
@@ -151,9 +167,9 @@ final class ScreenshotOCRCoordinator: ObservableObject {
 
         selectionWindow = window
 
-        // 只展示选区层，不主动拉起主窗口。
+        // helper 是 accessory 进程，要先激活自己，选区层才能拿到键盘焦点（Esc）和第一下点击。
+        NSApp.activate(ignoringOtherApps: true)
         window.orderFrontRegardless()
-
         // 让窗口先成为 key，避免出现“第一次点击只是激活窗口、第二次才开始框选”的体验。
         window.makeKey()
         if let cv = window.contentView {
@@ -163,17 +179,58 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         // Esc 即使在其它应用前台也可以退出截图翻译。
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return }
-            if !self.isRunning { return }
             if event.keyCode == 53 { // ESC
                 Task { @MainActor in
-                    self.cancelAll()
+                    if self.isRunning { self.userDismissed() }
                 }
             }
         }
     }
 
+    // MARK: - 结束时的事件
 
-    private func captureSelectionIfPossible(settings: AppSettings, log: LogStore, toast: ToastCenter) async {
+    /// 已经有可以交给主程序的识别结果。
+    private var hasResult: Bool {
+        guard let session, !session.ocrBlocks.isEmpty else { return false }
+        return session.stage == .translated || session.stage == .ocrReady
+    }
+
+    /// 用户按 Esc、右键退出、或关掉结果：有结果就算完成，没有就是取消。
+    private func userDismissed() {
+        if hasResult {
+            emitDone()
+        } else {
+            Bridge.emit("screenshot.cancelled", [:])
+        }
+        cancelAll()
+    }
+
+    /// `screenshot.done`：原文 / 译文都按段落用空行分隔。
+    private func emitDone() {
+        guard let session, !session.ocrBlocks.isEmpty else { return }
+        let blocks = session.ocrBlocks
+        var fields: [String: JSONValue] = [
+            "text": .string(blocks.map(\.text).joined(separator: "\n\n"))
+        ]
+        // 真的翻译过才带 translated；只提取了原文就按 ocr 汇报。
+        if session.stage == .translated, !session.translations.isEmpty {
+            fields["mode"] = "translate"
+            fields["translated"] = .string(
+                blocks.map { session.translations[$0.id] ?? $0.text }.joined(separator: "\n\n")
+            )
+        } else {
+            fields["mode"] = "ocr"
+        }
+        Bridge.emit("screenshot.done", fields)
+    }
+
+    private func reportError(_ message: String) {
+        Bridge.emit("screenshot.error", ["error": .string(message)])
+    }
+
+    // MARK: - 截图、识别、翻译
+
+    private func captureSelectionIfPossible() async {
         guard let session else { return }
         guard let selectionWindow else { return }
 
@@ -182,7 +239,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
             return
         }
 
-        // 框选完成后仅截图缓存，不做 OCR。
+        // 框选完成后先截图缓存。
         session.resetResults()
         session.stage = .selected
         let generation = session.generation
@@ -194,7 +251,22 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         } catch {
             guard isCurrent(session, generation) else { return }
             session.stage = .failed(error.localizedDescription)
-            toast.show(error.localizedDescription, style: .error)
+            session.showHUD(error.localizedDescription, style: .error)
+            reportError(error.localizedDescription)
+            return
+        }
+
+        // 协议里截图是一气呵成的：框完自动识别（+翻译）。
+        switch mode {
+        case .translate:
+            await runOCRAndTranslateIfPossible()
+        case .ocr:
+            if await extractOCRToPasteboardIfPossible() {
+                emitDone()
+                try? await Task.sleep(nanoseconds: 650_000_000)
+                guard isCurrent(session, generation) else { return }
+                cancelAll()
+            }
         }
     }
 
@@ -207,6 +279,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
     private func recognizeText(in image: NSImage, session: ScreenshotOCRSession) async -> Bool {
         let generation = session.generation
         session.stage = .ocrRunning
+        Bridge.emit("screenshot.state", ["state": "recognizing"])
         let blocks = await VisionOCRService.recognizeBlocks(from: image, languageCode: session.sourceLanguageCode)
         guard isCurrent(session, generation) else { return false }
 
@@ -225,17 +298,8 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         return true
     }
 
-    private func runOCRAndTranslateIfPossible(settings: AppSettings, log: LogStore, toast: ToastCenter) async {
-        guard let session else { return }
-        guard let selectionWindow else { return }
-
-        if (session.stage == .ocrReady || session.stage == .translated),
-           !session.ocrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            await runTranslateIfPossible(settings: settings, log: log, toast: toast)
-            return
-        }
-
-        // 没有缓存截图时兜底再截一次（例如某些异常状态）。
+    /// 没有缓存截图时兜底再截一次（例如某些异常状态）。成功或本来就有图返回 true。
+    private func ensureCapturedImage(_ session: ScreenshotOCRSession, in selectionWindow: ScreenshotSelectionWindow) async -> Bool {
         if session.capturedImage == nil {
             let rectInScreen = selectionWindow.selectionRectInScreen().integral
             if rectInScreen.width >= 8, rectInScreen.height >= 8 {
@@ -243,30 +307,46 @@ final class ScreenshotOCRCoordinator: ObservableObject {
                     session.capturedImage = try await captureImageExcludingOverlay(rect: rectInScreen, selectionWindow: selectionWindow)
                 } catch {
                     session.stage = .failed(error.localizedDescription)
-                    toast.show(error.localizedDescription, style: .error)
-                    return
+                    session.showHUD(error.localizedDescription, style: .error)
+                    reportError(error.localizedDescription)
+                    return false
                 }
             }
         }
+        return session.capturedImage != nil
+    }
 
-        guard let image = session.capturedImage else { return }
+    private func runOCRAndTranslateIfPossible() async {
+        guard let session else { return }
+        guard let selectionWindow else { return }
+
+        if session.stage == .ocrReady || session.stage == .translated,
+           !session.ocrText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            await runTranslateIfPossible()
+            return
+        }
+
+        guard await ensureCapturedImage(session, in: selectionWindow), let image = session.capturedImage else { return }
 
         // 先 OCR
         let generation = session.generation
         guard await recognizeText(in: image, session: session) else {
             if isCurrent(session, generation) {
-                toast.show("未识别到文字", style: .warning)
+                session.showHUD("未识别到文字", style: .warning)
+                reportError("未识别到文字")
             }
             return
         }
 
         // 再翻译
-        await runTranslateIfPossible(settings: settings, log: log, toast: toast)
+        await runTranslateIfPossible()
     }
 
-    private func extractOCRToPasteboardIfPossible(settings: AppSettings, log: LogStore, toast: ToastCenter) async {
-        guard let session else { return }
-        guard let selectionWindow else { return }
+    /// 提取原文并复制到剪贴板。成功返回 true。
+    @discardableResult
+    private func extractOCRToPasteboardIfPossible() async -> Bool {
+        guard let session else { return false }
+        guard let selectionWindow else { return false }
 
         // 已经有 OCR 文本就直接复制，不重复跑 OCR。
         let existing = session.ocrText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -276,29 +356,18 @@ final class ScreenshotOCRCoordinator: ObservableObject {
             pb.setString(existing, forType: .string)
             session.didExtractTextToPasteboard = true
             session.showHUD("已提取原文并复制到剪贴板", style: .success)
-            return
+            return true
         }
 
-        // 没有缓存截图时兜底再截一次。
-        if session.capturedImage == nil {
-            let rectInScreen = selectionWindow.selectionRectInScreen().integral
-            if rectInScreen.width >= 8, rectInScreen.height >= 8 {
-                do {
-                    session.capturedImage = try await captureImageExcludingOverlay(rect: rectInScreen, selectionWindow: selectionWindow)
-                } catch {
-                    session.showHUD(error.localizedDescription, style: .error)
-                    return
-                }
-            }
-        }
-        guard let image = session.capturedImage else { return }
+        guard await ensureCapturedImage(session, in: selectionWindow), let image = session.capturedImage else { return false }
 
         let generation = session.generation
         guard await recognizeText(in: image, session: session) else {
             if isCurrent(session, generation) {
                 session.showHUD("未识别到文字", style: .warning)
+                reportError("未识别到文字")
             }
-            return
+            return false
         }
         let text = session.ocrText
 
@@ -307,24 +376,16 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         pb.setString(text, forType: .string)
         session.didExtractTextToPasteboard = true
         session.showHUD("已提取原文并复制到剪贴板", style: .success)
+        Bridge.emit("screenshot.state", ["state": "showing"])
+        return true
     }
 
-    private func pinSelectionIfPossible(settings: AppSettings, log: LogStore, toast: ToastCenter) async {
+    private func pinSelectionIfPossible() async {
         guard let session else { return }
         guard let selectionWindow else { return }
         guard session.canExport else { return }
 
-        if session.capturedImage == nil {
-            let rectInScreen = selectionWindow.selectionRectInScreen().integral
-            if rectInScreen.width >= 8, rectInScreen.height >= 8 {
-                do {
-                    session.capturedImage = try await captureImageExcludingOverlay(rect: rectInScreen, selectionWindow: selectionWindow)
-                } catch {
-                    toast.show(error.localizedDescription, style: .error)
-                    return
-                }
-            }
-        }
+        guard await ensureCapturedImage(session, in: selectionWindow) else { return }
         // 翻完了钉的是贴了译文的图：钉图就是为了一边看译文一边做别的事。
         guard let export = session.imageForExport() else { return }
         let image = export.image
@@ -367,7 +428,8 @@ final class ScreenshotOCRCoordinator: ObservableObject {
             session.showHUD("已钉到屏幕", style: .success)
         }
 
-        // 钉图后退出截图翻译，但保留钉图窗口。
+        // 钉图后结束截图翻译（把识别结果交给主程序），但保留钉图窗口。
+        emitDone()
         try? await Task.sleep(nanoseconds: 420_000_000)
         cancelAll()
     }
@@ -378,31 +440,21 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         windows.forEach { $0.close() }
     }
 
-    private func finishCaptureToPasteboardIfPossible(settings: AppSettings, log: LogStore) async {
-        guard let session else { return }
-        guard let selectionWindow else { return }
+    /// 「完成」：把选区里显示的图复制到剪贴板。复制成功（或有意跳过）返回 true。
+    private func finishCaptureToPasteboardIfPossible() async -> Bool {
+        guard let session else { return false }
+        guard let selectionWindow else { return false }
 
         // 如果用户刚刚执行过“提取原文”，则“完成”不应再用图片覆盖剪贴板。
         if session.didExtractTextToPasteboard {
             session.showHUD("已提取原文：完成将不会覆盖剪贴板", style: .info)
-            return
+            return true
         }
 
-        // 确保有截图。
-        if session.capturedImage == nil {
-            let rectInScreen = selectionWindow.selectionRectInScreen().integral
-            if rectInScreen.width >= 8, rectInScreen.height >= 8 {
-                do {
-                    session.capturedImage = try await captureImageExcludingOverlay(rect: rectInScreen, selectionWindow: selectionWindow)
-                } catch {
-                    session.showHUD(error.localizedDescription, style: .error)
-                    return
-                }
-            }
-        }
+        guard await ensureCapturedImage(session, in: selectionWindow) else { return false }
 
         // 选区里显示的是哪张就复制哪张：翻完了是贴了译文的图。
-        guard let export = session.imageForExport() else { return }
+        guard let export = session.imageForExport() else { return false }
         let image = export.image
 
         // 用 PNG 数据写入剪贴板，保证“原汁原味”的像素输出（避免某些情况下写 NSImage 导致边缘异常）。
@@ -421,6 +473,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         case .originalBecauseOverlayFailed:
             session.showHUD("译文图没画出来，复制的是原截图", style: .warning)
         }
+        return true
     }
 
     private func pngData(from image: NSImage) -> Data? {
@@ -447,7 +500,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         return try await ScreenRegionCapture.capture(rect: rect)
     }
 
-    private func captureFrozenBackgrounds(log: LogStore) async -> [ScreenshotOCRSession.FrozenBackground] {
+    private func captureFrozenBackgrounds() async -> [ScreenshotOCRSession.FrozenBackground] {
         let virtualFrame = ScreenshotSelectionWindow.fullVirtualScreenFrame()
         if virtualFrame == .zero { return [] }
 
@@ -459,7 +512,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         do {
             content = try await ScreenRegionCapture.shareableContent()
         } catch {
-            log.warn("冻结背景截图失败：\(error.localizedDescription)，将使用实时背景")
+            Bridge.log(.warn, "冻结背景截图失败：\(error.localizedDescription)，将使用实时背景")
             return []
         }
 
@@ -479,7 +532,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
                 )
                 items.append(.init(image: image, rect: rectInContent))
             } catch {
-                log.warn("冻结背景截图失败：\(error.localizedDescription)，将使用实时背景")
+                Bridge.log(.warn, "冻结背景截图失败：\(error.localizedDescription)，将使用实时背景")
                 return []
             }
         }
@@ -487,7 +540,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         return items
     }
 
-    private func runTranslateIfPossible(settings: AppSettings, log: LogStore, toast: ToastCenter) async {
+    private func runTranslateIfPossible() async {
         guard let session else { return }
         let blocks = session.ocrBlocks
         guard !blocks.isEmpty else { return }
@@ -498,17 +551,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         session.translations = [:]
         session.translatedImage = nil
         session.overlayUnavailable = false
-
-        switch settings.engineType {
-        case .apple:
-            log.info("截图翻译引擎：Apple 本地翻译")
-        case .google:
-            log.info("截图翻译引擎：Google")
-        case .microsoft:
-            log.info("截图翻译引擎：微软翻译")
-        case .openAICompatible:
-            log.info("截图翻译引擎：OpenAI 通用接口")
-        }
+        Bridge.emit("screenshot.state", ["state": "translating"])
 
         // 按段翻译（折行已经拼回整段），每段各自判断源语言；已经是目标语言的段落原样保留。
         let sources = ScreenshotTranslationSourceResolver.resolve(
@@ -531,21 +574,16 @@ final class ScreenshotOCRCoordinator: ObservableObject {
             session.translatedText = session.ocrText
             session.stage = .translated
             session.showHUD("选区里没有需要翻译成\(LanguagePreset.displayName(for: targetLanguageCode))的文字", style: .info)
+            Bridge.emit("screenshot.state", ["state": "showing"])
             return
         }
 
         let translator = ScreenshotBlockTranslator(
-            batchesRequests: settings.engineType != .apple,
-            translate: { [weak self] text, sourceLanguageCode in
-                guard let self else { return .failure(CancellationError()) }
-                return await self.translate(
-                    text: text,
+            translate: { texts, sourceLanguageCode in
+                await HelperTranslation.translate(
+                    texts: texts,
                     sourceLanguageCode: sourceLanguageCode,
-                    targetLanguageCode: targetLanguageCode,
-                    settings: settings,
-                    log: log,
-                    toast: toast,
-                    onPhaseChange: nil
+                    targetLanguageCode: targetLanguageCode
                 )
             },
             followUpSource: { translation in
@@ -567,7 +605,8 @@ final class ScreenshotOCRCoordinator: ObservableObject {
             session.translations = [:]
             session.translatedImage = nil
             session.stage = .failed(error.localizedDescription)
-            toast.show(error.localizedDescription, style: .error)
+            session.showHUD(error.localizedDescription, style: .error)
+            reportError(error.localizedDescription)
             return
         }
 
@@ -576,6 +615,7 @@ final class ScreenshotOCRCoordinator: ObservableObject {
         scheduleOverlayRender()
         session.translatedText = blocks.map { translations[$0.id] ?? $0.text }.joined(separator: "\n")
         session.stage = .translated
+        Bridge.emit("screenshot.state", ["state": "showing"])
         if let warning = outcome.incompleteWarning(
             jobCount: jobs.count,
             targetName: LanguagePreset.displayName(for: targetLanguageCode)
@@ -619,26 +659,4 @@ final class ScreenshotOCRCoordinator: ObservableObject {
             self?.session?.overlayRenderPending = false
         }
     }
-
-    private func translate(
-        text: String,
-        sourceLanguageCode: String,
-        targetLanguageCode: String,
-        settings: AppSettings,
-        log: LogStore,
-        toast: ToastCenter,
-        onPhaseChange: ((String) -> Void)?
-    ) async -> Result<String, Error> {
-        await ScreenshotTranslationService.translate(
-            text: text,
-            sourceLanguageCode: sourceLanguageCode,
-            targetLanguageCode: targetLanguageCode,
-            settings: settings,
-            log: log,
-            toast: toast,
-            appleTranslationCoordinator: appleTranslationCoordinator,
-            onPhaseChange: onPhaseChange
-        )
-    }
-
 }

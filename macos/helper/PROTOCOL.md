@@ -34,6 +34,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 | `selection.replace` | `text` | `{}`，优先走辅助功能写入，不行再用粘贴兜底（与 bagayalu `InputAssistTextReplaceEngine` 一致） |
 | `apple.status` | `source`, `target` | `{"state":"installed"\|"supported"\|"unsupported"}`（`supported` = 需要先下载语言包） |
 | `apple.translate` | `texts`:[string], `source`, `target` | `{"texts":[string]}`，与输入等长同序；需要下载语言包时由系统弹下载窗口 |
+| `hotkeys.configure` | `doubleCopy`:bool、`screenshot`:bool、`windowMs`:int（默认 550）、`screenshotKeyCode`:int（默认 7，即 X） | `{"running":bool,"error":"<中文原因，可省略>"}`，见下文「全局快捷键」 |
 | `legacy.read` | 无 | 读出旧版 bagayalu 的设置和 API Key，见下文 |
 | `quit` | 无 | `{}` 然后退出 |
 
@@ -55,6 +56,18 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 
 按 bagayalu `dazuofanyiguan/screens-ocr/` 的行为和视觉做：全屏半透明选区层（多显示器）、框选、Vision OCR（`VisionOCRService`、`OCRParagraphGrouper`）、对每个文本块调用 helper → Go 的 `translate`、把译文覆盖回原截图上（`ScreenshotTranslationRenderer` / `ScreenshotTranslationLayout`）、结果窗口里可以复制图片、复制译文、保存、钉住、关闭。钉图（`PinnedScreenshotWindow`）是独立浮窗，helper 内可以同时存在多个，右键菜单保持原样。翻译走 Go，不要在 helper 里再实现任何翻译引擎（Google/Microsoft/OpenAI 都不要）。
 
+## 全局快捷键（`hotkeys.configure`）
+
+照搬 bagayalu `Core/GlobalHotkeyMonitor.swift`：只监听不拦截的 CGEventTap（listenOnly），需要辅助功能权限。
+
+- ⌘C 在 `windowMs` 内连按两次 = `doubleCopy`；⌘ + `screenshotKeyCode` 键在 `windowMs` 内连按两次 = `screenshot`。
+- `doubleCopy`、`screenshot` 都为 false 就停止监听；可重复调用（改配置，不会重建 tap）。
+- 缺辅助功能权限时**不弹窗**，只回 `running:false` 和 `error`（Go 再调 `permissions.guide`）。
+- 事件（helper → Go）：
+  - `{"event":"hotkey","name":"doubleCopy","changeCount":<第二次 ⌘C 按下前的 NSPasteboard.changeCount>}`（helper 不读剪贴板，Go 自己等剪贴板更新再读）
+  - `{"event":"hotkey","name":"screenshot"}`
+  - `{"event":"hotkey.stopped","error":"<中文原因>"}`：权限丢失或 tap 失效、监听已停止。tap 只是超时被系统停用时 helper 会自动重新启用，不发这个事件。
+
 ## 划词（`selection.get` / `selection.replace`）
 
 参考 `dazuofanyiguan/InputAssist/Capture/*` 和 `Replacement/*`：只保留「读取当前选区文字」和「把译文替换回去」两个动作，不要带候选面板、键盘监听、缓存等 InputAssist 的其他部分。
@@ -66,12 +79,15 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 ```json
 {
   "defaults": { "<UserDefaults 键>": <JSON 可表示的值> },
-  "keys": { "<Keychain 账号名>": "<API Key>" }
+  "keys": { "<Keychain 账号名>": "<API Key>" },
+  "languages": { "zh-CN": "简体中文", "auto": "自动检测", "...": "..." }
 }
 ```
 
+- `languages`：旧版语言代码 → Tolk 中文标签（15 项，含 `auto`），迁移 `sourceLanguageCode` / `targetLanguageCode` 时直接查表；查不到的代码（如 `nl`）Tolk 自行处理。
+
 - `defaults` 只放 `AppSettings`、`InputAssistSettings` 用到的键（见 `Core/AppSettings.swift`），值不是 JSON 可表示的类型就丢掉。
-- `keys` 来自 `Core/KeychainStore.swift` 使用的 service。**不要写入、不要删除**任何 Keychain 项，只读；读不到（用户拒绝授权）就从结果里略去，不报错。
+- `keys` 来自 `Core/KeychainStore.swift` 使用的 service（`com.achord.dazuofanyiguan`），账号名目前只有 `openAIAPIKey`。**不要写入、不要删除**任何 Keychain 项，只读；读不到（用户拒绝授权）就从结果里略去，不报错。
 - API Key 属于机密：**不要写日志**，只在这个返回里出现。
 
 ## 其他要求
@@ -81,3 +97,13 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 - 不引入第三方依赖。
 - 用户可见的文字一律中文，沿用 bagayalu 现有措辞。
 - 所有对外 JSON 字段名不可变（Go 端按这份文档写）；要新增字段先改这份文档。
+
+## 实现补充（helper 端的具体行为）
+
+- `screenshot.start` 缺屏幕录制权限时：回 `ok:false`（`error` 为中文说明），同时发 `screenshot.error`（带 `needs:"screenRecording"`），并触发系统授权提示（第一次弹窗，之后打开系统设置）。
+- `screenshot.start` 的 `mode:translate` 框选松手后自动识别并翻译；`mode:ocr` 自动识别并把原文复制到剪贴板，随后结束并发 `screenshot.done`。
+- `screenshot.error`（识别不到文字、翻译失败）发出后选区层不会自动关闭，用户可重新框选；最终仍会以 `screenshot.done` 或 `screenshot.cancelled` 收尾。
+- `screenshot.done` 在会话结束时发一次（点「完成」、钉到屏幕、有结果时按 Esc / 右键退出）。只提取了原文没翻译时 `mode` 为 `ocr` 且无 `translated`；段落间用空行分隔。
+- `selection.replace`：取词后原应用若已不在前台，helper 会先尝试把它激活再校验焦点控件与选区；校验不过或无法原位替换时把译文复制到剪贴板，并回 `ok:false`（`error` 说明已复制）。没有先 `selection.get` 时对当前焦点控件的选区直接替换。
+- `apple.status` 的 `source` 为「自动检测」时无法按原文判断，按「目标语言能否由英语（目标为英语时由简体中文）翻入」估计。
+- macOS 13：`hello` 的 `capabilities` 不含 `ocr`（截图依赖 macOS 14 的 ScreenCaptureKit 截图接口）；14.x 无 `apple`。

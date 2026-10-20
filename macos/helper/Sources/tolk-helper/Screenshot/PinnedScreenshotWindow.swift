@@ -220,7 +220,7 @@ struct PinnedScreenshotView: View {
 
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd_HHmmss"
-        exportFilename = "Achord_\(f.string(from: Date()))"
+        exportFilename = "Tolk_\(f.string(from: Date()))"
 
         // 通过状态驱动 fileExporter，避免在菜单回调里直接弹 AppKit 面板。
         DispatchQueue.main.async {

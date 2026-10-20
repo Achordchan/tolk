@@ -57,8 +57,13 @@ const repairMarker = "mac_repair_double_copy"
 
 // Repair fixes a config imported before double_copy followed the old app's
 // global mode: system_hotkey on with double_copy off, which left ⌘C⌘C dead.
-// It runs once and reports whether it changed anything.
-func Repair(cfg map[string]any) bool {
+// It only acts when the old app's own settings show that mode (global hotkey
+// on, clipboard mode off), so a config that never came from that import is
+// left alone. Until now the broken import and a deliberate "off" looked the
+// same, because double copy did nothing either way; a user who really wants
+// it off can switch it off again. It runs once and reports whether it
+// changed the config.
+func Repair(cfg map[string]any, d Data) bool {
 	t, _ := cfg["tolk"].(map[string]any)
 	if t == nil {
 		return false
@@ -68,6 +73,11 @@ func Repair(cfg map[string]any) bool {
 	}
 	t[repairMarker] = true
 	if imported, _ := t[Done].(bool); !imported {
+		return true
+	}
+	global, _ := d.Defaults["globalHotkeyEnabled"].(bool)
+	clipboard, ok := d.Defaults["doubleCopyEnabled"].(bool)
+	if !global || !ok || clipboard {
 		return true
 	}
 	if sys, _ := t["system_hotkey"].(bool); sys {

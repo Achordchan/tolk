@@ -153,16 +153,7 @@ func firstRun() {
 				Logs.Warnf("导入旧版 Mac 设置：%v", err)
 			}
 		}
-		repaired := false
-		if _, err := legacy.Load(p); err != nil {
-			// no config yet: nothing to repair
-		} else if err := legacy.Update(p, func(m map[string]any) { repaired = macmigrate.Repair(m) }); err != nil {
-			Logs.Warnf("修正双击复制设置：%v", err)
-		} else if repaired {
-			loadPrefs()
-			macApplyHotkeys()
-			_ = PrefsChanged.Broadcast(currentPrefs())
-		}
+		repairDoubleCopy()
 	}
 	st := macStatus()
 	if st.Running && !st.Accessibility && !st.ScreenRecording {
@@ -401,4 +392,37 @@ func macImport(manual bool) ([]string, error) {
 	}
 	_ = PrefsChanged.Broadcast(currentPrefs())
 	return notes, nil
+}
+
+// repairDoubleCopy fixes a config imported before double copy followed the old
+// app's global mode (see macmigrate.Repair). The old app's settings are read
+// again so the repair only touches configs that really came from that mode.
+func repairDoubleCopy() {
+	p, err := legacy.DefaultPath()
+	if err != nil {
+		return
+	}
+	if _, err := legacy.Load(p); err != nil {
+		return // no config yet: nothing to repair
+	}
+	c, _ := current()
+	if c == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	var data macmigrate.Data
+	if err := c.Call(ctx, "legacy.read", nil, &data); err != nil {
+		return // try again next launch; the marker is only set once it ran
+	}
+	repaired := false
+	if err := legacy.Update(p, func(m map[string]any) { repaired = macmigrate.Repair(m, data) }); err != nil {
+		Logs.Warnf("修正双击复制设置：%v", err)
+		return
+	}
+	if repaired {
+		loadPrefs()
+		macApplyHotkeys()
+		_ = PrefsChanged.Broadcast(currentPrefs())
+	}
 }

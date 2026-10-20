@@ -39,18 +39,29 @@ func TestApplyMapsOldMacSettings(t *testing.T) {
 }
 
 func TestRepairRevivesDoubleCopyOnceForImportedGlobalMode(t *testing.T) {
+	global := Data{Defaults: map[string]any{"globalHotkeyEnabled": true, "doubleCopyEnabled": false}}
 	cfg := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": true, "double_copy": false}}
-	if !Repair(cfg) || cfg["tolk"].(map[string]any)["double_copy"] != true {
+	if !Repair(cfg, global) || cfg["tolk"].(map[string]any)["double_copy"] != true {
 		t.Fatalf("not repaired: %v", cfg)
 	}
 	cfg["tolk"].(map[string]any)["double_copy"] = false // the user turned it off afterwards
-	if Repair(cfg) || cfg["tolk"].(map[string]any)["double_copy"] != false {
+	if Repair(cfg, global) || cfg["tolk"].(map[string]any)["double_copy"] != false {
 		t.Fatal("repaired twice")
 	}
-	clip := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": false, "double_copy": false}}
-	Repair(clip)
-	if clip["tolk"].(map[string]any)["double_copy"] != false {
-		t.Fatal("switched on a deliberately off double copy")
+}
+
+func TestRepairLeavesConfigsThatDidNotComeFromGlobalMode(t *testing.T) {
+	for name, d := range map[string]Data{
+		"clipboard mode":  {Defaults: map[string]any{"globalHotkeyEnabled": false, "doubleCopyEnabled": true}},
+		"both on":         {Defaults: map[string]any{"globalHotkeyEnabled": true, "doubleCopyEnabled": true}},
+		"no legacy data":  {},
+		"global, unknown": {Defaults: map[string]any{"globalHotkeyEnabled": true}},
+	} {
+		cfg := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": true, "double_copy": false}}
+		Repair(cfg, d)
+		if cfg["tolk"].(map[string]any)["double_copy"] != false {
+			t.Errorf("%s: switched on a double copy the old app did not have in global mode", name)
+		}
 	}
 }
 

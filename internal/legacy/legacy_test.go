@@ -70,8 +70,8 @@ func TestBuildEngineUsesVendorProfile(t *testing.T) {
 	if _, err := BuildEngine(map[string]any{}, "openai_compat"); err == nil {
 		t.Fatal("expected missing url error")
 	}
-	if _, err := BuildEngine(m, "achord_builtin"); err == nil {
-		t.Fatal("achord_builtin is not ported yet")
+	if e, err := BuildEngine(m, "achord_builtin"); err != nil || e == nil {
+		t.Fatalf("achord_builtin: %v, %v", e, err)
 	}
 }
 

@@ -55,7 +55,7 @@ func BuildEngine(m map[string]any, api string) (engine.Engine, error) {
 		ms, _ := m["microsoft"].(map[string]any)
 		return engine.NewMicrosoft(str(ms, "api_key"), str(ms, "region")), nil
 	case "achord_builtin":
-		return nil, fmt.Errorf("该翻译服务还在迁移中，暂时请在设置里选 Google、DeepL 或 AI 翻译")
+		return engine.NewBuiltin(), nil
 	}
 	return nil, fmt.Errorf("未知的翻译服务：%s", api)
 }

@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/OwO-Network/DeepLX/translate"
 )
 
 func TestGooglePrimary(t *testing.T) {
@@ -167,5 +170,37 @@ func TestParseMicrosoftTokenExpired(t *testing.T) {
 	_, expired, err := parseMicrosoft([]byte(`{"statusCode":205}`))
 	if err == nil || !expired {
 		t.Fatalf("expired=%v err=%v", expired, err)
+	}
+}
+
+func TestBuiltinMapsLanguagesAndCoolsDown(t *testing.T) {
+	old := builtinCall
+	defer func() { builtinCall = old; builtinUntil = time.Time{} }()
+	var gotSrc, gotTgt string
+	builtinCall = func(s, tg, text, _, _, _ string) (translate.DeepLXTranslationResult, error) {
+		gotSrc, gotTgt = s, tg
+		return translate.DeepLXTranslationResult{Code: 200, Data: "你好", SourceLang: "EN"}, nil
+	}
+	r, err := NewBuiltin().Translate(context.Background(), "hello", "自动检测", "简体中文")
+	if err != nil || r.Text != "你好" || r.Detected != "英语" || gotSrc != "auto" || gotTgt != "ZH" {
+		t.Fatalf("got %+v %v %s %s", r, err, gotSrc, gotTgt)
+	}
+	NewBuiltin().Translate(context.Background(), "hi", "自动检测", "英语")
+	if gotTgt != "EN-US" {
+		t.Fatalf("target %s", gotTgt)
+	}
+	builtinCall = func(_, _, _, _, _, _ string) (translate.DeepLXTranslationResult, error) {
+		return translate.DeepLXTranslationResult{Code: 429, Message: "Too many requests"}, nil
+	}
+	if _, err := NewBuiltin().Translate(context.Background(), "x", "自动检测", "简体中文"); err == nil {
+		t.Fatal("want rate limit error")
+	}
+	calls := 0
+	builtinCall = func(_, _, _, _, _, _ string) (translate.DeepLXTranslationResult, error) {
+		calls++
+		return translate.DeepLXTranslationResult{Code: 200, Data: "a"}, nil
+	}
+	if _, err := NewBuiltin().Translate(context.Background(), "x", "自动检测", "简体中文"); err == nil || calls != 0 {
+		t.Fatalf("cooldown should block, calls=%d err=%v", calls, err)
 	}
 }

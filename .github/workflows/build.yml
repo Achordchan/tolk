@@ -4,6 +4,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -27,6 +30,21 @@ jobs:
       - run: go test ./...
       - run: bun run build -- -platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@v4
+        continue-on-error: true # the account's Actions artifact quota may be spent
         with:
           name: ${{ matrix.name }}
           path: build/
+      # Release assets do not count against the artifact quota.
+      - name: Publish to the proto prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view proto >/dev/null 2>&1 || gh release create proto --prerelease --title "Prototype builds" --notes "Latest prototype builds from CI."
+          mkdir -p out
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            cp build/darwin-universal/*.dmg out/Tolk-macos.dmg
+          else
+            cp build/windows-amd64/tolk.exe out/Tolk-windows.exe
+          fi
+          gh release upload proto out/* --clobber

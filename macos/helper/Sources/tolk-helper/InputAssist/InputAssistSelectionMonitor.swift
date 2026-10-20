@@ -38,7 +38,7 @@ final class InputAssistSelectionMonitor {
         guard AXIsProcessTrusted() else { return false }
 
         eventMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp, .keyUp]
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .rightMouseUp, .otherMouseUp, .keyUp]
         ) { [weak self] event in
             // 只有**多击**才算"重新划选"的信号。
             //
@@ -51,8 +51,17 @@ final class InputAssistSelectionMonitor {
             // 按下时都发起 AX 调用，而 AX 调用是会卡住的。
             // 为一个默认关闭的实验开关，把风险加到最高频的事件上不划算。
             let isReselectGesture = event.type == .leftMouseDown && event.clickCount >= 2
+            let isDrag = event.type == .leftMouseDragged
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                if isDrag {
+                    // 真正拖选：选区一定在变，指纹作废（同一段文字 Esc 后再拖选要能重新弹出）。
+                    // 单击不会产生 dragged 事件，所以"点一下窗口边缘浮层自己弹回来"的保护不受影响。
+                    self.pendingTask?.cancel()
+                    self.pendingTask = nil
+                    self.lastFingerprint = nil
+                    return
+                }
                 if event.type == .leftMouseDown {
                     // 新的划选开始了：还没触发的取词作废，等 mouse-up 再重新排。
                     self.pendingTask?.cancel()

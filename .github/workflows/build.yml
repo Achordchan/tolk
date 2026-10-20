@@ -38,7 +38,17 @@ jobs:
           mkdir -p ../../resources/darwin-universal
           cp "$BIN" ../../resources/darwin-universal/tolk-helper
           chmod +x ../../resources/darwin-universal/tolk-helper
+      - name: Talk to the real helper (macOS)
+        if: runner.os == 'macOS'
+        env:
+          TOLK_HELPER: ${{ github.workspace }}/resources/darwin-universal/tolk-helper
+        run: go test -count=1 -run TestRealHelper -v ./internal/helper
       - run: bun run build -- -platform ${{ matrix.platform }}
+      - name: The helper is inside the app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP="$(find build -maxdepth 3 -name '*.app' -print -quit)"
+          test -x "$(find "$APP" -name tolk-helper -type f -print -quit)"
       - uses: actions/upload-artifact@v4
         continue-on-error: true # the account's Actions artifact quota may be spent
         with:

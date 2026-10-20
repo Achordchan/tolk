@@ -170,6 +170,15 @@ button.ghost, button.primary { height: 34px; padding: 0 16px; border-radius: 9px
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button[hidden] { display: none; }
 
+.row.top { align-items: start; }
+.row.top > span { padding-top: 6px; }
+.langs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 2px 8px; max-height: 132px; overflow: auto; padding: 4px 8px; border-radius: 9px; border: 1px solid var(--control-stroke); background: var(--control); }
+.langs label { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; }
+.langs label.off { opacity: .45; }
+textarea.list { min-width: 0; min-height: 78px; padding: 6px 10px; resize: vertical; border-radius: 9px; border: 1px solid var(--control-stroke); background: var(--control); outline: none; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+.ia-status { align-self: center; font-size: 13px; }
+.ia-status.ok { color: var(--ok); }
+.ia-status.no { color: var(--err); }
 .check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
 .inline { display: flex; align-items: center; gap: 8px; }
 .inline input[type="number"] { width: 90px; }

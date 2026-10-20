@@ -18,6 +18,7 @@ import (
 	"tolk/internal/doublecopy"
 	"tolk/internal/engine"
 	"tolk/internal/helper"
+	"tolk/internal/inputassist"
 	"tolk/internal/legacy"
 	"tolk/internal/macmigrate"
 )
@@ -34,6 +35,8 @@ var hs struct {
 	hello     helloInfo
 	hkRunning bool
 	hkError   string
+	iaActive  bool // 输入助手 is running in the helper
+	iaError   string
 	fire      func(string)
 }
 
@@ -123,13 +126,14 @@ func superviseHelper() {
 				hs.mu.Unlock()
 				Logs.Infof("原生助手已就绪 v%s（macOS %s，能力：%s）", h.Version, h.Macos, strings.Join(h.Capabilities, "、"))
 				macApplyHotkeys()
+				macPushInputAssist()
 				if first {
 					first = false
 					go firstRun()
 				}
 				<-c.Done()
 				hs.mu.Lock()
-				hs.client, hs.hkRunning = nil, false
+				hs.client, hs.hkRunning, hs.iaActive = nil, false, false
 				hs.mu.Unlock()
 				Logs.Warnf("原生助手已退出")
 			}
@@ -154,6 +158,7 @@ func firstRun() {
 			}
 		}
 		repairDoubleCopy()
+		importInputAssist()
 	}
 	st := macStatus()
 	if st.Running && !st.Accessibility && !st.ScreenRecording {
@@ -165,6 +170,9 @@ func firstRun() {
 
 func helperHandle(ctx context.Context, op string, params json.RawMessage) (any, error) {
 	switch op {
+	case "inputassist.engine":
+		fp, title := currentEngineIdentity()
+		return map[string]any{"fingerprint": fp, "title": title}, nil
 	case "translate":
 		var in struct {
 			Texts  []string `json:"texts"`
@@ -214,6 +222,7 @@ func helperEvent(name string, raw json.RawMessage) {
 		Mode   string `json:"mode"`
 		Text   string `json:"text"`
 		Transl string `json:"translated"`
+		Active bool   `json:"active"`
 	}
 	_ = json.Unmarshal(raw, &e)
 	switch name {
@@ -256,6 +265,13 @@ func helperEvent(name string, raw json.RawMessage) {
 					_ = MacNotice.Broadcast(err.Error())
 				}
 			}()
+		}
+	case "inputassist.status":
+		hs.mu.Lock()
+		hs.iaActive, hs.iaError = e.Active, e.Error
+		hs.mu.Unlock()
+		if !e.Active && e.Error != "" && loadInputAssist().Enabled {
+			Logs.Warnf("输入助手：%s", e.Error)
 		}
 	case "hotkey.stopped":
 		hs.mu.Lock()
@@ -308,6 +324,40 @@ func macApplyHotkeys() {
 	}
 }
 
+// macPushInputAssist sends the saved 输入助手 settings (and the theme) to the
+// helper and records whether it came up.
+func macPushInputAssist() {
+	c, _ := current()
+	if c == nil {
+		return
+	}
+	s := loadInputAssist()
+	ctx, cancel := macCtx()
+	defer cancel()
+	var res struct {
+		Active bool   `json:"active"`
+		Error  string `json:"error"`
+	}
+	err := c.Call(ctx, "inputassist.configure", inputassist.Configure(s, currentPrefs().Theme), &res)
+	hs.mu.Lock()
+	hs.iaActive, hs.iaError = err == nil && res.Active, res.Error
+	if err != nil {
+		hs.iaError = err.Error()
+	}
+	hs.mu.Unlock()
+	if err != nil {
+		Logs.Warnf("设置输入助手失败：%v", err)
+	} else if s.Enabled && !res.Active {
+		Logs.Warnf("输入助手没有启动：%s", res.Error)
+	}
+}
+
+func macInputAssistStatus() (bool, string) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	return hs.iaActive, hs.iaError
+}
+
 func macStatus() MacStatus {
 	c, h := current()
 	st := MacStatus{Available: findHelper() != ""}
@@ -326,6 +376,7 @@ func macStatus() MacStatus {
 	}
 	hs.mu.Lock()
 	st.HotkeyRunning, st.HotkeyError = hs.hkRunning, hs.hkError
+	st.InputAssistActive, st.InputAssistError = hs.iaActive, hs.iaError
 	hs.mu.Unlock()
 	return st
 }
@@ -386,6 +437,7 @@ func macImport(manual bool) ([]string, error) {
 	}
 	loadPrefs()
 	macApplyHotkeys() // the imported preferences may enable the system hotkeys
+	macPushInputAssist()
 	Logs.Infof("已导入旧版 Mac 设置（%d 项设置，%d 个 API Key）", len(data.Defaults), len(data.Keys))
 	for _, n := range notes {
 		Logs.Warnf("%s", n)
@@ -432,5 +484,40 @@ func repairDoubleCopy() {
 		loadPrefs()
 		macApplyHotkeys()
 		_ = PrefsChanged.Broadcast(currentPrefs())
+	}
+}
+
+// importInputAssist is the one-time import of the old app's 输入助手 settings
+// for configs that ran the main import before they existed. Like
+// repairDoubleCopy it checks the local config first, because legacy.read
+// touches the Keychain, and only sets its marker once the read worked.
+func importInputAssist() {
+	p, err := legacy.DefaultPath()
+	if err != nil {
+		return
+	}
+	cfg, err := legacy.Load(p)
+	if err != nil || !macmigrate.InputAssistPending(cfg) {
+		return
+	}
+	c, _ := current()
+	if c == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	var data macmigrate.Data
+	if err := c.Call(ctx, "legacy.read", nil, &data); err != nil {
+		return // try again next launch
+	}
+	applied := false
+	if err := legacy.Update(p, func(m map[string]any) { applied = macmigrate.ApplyInputAssist(m, data) }); err != nil {
+		Logs.Warnf("导入旧版输入助手设置：%v", err)
+		return
+	}
+	if applied {
+		Logs.Infof("已导入旧版输入助手设置")
+		loadPrefs()
+		macPushInputAssist()
 	}
 }

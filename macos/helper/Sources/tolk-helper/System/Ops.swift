@@ -12,6 +12,7 @@ enum Ops {
     private static let guide = PermissionGuideWindowController()
     private static let hotkeys = GlobalHotkeyMonitor()
     private static var hotkeysWired = false
+    private static let inputAssist = InputAssistCoordinator()
 
     @available(macOS 14.0, *)
     static var screenshot: ScreenshotOCRCoordinator {
@@ -32,6 +33,7 @@ enum Ops {
     static func closeAuxiliaryWindows() {
         guide.close()
         hotkeys.stop()
+        inputAssist.shutdown()
         if #available(macOS 15.0, *) {
             apple.shutdown()
         }
@@ -122,6 +124,13 @@ enum Ops {
         case "hotkeys.configure":
             return await configureHotkeys(params)
 
+        case "inputassist.configure":
+            return configureInputAssist(params)
+
+        case "inputassist.trigger":
+            try inputAssist.triggerManually()
+            return [:]
+
         case "legacy.read":
             return LegacyReader.read()
 
@@ -149,6 +158,7 @@ enum Ops {
         if supportsApple { capabilities.append("apple") }
         capabilities.append("legacy")
         capabilities.append("hotkeys")
+        capabilities.append("inputassist")
         return [
             "version": .string(protocolVersion),
             "macos": .string(macos),
@@ -181,6 +191,24 @@ enum Ops {
         case .failed(let message, _):
             throw OpFailure(message)
         }
+    }
+
+    /// `inputassist.configure`：参数不对也回 `ok:true`，用 `active:false` + `error` 说明原因。
+    private static func configureInputAssist(_ params: [String: JSONValue]) -> [String: JSONValue] {
+        let status: InputAssistCoordinator.Status
+        do {
+            let config = try InputAssistConfig.parse(params)
+            status = inputAssist.configure(config)
+        } catch let failure as InputAssistConfigError {
+            return ["active": .bool(false), "error": .string(failure.message)]
+        } catch {
+            return ["active": .bool(false), "error": .string(error.localizedDescription)]
+        }
+        var fields: [String: JSONValue] = ["active": .bool(status.active)]
+        if let error = status.error {
+            fields["error"] = .string(error)
+        }
+        return fields
     }
 
     private static func configureHotkeys(_ params: [String: JSONValue]) async -> [String: JSONValue] {

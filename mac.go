@@ -22,6 +22,9 @@ type MacStatus struct {
 	ScreenRecording bool     `json:"screenRecording"`
 	HotkeyRunning   bool     `json:"hotkeyRunning"`
 	HotkeyError     string   `json:"hotkeyError"`
+	// 输入助手 in the helper: running, or why not (for example no Accessibility).
+	InputAssistActive bool   `json:"inputAssistActive"`
+	InputAssistError  string `json:"inputAssistError"`
 }
 
 // MacStatus reads the helper's state and permissions (no system prompts).

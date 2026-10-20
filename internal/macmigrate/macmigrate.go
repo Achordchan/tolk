@@ -7,6 +7,7 @@ package macmigrate
 import (
 	"strings"
 
+	"tolk/internal/inputassist"
 	"tolk/internal/legacy"
 )
 
@@ -209,6 +210,96 @@ func Apply(cfg map[string]any, d Data) (notes []string) {
 	if f, ok := num(d.Defaults["screenshotHotkeyKeyCode"]); ok && f >= 0 && f < 128 {
 		t["screenshot_key_code"] = f
 	}
+	applyInputAssist(cfg, d)
 	t[Done] = true
+	t[InputAssistDone] = true
 	return notes
+}
+
+// InputAssistDone is the marker kept under "tolk" once the old app's
+// input-assist settings were imported (by Apply or by ApplyInputAssist).
+const InputAssistDone = "mac_input_assist_imported"
+
+// InputAssistPending reports whether the config was imported before the
+// input-assist settings existed and still lacks them. It lets the caller skip
+// reading the old app's settings (which touches the Keychain) when the answer
+// is already no.
+func InputAssistPending(cfg map[string]any) bool {
+	t, _ := cfg["tolk"].(map[string]any)
+	done, _ := t[InputAssistDone].(bool)
+	imported, _ := t[Done].(bool)
+	return imported && !done
+}
+
+// ApplyInputAssist is the one-time import for configs that already ran the
+// main import: it touches nothing but tolk.input_assist and its marker, and
+// leaves an input_assist object the user may already have saved alone. It
+// reports whether it did anything.
+func ApplyInputAssist(cfg map[string]any, d Data) bool {
+	if !InputAssistPending(cfg) {
+		return false
+	}
+	t := legacy.Sub(cfg, "tolk")
+	t[InputAssistDone] = true
+	if _, exists := t[inputassist.Key].(map[string]any); exists {
+		return false
+	}
+	return applyInputAssist(cfg, d)
+}
+
+// applyInputAssist maps the old InputAssistSettings keys into
+// tolk.input_assist, only the ones present and valid.
+func applyInputAssist(cfg map[string]any, d Data) bool {
+	m := map[string]any{}
+	if b, ok := d.Defaults["inputAssistEnabled"].(bool); ok {
+		m["enabled"] = b
+	}
+	if raw, ok := d.Defaults["inputAssistTargetLanguages"].(string); ok {
+		var labels []string
+		for _, code := range strings.Split(raw, ",") {
+			code = strings.TrimSpace(code)
+			n := d.Languages[code]
+			if n == "" {
+				n = codeNames[code]
+			}
+			if n != "" && n != "自动检测" {
+				labels = append(labels, n)
+			}
+		}
+		if got := inputassist.SanitizeTargets(labels); len(labels) > 0 {
+			m["targets"] = got
+		}
+	}
+	if f, ok := num(d.Defaults["inputAssistShortcutKeyCode"]); ok && f >= 0 && f <= 127 && f == float64(int(f)) {
+		m["shortcut_key_code"] = int(f)
+	}
+	if f, ok := num(d.Defaults["inputAssistShortcutModifiers"]); ok && f >= 0 && f == float64(int(f)) {
+		m["shortcut_modifiers"] = int(f)
+	}
+	switch str(d.Defaults["inputAssistAppScope"]) {
+	case "globalWithBlocklist":
+		m["scope"] = inputassist.ScopeGlobal
+	case "allowlistOnly":
+		m["scope"] = inputassist.ScopeAllowlist
+	}
+	if v, ok := d.Defaults["inputAssistBlocklist"].(string); ok {
+		m["blocklist"] = v
+	}
+	if v, ok := d.Defaults["inputAssistAllowlist"].(string); ok {
+		m["allowlist"] = v
+	}
+	if b, ok := d.Defaults["inputAssistSelectionAutoShowEnabled"].(bool); ok {
+		m["auto_show"] = b
+	}
+	if b, ok := d.Defaults["inputAssistShowsCacheBadge"].(bool); ok {
+		m["cache_badge"] = b
+	}
+	if len(m) == 0 {
+		return false
+	}
+	dst := legacy.Sub(legacy.Sub(cfg, "tolk"), inputassist.Key)
+	for k, v := range m {
+		dst[k] = v
+	}
+	return true
 }

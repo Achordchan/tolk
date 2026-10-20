@@ -202,5 +202,6 @@ func (Tolk) SetAppearance(theme string, sourceFont, targetFont int) error {
 	}
 	loadPrefs()
 	_ = PrefsChanged.Broadcast(currentPrefs())
+	go macPushInputAssist() // the helper's panel follows the theme
 	return nil
 }

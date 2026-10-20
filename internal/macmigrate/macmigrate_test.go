@@ -30,11 +30,55 @@ func TestApplyMapsOldMacSettings(t *testing.T) {
 		t.Fatalf("look: %v", cfg)
 	}
 	tk := cfg["tolk"].(map[string]any)
-	if tk["double_copy"] != false || tk["system_hotkey"] != true || !Imported(cfg) {
+	if tk["double_copy"] != true || tk["system_hotkey"] != true || !Imported(cfg) {
 		t.Fatalf("tolk: %v", tk)
 	}
 	if len(notes) != 1 {
 		t.Fatalf("notes: %v", notes)
+	}
+}
+
+func TestRepairRevivesDoubleCopyOnceForImportedGlobalMode(t *testing.T) {
+	global := Data{Defaults: map[string]any{"globalHotkeyEnabled": true, "doubleCopyEnabled": false}}
+	cfg := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": true, "double_copy": false}}
+	if !Repair(cfg, global) || cfg["tolk"].(map[string]any)["double_copy"] != true {
+		t.Fatalf("not repaired: %v", cfg)
+	}
+	cfg["tolk"].(map[string]any)["double_copy"] = false // the user turned it off afterwards
+	if Repair(cfg, global) || cfg["tolk"].(map[string]any)["double_copy"] != false {
+		t.Fatal("repaired twice")
+	}
+}
+
+func TestRepairPendingSkipsConfigsThatCannotNeedIt(t *testing.T) {
+	broken := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": true, "double_copy": false}}
+	if !RepairPending(broken) {
+		t.Fatal("the broken combination must be pending")
+	}
+	for name, tk := range map[string]map[string]any{
+		"already repaired": {Done: true, repairMarker: true, "system_hotkey": true, "double_copy": false},
+		"never imported":   {"system_hotkey": true, "double_copy": false},
+		"double copy on":   {Done: true, "system_hotkey": true, "double_copy": true},
+		"clipboard mode":   {Done: true, "system_hotkey": false, "double_copy": false},
+	} {
+		if RepairPending(map[string]any{"tolk": tk}) {
+			t.Errorf("%s: should not read the old app's settings", name)
+		}
+	}
+}
+
+func TestRepairLeavesConfigsThatDidNotComeFromGlobalMode(t *testing.T) {
+	for name, d := range map[string]Data{
+		"clipboard mode":  {Defaults: map[string]any{"globalHotkeyEnabled": false, "doubleCopyEnabled": true}},
+		"both on":         {Defaults: map[string]any{"globalHotkeyEnabled": true, "doubleCopyEnabled": true}},
+		"no legacy data":  {},
+		"global, unknown": {Defaults: map[string]any{"globalHotkeyEnabled": true}},
+	} {
+		cfg := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": true, "double_copy": false}}
+		Repair(cfg, d)
+		if cfg["tolk"].(map[string]any)["double_copy"] != false {
+			t.Errorf("%s: switched on a double copy the old app did not have in global mode", name)
+		}
 	}
 }
 

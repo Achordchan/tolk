@@ -205,8 +205,12 @@ final class CandidatePanelController {
             let index = model.state.selectedIndex
             deferredAction = { $0.onCopy?(index) }
         case .dismiss:
+            // 面板已经决定要收起：窗口操作可以晚一点，但拦截必须立刻停，
+            // 否则排队期间紧跟着的 Return 还会被当成提交旧候选吞掉。
+            interceptionSuspended = true
             deferredAction = { $0.dismiss(reason: .escape) }
         case .dismissPassingEventThrough:
+            interceptionSuspended = true
             let reason = dismissReason(for: event)
             deferredAction = { $0.dismiss(reason: reason) }
         }

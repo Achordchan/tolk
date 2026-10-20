@@ -43,6 +43,8 @@ final class CandidatePanelController {
     /// 助手自己被激活（语言包下载提示）期间不再拦截按键，免得吞掉系统对话框的回车/方向键；
     /// 用户回到原应用时面板会被收起，拦截随之结束。
     private var interceptionSuspended = false
+    /// 每次弹出面板加一。排队的按键动作只对发起它的那一次弹出有效。
+    private var presentationGeneration = 0
     /// 弹出面板时的前台应用；下载提示结束后焦点还回它，不算切走。
     private var originProcessIdentifier: pid_t?
     private var anchorRect: CGRect = .zero
@@ -88,6 +90,7 @@ final class CandidatePanelController {
         commitMode: InputAssistCommitMode
     ) -> Bool {
         interceptionSuspended = false
+        presentationGeneration += 1
         originProcessIdentifier = NSWorkspace.shared.frontmostApplication?.processIdentifier
         model.state = CandidateListState(languageCodes: languageCodes)
         model.showsDebugInfo = false
@@ -216,8 +219,10 @@ final class CandidatePanelController {
         }
 
         if let deferredAction {
+            let generation = presentationGeneration
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                // 排队期间面板已经换成新一次弹出（比如 Esc 后马上重新触发）：旧动作作废。
+                guard let self, self.presentationGeneration == generation else { return }
                 deferredAction(self)
             }
         }

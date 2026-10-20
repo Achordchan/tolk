@@ -17,6 +17,9 @@ struct InputAssistEngineInfo: Equatable {
 
     var cacheable: Bool { !fingerprint.isEmpty }
 
+    /// 标识没取到（`.unknown`）时没法排除它是 Apple，保守地也串行。
+    var serializesRequests: Bool { isApple || !cacheable }
+
     static let unknown = InputAssistEngineInfo(fingerprint: "", title: "Tolk")
 }
 
@@ -48,12 +51,26 @@ final class InputAssistTranslator {
     private var appleBusy = false
     private var appleWaiters: [CheckedContinuation<Void, Never>] = []
 
-    private func acquireApple() async {
-        if !appleBusy {
-            appleBusy = true
-            return
+    /// 一次持锁的凭据，只会真正释放一次。
+    @MainActor
+    private final class AppleLease {
+        private weak var owner: InputAssistTranslator?
+        private var released = false
+        init(owner: InputAssistTranslator) { self.owner = owner }
+        func release() {
+            guard !released else { return }
+            released = true
+            owner?.releaseApple()
         }
-        await withCheckedContinuation { appleWaiters.append($0) }
+    }
+
+    private func acquireApple() async -> AppleLease {
+        if appleBusy {
+            await withCheckedContinuation { appleWaiters.append($0) }
+        } else {
+            appleBusy = true
+        }
+        return AppleLease(owner: self)
     }
 
     private func releaseApple() {
@@ -86,7 +103,7 @@ final class InputAssistTranslator {
             guard !Task.isCancelled else { return }
             self.engine = info
 
-            if info.isApple {
+            if info.serializesRequests {
                 for code in request.targetLanguageCodes {
                     if Task.isCancelled { return }
                     await self.translateOne(
@@ -165,12 +182,8 @@ final class InputAssistTranslator {
             return
         }
 
-        if engine.isApple {
-            await acquireApple()
-        }
-        defer {
-            if engine.isApple { releaseApple() }
-        }
+        let lease: AppleLease? = engine.serializesRequests ? await acquireApple() : nil
+        defer { lease?.release() }
         guard !Task.isCancelled else { return }
 
         if engine.isApple, !allowsLanguagePackDownload {
@@ -190,11 +203,17 @@ final class InputAssistTranslator {
         // 缓存查询和 Apple 可用性检查都可能挂起：这期间面板被关掉或功能被关掉的话，
         // 不能再发翻译请求（OpenAI 之类是计费的）。
         guard !Task.isCancelled else { return }
-        let result = await HelperTranslation.translate(
-            texts: [request.sourceText],
-            sourceLanguageCode: request.sourceLanguageCode,
-            targetLanguageCode: targetLanguageCode
-        )
+        // Go 那头的请求不会因为取消而提前返回（最长等 300 秒）。会话被收起后
+        // 立刻把锁交出去：Apple 服务本来就会让新请求打断旧请求，被遗弃的那个自然结束。
+        let result = await withTaskCancellationHandler {
+            await HelperTranslation.translate(
+                texts: [request.sourceText],
+                sourceLanguageCode: request.sourceLanguageCode,
+                targetLanguageCode: targetLanguageCode
+            )
+        } onCancel: {
+            Task { @MainActor in lease?.release() }
+        }
         guard !Task.isCancelled else { return }
 
         switch result {

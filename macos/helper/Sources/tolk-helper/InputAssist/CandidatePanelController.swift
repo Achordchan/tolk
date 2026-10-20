@@ -65,7 +65,10 @@ final class CandidatePanelController {
             )
             guard self.model.showsDebugInfo != shows else { return }
             self.model.showsDebugInfo = shows
-            self.resizeToFitContent()
+            // 在事件 tap 的回调里：窗口操作挪到回调之外。
+            Task { @MainActor [weak self] in
+                self?.resizeToFitContent()
+            }
         }
     }
 
@@ -235,7 +238,11 @@ final class CandidatePanelController {
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            // 助手自己被激活（比如弹出 Apple 语言包下载提示）不是用户切走了应用，
+            // 这时收起面板会取消用户刚点的那一行。
+            let activated = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if activated?.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
             MainActor.assumeIsolated {
                 self?.dismiss(reason: .applicationSwitched)
             }

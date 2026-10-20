@@ -124,6 +124,7 @@ final class InputAssistTranslator {
         allowsLanguagePackDownload: Bool,
         onRowUpdate: RowUpdate
     ) async {
+        guard !Task.isCancelled else { return }
         let started = Date()
         let cacheKey = InputAssistCacheKey(
             sourceText: request.sourceText,
@@ -157,6 +158,9 @@ final class InputAssistTranslator {
             }
         }
 
+        // 缓存查询和 Apple 可用性检查都可能挂起：这期间面板被关掉或功能被关掉的话，
+        // 不能再发翻译请求（OpenAI 之类是计费的）。
+        guard !Task.isCancelled else { return }
         let result = await HelperTranslation.translate(
             texts: [request.sourceText],
             sourceLanguageCode: request.sourceLanguageCode,

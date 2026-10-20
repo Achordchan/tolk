@@ -27,13 +27,15 @@
 | `MACOS_DEV_CERT_P12_BASE64` / `MACOS_DEV_CERT_PASSWORD` | 与 bagayalu 相同的 Apple Development 证书 p12（base64）及密码。身份变了，老用户的授权会失效，所以工作流会拒绝发布 |
 | `GITEE_TOKEN` | Gitee 私人令牌（projects 权限），只在勾选 gitee 时需要 |
 
-### 生成 Tolk 的更新密钥
+### Tolk 的更新密钥
+
+已经生成：公钥写在 `internal/update/sig.go` 的 `WindowsPublicKeyB64` / `SparklePublicKeyB64`，私钥在上表两个 Secret 里。要重新生成（比如私钥泄露）：
 
 ```sh
 go run ./cmd/tolk-release keygen -out ~/tolk-keys
 ```
 
-私钥写进 `~/tolk-keys`（权限 600，不会打印），屏幕上只显示两把**公钥**。把公钥填进 `internal/update/sig.go` 的 `WindowsPublicKeyB64` / `SparklePublicKeyB64`（现在它们暂时等于旧公钥），私钥存进上表的两个 Secret 后删掉本地文件。**公钥必须在第一次公开发布之前换好**，否则已经装出去的版本只认旧钥。
+私钥写进 `~/tolk-keys`（权限 600，不会打印），屏幕上只显示公钥。换公钥后，已经装出去的版本只认旧钥，所以只能在公开发布之前换，或者之后再发一个用旧钥签名的过渡版本。
 
 ## 二、桥接（一次性）
 

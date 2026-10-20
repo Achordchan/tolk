@@ -31,12 +31,10 @@ const (
 
 // Public keys Tolk's own updater trusts. Releases published from Tolk's repo
 // are signed with the matching private keys (secrets TOLK_UPDATE_PRIVATE_KEY_PEM
-// and TOLK_SPARKLE_PRIVATE_KEY, made with `tolk-release keygen`). Until those
-// are generated they stay on the legacy keys, which keeps everything working
-// for anyone who still holds the old private keys.
+// and TOLK_SPARKLE_PRIVATE_KEY, made with `tolk-release keygen`).
 const (
-	WindowsPublicKeyB64 = LegacyWindowsPublicKeyB64
-	SparklePublicKeyB64 = LegacySparklePublicKeyB64
+	WindowsPublicKeyB64 = "+byogBgEJzXHqC5VkRDVTUPEqK+xVfTtHk3oRrQM3mg="
+	SparklePublicKeyB64 = "eIwCBqGdteE11gn75aEpRJLALSyfhkFQ9oAYmIu2ojk="
 )
 
 // Payload is what the Windows signature covers. Field order is the

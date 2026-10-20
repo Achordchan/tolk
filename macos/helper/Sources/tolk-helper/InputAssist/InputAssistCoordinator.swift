@@ -241,6 +241,12 @@ final class InputAssistCoordinator {
             return
         }
 
+        // 再按一次快捷键等于重新取词：先收起旧面板（连同它的按键拦截），
+        // 再去做可能被目标应用拖慢的 AX 调用，免得全系统的键盘投递卡在这些调用后面。
+        if panelController.isVisible {
+            panelController.dismiss(reason: .replacedByNewSession)
+        }
+
         if let capture = captureTranslatableSelection() {
             startSession(capture: capture, identity: identity)
             return

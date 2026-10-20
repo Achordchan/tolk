@@ -40,6 +40,9 @@ final class CandidatePanelController {
     private var inputSourceObserver: (any NSObjectProtocol)?
 
     private(set) var isVisible = false
+    /// 助手自己被激活（语言包下载提示）期间不再拦截按键，免得吞掉系统对话框的回车/方向键；
+    /// 用户回到原应用时面板会被收起，拦截随之结束。
+    private var interceptionSuspended = false
     private var anchorRect: CGRect = .zero
 
     init() {
@@ -82,6 +85,7 @@ final class CandidatePanelController {
         showsCacheBadge: Bool,
         commitMode: InputAssistCommitMode
     ) -> Bool {
+        interceptionSuspended = false
         model.state = CandidateListState(languageCodes: languageCodes)
         model.showsDebugInfo = false
         model.showsCacheBadge = showsCacheBadge
@@ -161,7 +165,7 @@ final class CandidatePanelController {
     }
 
     private func handleKeyEvent(_ event: InputAssistKeyEvent) -> Bool {
-        guard isVisible else { return false }
+        guard isVisible, !interceptionSuspended else { return false }
 
         guard let decision = InputAssistKeyRouter.decide(
             for: event,
@@ -242,7 +246,10 @@ final class CandidatePanelController {
             // 助手自己被激活（比如弹出 Apple 语言包下载提示）不是用户切走了应用，
             // 这时收起面板会取消用户刚点的那一行。
             let activated = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            if activated?.processIdentifier == ProcessInfo.processInfo.processIdentifier { return }
+            if activated?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+                MainActor.assumeIsolated { self?.interceptionSuspended = true }
+                return
+            }
             MainActor.assumeIsolated {
                 self?.dismiss(reason: .applicationSwitched)
             }

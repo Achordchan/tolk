@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -50,16 +51,28 @@ type Checker struct {
 	Sources   []Source
 	GOOS      string
 	UserAgent string
+	// OSVersion is the running macOS version; appcast items that need a newer
+	// system are not offered. Empty skips the check.
+	OSVersion string
 }
+
+// errOSTooOld means the newest release needs a newer macOS than this one.
+var errOSTooOld = errors.New("新版本需要更高版本的 macOS")
 
 // NewChecker returns a Checker for this machine.
 func NewChecker(goos, version string) *Checker {
-	return &Checker{
+	c := &Checker{
 		Client:    &http.Client{Timeout: 15 * time.Second},
 		Sources:   DefaultSources,
 		GOOS:      goos,
 		UserAgent: "Tolk/" + version,
 	}
+	if goos == "darwin" {
+		if out, err := exec.Command("sw_vers", "-productVersion").Output(); err == nil {
+			c.OSVersion = strings.TrimSpace(string(out))
+		}
+	}
+	return c
 }
 
 type ghAsset struct {
@@ -137,6 +150,9 @@ func (c *Checker) Check(ctx context.Context, current string) (*Info, error) {
 		case "darwin":
 			info, err = c.macInfo(ctx, r)
 		default:
+			return nil, nil
+		}
+		if errors.Is(err, errOSTooOld) {
 			return nil, nil
 		}
 		if err != nil {
@@ -218,6 +234,7 @@ type appcast struct {
 			Sig    string `xml:"edSignature,attr"`
 		} `xml:"enclosure"`
 		Hardware string `xml:"hardwareRequirements"`
+		MinOS    string `xml:"minimumSystemVersion"`
 	} `xml:"channel>item"`
 }
 
@@ -234,14 +251,21 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 	if err := xml.Unmarshal(b, &ac); err != nil {
 		return nil, errors.New("appcast 格式无效")
 	}
-	best := -1
+	best, tooOld := -1, false
 	for i, it := range ac.Items {
 		if it.Enclosure.URL == "" || it.Enclosure.Sig == "" {
+			continue
+		}
+		if c.OSVersion != "" && it.MinOS != "" && CompareVersions(c.OSVersion, it.MinOS) < 0 {
+			tooOld = true
 			continue
 		}
 		if best < 0 || CompareVersions(it.Short, ac.Items[best].Short) > 0 {
 			best = i
 		}
+	}
+	if best < 0 && tooOld {
+		return nil, errOSTooOld
 	}
 	if best < 0 {
 		return nil, errors.New("appcast 里没有带签名的更新项")
@@ -252,7 +276,13 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 		v = NormalizeVersion(r.Tag)
 	}
 	name := it.Enclosure.URL[strings.LastIndex(it.Enclosure.URL, "/")+1:]
-	return &Info{Version: v, Size: it.Enclosure.Length, name: name, url: it.Enclosure.URL, sig: it.Enclosure.Sig, wantSize: it.Enclosure.Length}, nil
+	url := it.Enclosure.URL
+	// A mirror's appcast still names the primary host; prefer the archive
+	// attached to this very release. The signature is checked on the bytes.
+	if a := find(r.Assets, name); a != nil && a.URL != "" {
+		url = a.URL
+	}
+	return &Info{Version: v, Size: it.Enclosure.Length, name: name, url: url, sig: it.Enclosure.Sig, wantSize: it.Enclosure.Length}, nil
 }
 
 // mirrorURLs finds the same asset on the other sources, so a blocked asset

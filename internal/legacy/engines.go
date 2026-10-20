@@ -57,9 +57,10 @@ func BuildEngine(m map[string]any, api string) (engine.Engine, error) {
 					if v := str(p, "model"); v != "" {
 						model = v
 					}
-					if v := str(p, "api_key"); v != "" {
-						key = v
-					}
+					// The key comes from the selected profile only: falling
+					// back to the mirrored top-level key would send another
+					// vendor's credential to this endpoint.
+					key = str(p, "api_key")
 				}
 			}
 		}

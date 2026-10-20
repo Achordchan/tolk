@@ -150,6 +150,8 @@ func (Tolk) SaveSettings(u SettingsUpdate) error {
 		oc["base_url"], oc["model"] = prof["base_url"], prof["model"]
 		if k, ok := prof["api_key"]; ok {
 			oc["api_key"] = k
+		} else {
+			delete(oc, "api_key")
 		}
 	})
 }

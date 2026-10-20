@@ -235,3 +235,14 @@ func TestAppleUsesTheHelperCall(t *testing.T) {
 		t.Fatal("no helper must be an error")
 	}
 }
+
+func TestOpenAICompatTruncatedIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"choices":[{"message":{"content":"half"},"finish_reason":"length"}]}`))
+	}))
+	defer srv.Close()
+	o, _ := NewOpenAICompat(srv.URL, "m", "k")
+	if _, err := o.Translate(context.Background(), "x", Auto, "English"); err == nil {
+		t.Fatal("a length-limited reply must not be reported as a finished translation")
+	}
+}

@@ -93,9 +93,13 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 	}
 	select {
 	case builtinSlot <- struct{}{}:
-		defer func() { <-builtinSlot }()
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
+	}
+	// Requests queued behind a 429 must respect the cooldown it just set.
+	if d := builtinWait(time.Now()); d > 0 {
+		<-builtinSlot
+		return Result{}, limitedErr(d)
 	}
 
 	type out struct {
@@ -104,6 +108,9 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 	}
 	ch := make(chan out, 1)
 	go func() {
+		// The slot is held until the call itself ends, not until the caller
+		// gives up, so timeouts cannot pile up concurrent DeepLX requests.
+		defer func() { <-builtinSlot }()
 		r, err := builtinCall(src, tgt, text, "", "", "")
 		ch <- out{r, err}
 	}()

@@ -18,7 +18,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
   `{"id":"<同一个>","ok":true, ...结果}` 或 `{"id":"<同一个>","ok":false,"error":"<给用户看的中文说明>"}`。
 - 事件（不需要回复）：`{"event":"<名称>", ...}`。
 - 双向都可以发请求。Go → helper 的 id 以 `g` 开头（`g1`、`g2`…），helper → Go 的以 `h` 开头。
-- 语言一律用 Tolk 的中文标签：`自动检测`、`简体中文`、`繁体中文`、`英语`、`日语`、`韩语`、`法语`、`德语`、`西班牙语`、`俄语`、`意大利语`、`葡萄牙语`、`越南语`、`泰语`、`阿拉伯语`。helper 内部再映射到 `Locale.Language`。
+- 语言一律用 Tolk 的中文标签：`自动检测` 加 37 种语言，与 Go 端 `internal/engine/languages.go` 的语言表一致（顺序也一致，由根目录的测试比对）。某个语言能不能翻由 OCR / Apple 翻译自己判断并如实报错。helper 内部再映射到 `Locale.Language`。
 
 ## Go → helper
 
@@ -84,7 +84,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 }
 ```
 
-- `languages`：旧版语言代码 → Tolk 中文标签（15 项，含 `auto`），迁移 `sourceLanguageCode` / `targetLanguageCode` 时直接查表；查不到的代码（如 `nl`）Tolk 自行处理。
+- `languages`：旧版语言代码 → Tolk 中文标签（38 项，含 `auto`），迁移 `sourceLanguageCode` / `targetLanguageCode` 时直接查表；查不到的代码（如 `la`）Tolk 自行处理。
 
 - `defaults` 只放 `AppSettings`、`InputAssistSettings` 用到的键（见 `Core/AppSettings.swift`），值不是 JSON 可表示的类型就丢掉。
 - `keys` 来自 `Core/KeychainStore.swift` 使用的 service（`com.achord.dazuofanyiguan`），账号名目前只有 `openAIAPIKey`。**不要写入、不要删除**任何 Keychain 项，只读；读不到（用户拒绝授权）就从结果里略去，不报错。

@@ -42,7 +42,12 @@ final class ScreenshotOCRSession: ObservableObject {
             discardRecognitionForNewSourceLanguage()
         }
     }
-    @Published var targetLanguageCode: String = "en"
+    @Published var targetLanguageCode: String = "en" {
+        didSet {
+            guard targetLanguageCode != oldValue else { return }
+            discardTranslationForNewTargetLanguage()
+        }
+    }
 
     @Published var ocrText: String = ""
     @Published var translatedText: String = ""
@@ -109,6 +114,22 @@ final class ScreenshotOCRSession: ObservableObject {
         if capturedImage != nil {
             stage = .selected
         }
+    }
+
+    /// 换了目标语言：翻译中或已翻完的译文是按旧语言出的，不能再显示、导出。
+    /// 识别结果（原文）与目标语言无关，留着；回到「已识别」，再点「翻译」按新语言来。
+    private func discardTranslationForNewTargetLanguage() {
+        guard stage == .translating || stage == .translated else { return }
+
+        generation += 1 // 还在路上的旧译文回来时对不上，会被丢弃
+        translatedText = ""
+        translations = [:]
+        translatedImage = nil
+        overlayUnavailable = false
+        overlayRenderPending = false
+        didExtractTextToPasteboard = false
+        showCompare = false
+        stage = ocrBlocks.isEmpty ? .selected : .ocrReady
     }
 
     /// 一次回贴渲染的结果：画出来了换上新图；画不出来就清掉旧图（旧图只有前几批的译文），

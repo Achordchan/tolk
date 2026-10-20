@@ -29,6 +29,8 @@ final class InputAssistSelectionMonitor {
     private var workspaceObserver: (any NSObjectProtocol)?
     private var pendingTask: Task<Void, Never>?
     private var lastFingerprint: Fingerprint?
+    /// 最近一次前台的非助手应用。
+    private var lastExternalPid: pid_t?
 
     static let settleNanoseconds: UInt64 = 180_000_000
 
@@ -79,12 +81,21 @@ final class InputAssistSelectionMonitor {
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            let pid = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?
+                .processIdentifier
             MainActor.assumeIsolated {
-                self?.pendingTask?.cancel()
-                self?.lastFingerprint = nil
+                guard let self else { return }
+                // 助手自己被激活（Apple 语言包下载提示）以及随后焦点还给原应用，
+                // 都不是用户换了应用：指纹要留着，否则 Esc 的 key-up 会把没变的选区再弹出来。
+                if pid == ProcessInfo.processInfo.processIdentifier { return }
+                if pid != nil, pid == self.lastExternalPid { return }
+                self.lastExternalPid = pid
+                self.pendingTask?.cancel()
+                self.lastFingerprint = nil
             }
         }
+        lastExternalPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
 
         return eventMonitor != nil
     }

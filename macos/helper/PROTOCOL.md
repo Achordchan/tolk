@@ -42,7 +42,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 
 | op | 参数 | 结果 |
 |---|---|---|
-| `translate` | `texts`:[string], `source`, `target` | `{"texts":[string]}`，等长同序。Tolk 按用户当前选的引擎翻译（含 Apple 本地翻译时，Go 会反过来调用 `apple.translate`） |
+| `translate` | `texts`:[string], `source`, `target` | `{"texts":[string],"fingerprint":string}`，等长同序；`fingerprint` 是翻译实际用的引擎标识（和 `inputassist.engine` 同一套，翻译期间引擎被换掉时为空串，输入助手此时不写缓存）。Tolk 按用户当前选的引擎翻译（含 Apple 本地翻译时，Go 会反过来调用 `apple.translate`） |
 | `log` | （事件）`level`: `debug/info/warn/error`, `msg` | |
 
 截图相关事件（helper → Go）：

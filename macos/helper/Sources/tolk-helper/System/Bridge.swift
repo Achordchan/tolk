@@ -141,6 +141,16 @@ final class Bridge {
 enum HelperTranslation {
     @MainActor
     static func translate(texts: [String], sourceLanguageCode: String, targetLanguageCode: String) async -> Result<[String], Error> {
+        await translateWithEngine(
+            texts: texts, sourceLanguageCode: sourceLanguageCode, targetLanguageCode: targetLanguageCode
+        ).map { $0.texts }
+    }
+
+    /// 同时带回实际用的引擎标识（翻译期间引擎被换掉时为空串），输入助手据此决定缓存键。
+    @MainActor
+    static func translateWithEngine(
+        texts: [String], sourceLanguageCode: String, targetLanguageCode: String
+    ) async -> Result<(texts: [String], fingerprint: String), Error> {
         let reply = await Bridge.shared.request(op: "translate", params: [
             "texts": .array(texts.map { JSONValue.string($0) }),
             "source": .string(TolkLanguages.labelForRequest(code: sourceLanguageCode)),
@@ -155,6 +165,6 @@ enum HelperTranslation {
         guard let result = fields["texts"]?.stringArray else {
             return .failure(HelperTranslateError("翻译服务返回的数据不对"))
         }
-        return .success(result)
+        return .success((result, fields["fingerprint"]?.stringValue ?? ""))
     }
 }

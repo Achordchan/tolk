@@ -206,7 +206,7 @@ final class InputAssistTranslator {
         // Go 那头的请求不会因为取消而提前返回（最长等 300 秒）。会话被收起后
         // 立刻把锁交出去：Apple 服务本来就会让新请求打断旧请求，被遗弃的那个自然结束。
         let result = await withTaskCancellationHandler {
-            await HelperTranslation.translate(
+            await HelperTranslation.translateWithEngine(
                 texts: [request.sourceText],
                 sourceLanguageCode: request.sourceLanguageCode,
                 targetLanguageCode: targetLanguageCode
@@ -217,14 +217,15 @@ final class InputAssistTranslator {
         guard !Task.isCancelled else { return }
 
         switch result {
-        case .success(let texts):
-            let translated = texts.first ?? ""
+        case .success(let reply):
+            let translated = reply.texts.first ?? ""
             let trimmed = translated.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 onRowUpdate(targetLanguageCode, .failed(message: "翻译结果为空"))
                 return
             }
-            if engine.cacheable {
+            // 翻译期间引擎被换掉（回报的标识和取到的不一致）就不写缓存，免得串到别的引擎名下。
+            if engine.cacheable, reply.fingerprint == engine.fingerprint {
                 await cache.store(translated, for: cacheKey)
             }
             onRowUpdate(targetLanguageCode, .translated(

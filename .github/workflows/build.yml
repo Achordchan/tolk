@@ -1,0 +1,72 @@
+name: Build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin/universal
+            name: tolk-macos
+          - os: windows-latest
+            platform: windows/amd64
+            name: tolk-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: go test ./...
+      - name: Build the native helper into the app (macOS)
+        if: runner.os == 'macOS'
+        working-directory: macos/helper
+        run: |
+          set -euo pipefail
+          swift build -c release --arch arm64 --arch x86_64
+          BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/tolk-helper"
+          mkdir -p ../../resources/darwin-universal
+          cp "$BIN" ../../resources/darwin-universal/tolk-helper
+          chmod +x ../../resources/darwin-universal/tolk-helper
+      - name: Talk to the real helper (macOS)
+        if: runner.os == 'macOS'
+        env:
+          TOLK_HELPER: ${{ github.workspace }}/resources/darwin-universal/tolk-helper
+        run: go test -count=1 -run TestRealHelper -v ./internal/helper
+      - run: bun run build -- -platform ${{ matrix.platform }}
+      - name: The helper is inside the app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP="$(find build -maxdepth 3 -name '*.app' -print -quit)"
+          test -x "$(find "$APP" -name tolk-helper -type f -print -quit)"
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true # the account's Actions artifact quota may be spent
+        with:
+          name: ${{ matrix.name }}
+          path: build/
+      # Release assets do not count against the artifact quota.
+      - name: Publish to the proto prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view proto >/dev/null 2>&1 || gh release create proto --prerelease --title "Prototype builds" --notes "Latest prototype builds from CI."
+          mkdir -p out
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            cp build/darwin-universal/*.dmg out/Tolk-macos.dmg
+            # 发布工具（含 keygen），在自己的 Mac 上直接运行，不用装 Go
+            GOOS=darwin GOARCH=arm64 go build -o out/tolk-release-macos-arm64 ./cmd/tolk-release
+          else
+            cp build/windows-amd64/tolk.exe out/Tolk-windows.exe
+          fi
+          gh release upload proto out/* --clobber

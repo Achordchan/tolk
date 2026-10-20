@@ -1,0 +1,276 @@
+name: Release
+
+# 一次发布做完所有事：
+#   1. Windows：主程序 → 在线更新包（旧版 Ed25519 签名）→ 安装器
+#   2. macOS：helper + 主程序 → 用固定的 Apple Development 身份签名 → zip / dmg / Sparkle appcast
+#   3. 发布 Tolk 自己的 Release，并镜像到 Gitee。
+# 老用户的"桥接版本"不在这里发：它必须用旧私钥签名，而旧私钥只在旧仓库的 Secrets 里，
+# 所以由 dazuo-win / bagayalu-translate 里的 tolk-bridge 工作流完成（见 docs/RELEASING.md）。
+# 需要的 Secrets 见 docs/RELEASING.md。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 要发布的版本号（必须等于 version.go 里的 Version）
+        required: true
+        type: string
+      gitee:
+        description: 同时镜像到 Gitee
+        required: false
+        default: true
+        type: boolean
+      force_update:
+        description: 在说明里加 update=1（强制更新）
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ inputs.version }}
+  TAG: v${{ inputs.version }}
+  # 老 Mac 用户的授权绑在这条身份要求上；对不上就让构建失败，不要悄悄发出去。
+  EXPECTED_TEAM_ID: S336CKXSUQ
+  EXPECTED_DESIGNATED_REQUIREMENT: 'identifier "achord.dazuofanyiguan" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: Chenchiyu chen (74524Q654V)" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - name: Check the version everywhere
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "版本号必须是 x.y.z" >&2; exit 1; }
+          grep -q "const Version = \"$VERSION\"" version.go || { echo "version.go 里的版本不是 $VERSION" >&2; exit 1; }
+          grep -q "const version = \"$VERSION\"" mygo.config.ts || { echo "mygo.config.ts 里的版本不是 $VERSION" >&2; exit 1; }
+          grep -q "^## $VERSION\b" CHANGELOG.md || { echo "CHANGELOG.md 里没有 $VERSION 的章节" >&2; exit 1; }
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ] || { echo "$TAG 已经发布过，请提升版本号。" >&2; exit 1; }
+          else
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Tolk $TAG" --notes "构建中…"
+          fi
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - name: Tests (includes the real PowerShell update swap)
+        run: go test ./...
+      - name: Build
+        run: bun run build -- -platform windows/amd64
+      - name: Package, sign and verify the update ZIP
+        shell: bash
+        env:
+          DZFYQ_UPDATE_PRIVATE_KEY_PEM: ${{ secrets.TOLK_UPDATE_PRIVATE_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          [ -n "$DZFYQ_UPDATE_PRIVATE_KEY_PEM" ] || { echo "缺少 Secret TOLK_UPDATE_PRIVATE_KEY_PEM（用 tolk-release keygen 生成，见 docs/RELEASING.md）" >&2; exit 1; }
+          go build -o tolk-release.exe ./cmd/tolk-release
+          EXE="$(ls build/windows-amd64/*.exe | grep -vi setup | head -1)"
+          echo "主程序：$EXE"
+          mkdir -p dist
+          ./tolk-release.exe winpack -exe "$EXE" -icon design/logo.ico -version "$VERSION" -out dist -extra LICENSE,third_party/DeepLX-LICENSE
+          ./tolk-release.exe winsign -zip "dist/dazuofanyiguan_full.for.windows_$VERSION.zip" -version "$VERSION"
+          cp "$EXE" dist/Tolk-windows.exe
+      - name: Installer (Inno Setup, same AppId as the old installer)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $exe = (Resolve-Path dist\Tolk-windows.exe).Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:VERSION" "/DSourceExe=$exe" installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item dist\Tolk-windows.exe
+      - name: Release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          FORCE=""; [ "${{ inputs.force_update }}" = "true" ] && FORCE="-force"
+          ./tolk-release.exe notes -version "$VERSION" -changelog CHANGELOG.md -sig-json "dist/dazuofanyiguan_full.for.windows_$VERSION.zip.sig.json" $FORCE -out dist/release_notes.md
+          cat dist/release_notes.md
+      - name: Upload to the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --clobber dist/*.zip dist/*.zip.sig.json dist/Tolk-setup-windows_*.exe dist/release_notes.md
+
+  macos:
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: go test ./...
+      - name: Build the native helper (universal)
+        working-directory: macos/helper
+        run: |
+          set -euo pipefail
+          swift build -c release --arch arm64 --arch x86_64
+          swift test
+          BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/tolk-helper"
+          lipo -archs "$BIN"
+          mkdir -p ../../resources/darwin-universal
+          cp "$BIN" ../../resources/darwin-universal/tolk-helper
+          chmod +x ../../resources/darwin-universal/tolk-helper
+      - name: Build the app
+        run: bun run build -- -platform darwin/universal
+      - name: Locate the app and check the helper is inside
+        run: |
+          set -euo pipefail
+          APP="$(find build -maxdepth 3 -name '*.app' -print -quit)"
+          [ -n "$APP" ] || { echo "找不到 .app" >&2; find build >&2; exit 1; }
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          HELPER="$(find "$APP" -name tolk-helper -type f -print -quit)"
+          [ -n "$HELPER" ] || { echo "应用包里没有 tolk-helper" >&2; find "$APP" >&2; exit 1; }
+          echo "HELPER=$HELPER" >> "$GITHUB_ENV"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" | grep -qx 'achord.dazuofanyiguan'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist"
+      - name: Sign with the Apple Development certificate
+        env:
+          SIGNING_CERT_P12_BASE64: ${{ secrets.MACOS_DEV_CERT_P12_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.MACOS_DEV_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SIGNING_CERT_P12_BASE64:-}" ] || [ -z "${SIGNING_CERT_PASSWORD:-}" ]; then
+            echo "缺少签名证书 Secret：MACOS_DEV_CERT_P12_BASE64 / MACOS_DEV_CERT_PASSWORD。" >&2
+            echo "不能退回 ad-hoc 或自签名：那会让所有用户已给的辅助功能、屏幕录制授权失效。" >&2
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          P12="$RUNNER_TEMP/signing.p12"
+          ORIGINAL_KEYCHAINS=()
+          while IFS= read -r line; do
+            line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//')"
+            [ -n "$line" ] && ORIGINAL_KEYCHAINS+=("$line")
+          done < <(security list-keychains -d user)
+          cleanup() {
+            set +e
+            security list-keychains -d user -s ${ORIGINAL_KEYCHAINS[@]+"${ORIGINAL_KEYCHAINS[@]}"}
+            security delete-keychain "$KEYCHAIN" >/dev/null 2>&1
+            rm -f "$P12"
+          }
+          trap cleanup EXIT
+          printf '%s' "$SIGNING_CERT_P12_BASE64" | base64 --decode > "$P12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$P12" -k "$KEYCHAIN" -P "$SIGNING_CERT_PASSWORD" -T /usr/bin/codesign >/dev/null
+          WWDR_CERT="scripts/certs/AppleWWDRCAG3.cer"
+          WWDR_SHA256="dcf21878c77f4198e4b4614f03d696d89c66c66008d4244e1b99161aac91601f"
+          [ "$(shasum -a 256 "$WWDR_CERT" | awk '{ print $1 }')" = "$WWDR_SHA256" ] || { echo "中间证书指纹不对" >&2; exit 1; }
+          security import "$WWDR_CERT" -k "$KEYCHAIN" >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" ${ORIGINAL_KEYCHAINS[@]+"${ORIGINAL_KEYCHAINS[@]}"}
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk '/"Apple Development:/ { print $2; exit }')"
+          [ -n "$IDENTITY" ] || { echo "导入的证书里没有有效的 Apple Development 签名身份（过期了？）。" >&2; exit 1; }
+          # 先签 helper，再签整个应用；不开 hardened runtime，与旧版保持一致。
+          codesign --force --sign "$IDENTITY" --timestamp=none "$HELPER"
+          codesign --force --deep --sign "$IDENTITY" --timestamp=none "$APP"
+      - name: Verify identity, requirement and launch
+        run: |
+          set -euo pipefail
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          INFO="$(codesign -dv --verbose=4 "$APP" 2>&1)"
+          printf '%s\n' "$INFO"
+          ! grep -q 'flags=.*adhoc' <<< "$INFO" || { echo "仍是 ad-hoc 签名" >&2; exit 1; }
+          ! grep -q 'flags=.*runtime' <<< "$INFO" || { echo "不应启用 hardened runtime" >&2; exit 1; }
+          grep -q 'Authority=Apple Development: ' <<< "$INFO"
+          [ "$(sed -n 's/^TeamIdentifier=//p' <<< "$INFO")" = "$EXPECTED_TEAM_ID" ] || { echo "TeamIdentifier 不对" >&2; exit 1; }
+          ACTUAL="$(codesign -d -r- "$APP" 2>&1 | sed -n 's/^.*designated => //p')"
+          [ "$ACTUAL" = "$EXPECTED_DESIGNATED_REQUIREMENT" ] || { echo "签名身份要求与固定值不一致：$ACTUAL" >&2; exit 1; }
+          HINFO="$(codesign -dv --verbose=4 "$HELPER" 2>&1)"
+          [ "$(sed -n 's/^TeamIdentifier=//p' <<< "$HINFO")" = "$EXPECTED_TEAM_ID" ] || { echo "helper 的 TeamIdentifier 不对" >&2; exit 1; }
+          MAIN="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
+          ARCHS="$(lipo -archs "$MAIN")"; echo "主程序架构：$ARCHS"
+          grep -q arm64 <<< "$ARCHS" && grep -q x86_64 <<< "$ARCHS" || { echo "主程序不是通用二进制" >&2; exit 1; }
+          # 能启动并活着（失败说明被系统拒绝或闪退）。
+          "$MAIN" >"$RUNNER_TEMP/launch.log" 2>&1 &
+          PID=$!
+          sleep 6
+          if ! kill -0 "$PID" 2>/dev/null; then cat "$RUNNER_TEMP/launch.log" >&2; echo "启动后提前退出" >&2; exit 1; fi
+          kill -TERM "$PID"; wait "$PID" || true
+      - name: Package and appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.TOLK_SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "缺少 Secret TOLK_SPARKLE_PRIVATE_KEY（用 tolk-release keygen 生成，见 docs/RELEASING.md）" >&2; exit 1; }
+          BUILD="$(( ${VERSION%%.*} * 10000 + $(echo "$VERSION" | cut -d. -f2) * 100 + $(echo "$VERSION" | cut -d. -f3) ))"
+          mkdir -p dist
+          go build -o tolk-release ./cmd/tolk-release
+          ./tolk-release notes -version "$VERSION" -changelog CHANGELOG.md -out dist/mac_notes.md
+          # 新用户：dmg；Tolk 自己的更新：zip + appcast
+          ZIP="Tolk-$VERSION-macos.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/$ZIP"
+          ROOT="$RUNNER_TEMP/dmg-root"; mkdir -p "$ROOT"
+          ditto "$APP" "$ROOT/Tolk.app"; ln -s /Applications "$ROOT/Applications"
+          hdiutil create -volname "Tolk $VERSION" -srcfolder "$ROOT" -ov -format UDZO "dist/Tolk-$VERSION-macos.dmg"
+          ./tolk-release appcast -zip "dist/$ZIP" -version "$VERSION" -build "$BUILD" \
+            -url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$ZIP" \
+            -notes dist/mac_notes.md -out dist/appcast.xml
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" --clobber dist/*.zip dist/*.dmg dist/appcast.xml
+
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - name: Download the assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --dir dist --clobber
+          ls -l dist
+          test -f dist/release_notes.md
+      - name: Publish the Tolk release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --notes-file dist/release_notes.md --draft=false --latest
+      - name: Mirror to Gitee
+        if: ${{ inputs.gitee }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "$GITEE_TOKEN" ] || { echo "缺少 Secret GITEE_TOKEN（或取消勾选 gitee）" >&2; exit 1; }
+          go run ./cmd/tolk-release gitee -version "$VERSION" -assets dist -notes dist/release_notes.md -repo tolk

@@ -182,6 +182,8 @@ func helperHandle(ctx context.Context, op string, params json.RawMessage) (any, 
 		if err := json.Unmarshal(params, &in); err != nil {
 			return nil, err
 		}
+		// 输入助手拿它做缓存键：翻译前后引擎标识一致才回报，中途换了引擎就留空。
+		fpBefore, _ := currentEngineIdentity()
 		out := make([]string, len(in.Texts))
 		var wg sync.WaitGroup
 		errs := make([]error, len(in.Texts))
@@ -205,7 +207,8 @@ func helperHandle(ctx context.Context, op string, params json.RawMessage) (any, 
 				return nil, err
 			}
 		}
-		return map[string]any{"texts": out}, nil
+		fpAfter, _ := currentEngineIdentity()
+		return map[string]any{"texts": out, "fingerprint": stableFingerprint(fpBefore, fpAfter)}, nil
 	}
 	return nil, fmt.Errorf("未知请求：%s", op)
 }

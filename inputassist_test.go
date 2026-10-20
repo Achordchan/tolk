@@ -34,3 +34,12 @@ func TestEngineIdentityOtherEngines(t *testing.T) {
 		t.Fatalf("%q %q", fp, title)
 	}
 }
+
+func TestStableFingerprint(t *testing.T) {
+	if got := stableFingerprint("google", "google"); got != "google" {
+		t.Fatalf("same engine before and after: got %q", got)
+	}
+	if got := stableFingerprint("google", "apple"); got != "" {
+		t.Fatalf("engine switched mid-request must report nothing, got %q", got)
+	}
+}

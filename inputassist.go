@@ -83,6 +83,17 @@ func engineIdentity(cfg map[string]any) (fingerprint, title string) {
 	return fingerprint, title
 }
 
+// stableFingerprint is what a translate reply reports as the engine used: the
+// identity read before and after the call, only when they agree. A mismatch
+// means the engine was switched mid-request, so nothing is reported and the
+// helper skips its cache write.
+func stableFingerprint(before, after string) string {
+	if before == after {
+		return after
+	}
+	return ""
+}
+
 func currentEngineIdentity() (fingerprint, title string) {
 	cfg := map[string]any{}
 	if p, err := legacy.DefaultPath(); err == nil {

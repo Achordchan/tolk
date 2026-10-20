@@ -1,7 +1,7 @@
 import { defineConfig } from "mygo-cli";
 
 // The one place the version is written (version.go has a test that checks it).
-const version = "2.0.0";
+const version = "2.0.1";
 const [major, minor, patch] = version.split(".").map(Number);
 // Sparkle compares this number with the build of the app being replaced, so it
 // has to stay above bagayalu's builds (141 at 1.4.1) and only ever grow.

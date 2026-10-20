@@ -5,13 +5,20 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 )
+
+// updateMu makes load, change, backup and replace one transaction, so two
+// quick saves (or a save racing the Mac import) cannot lose each other's edits.
+var updateMu sync.Mutex
 
 // Update loads the config (an empty one if the file is missing), lets fn
 // change it, and writes it back atomically. Unknown keys survive because the
 // file is handled as a generic map. The first time an existing file is
 // changed, a copy is kept next to it as config.json.pre-tolk.bak.
 func Update(path string, fn func(m map[string]any)) error {
+	updateMu.Lock()
+	defer updateMu.Unlock()
 	m, err := Load(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):

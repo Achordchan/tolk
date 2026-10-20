@@ -29,6 +29,9 @@ final class GlobalHotkeyMonitor {
     nonisolated(unsafe) private var startGeneration: UInt = 0
 
     private var lastCmdCDate: Date?
+    /// 第一次 ⌘C 按下时的剪贴板计数。被动 tap 的回调可能晚于前台应用处理第二次复制，
+    /// 所以拿第一次的计数当基线：两次复制里只要有一次真的写进了剪贴板，计数就会比它大。
+    private var firstCopyChangeCount = 0
     private var lastCmdXDate: Date?
 
     var isTrusted: Bool {
@@ -287,11 +290,12 @@ final class GlobalHotkeyMonitor {
                     let delta = now.timeIntervalSince(last) * 1000
                     if delta <= Double(windowMs) {
                         lastCmdCDate = nil
-                        onDoubleCopy?(pasteboardChangeCountBeforeKeyDown)
+                        onDoubleCopy?(firstCopyChangeCount)
                         return
                     }
                 }
                 lastCmdCDate = now
+                firstCopyChangeCount = pasteboardChangeCountBeforeKeyDown
                 return
             }
 

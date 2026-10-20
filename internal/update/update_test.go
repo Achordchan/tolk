@@ -231,3 +231,44 @@ func TestMacApplyScript(t *testing.T) {
 }
 
 func sha256Sum(b []byte) [32]byte { return sha256.Sum256(b) }
+
+func macAppcastServer(t *testing.T, minOS string) (*httptest.Server, string) {
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"tag_name": "v2.0.0", "body": "x", "assets": []map[string]any{
+			{"name": "appcast.xml", "size": 1, "browser_download_url": srv.URL + "/appcast.xml"},
+			{"name": "Tolk-2.0.0-macos.zip", "size": 1234, "browser_download_url": srv.URL + "/mirror/Tolk-2.0.0-macos.zip"}}})
+	})
+	mux.HandleFunc("/appcast.xml", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><item>
+<sparkle:version>200</sparkle:version><sparkle:shortVersionString>2.0.0</sparkle:shortVersionString><sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>
+<enclosure url="https://github.example/dl/Tolk-2.0.0-macos.zip" length="1234" sparkle:edSignature="c2ln"/></item></channel></rss>`, minOS)
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, srv.URL + "/release"
+}
+
+func TestMacCheckSkipsReleaseNeedingNewerOS(t *testing.T) {
+	_, rel := macAppcastServer(t, "15.0")
+	c := NewChecker("darwin", "1.4.1")
+	c.Sources, c.OSVersion = []Source{{"Test", rel}}, "14.5"
+	if info, err := c.Check(context.Background(), "1.4.1"); info != nil || err != nil {
+		t.Fatalf("an incompatible release must not be offered: %+v %v", info, err)
+	}
+	c.OSVersion = "15.1"
+	if info, err := c.Check(context.Background(), "1.4.1"); err != nil || info == nil {
+		t.Fatalf("compatible release expected: %+v %v", info, err)
+	}
+}
+
+func TestMacCheckPrefersArchiveAttachedToSameRelease(t *testing.T) {
+	srv, rel := macAppcastServer(t, "13.0")
+	c := NewChecker("darwin", "1.4.1")
+	c.Sources, c.OSVersion = []Source{{"Mirror", rel}}, "14.5"
+	info, err := c.Check(context.Background(), "1.4.1")
+	if err != nil || info == nil || info.url != srv.URL+"/mirror/Tolk-2.0.0-macos.zip" {
+		t.Fatalf("%+v %v", info, err)
+	}
+}

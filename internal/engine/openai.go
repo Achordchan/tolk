@@ -72,10 +72,15 @@ func (o *OpenAICompat) Translate(ctx context.Context, text, source, target strin
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil || len(out.Choices) == 0 || strings.TrimSpace(out.Choices[0].Message.Content) == "" {
 		return Result{}, fmt.Errorf("AI未返回翻译结果")
+	}
+	if out.Choices[0].FinishReason == "length" {
+		// Showing half a translation as a success would silently drop the rest.
+		return Result{}, fmt.Errorf("译文过长被截断，请分段翻译")
 	}
 	return Result{Text: strings.TrimSpace(out.Choices[0].Message.Content)}, nil
 }

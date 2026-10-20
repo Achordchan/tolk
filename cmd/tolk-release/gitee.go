@@ -116,6 +116,10 @@ func collectAssets(dir, version string) ([]string, error) {
 	var files []string
 	for _, e := range entries {
 		n := strings.ToLower(e.Name())
+		if !e.IsDir() && n == "appcast.xml" { // macOS update checks need it on the mirror too
+			files = append(files, filepath.Join(dir, e.Name()))
+			continue
+		}
 		if e.IsDir() || !strings.Contains(e.Name(), version) {
 			continue
 		}

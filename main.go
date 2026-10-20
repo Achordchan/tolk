@@ -70,13 +70,16 @@ func main() {
 }
 
 // watchDoubleCopy polls the clipboard change counter, as the Mac app does.
+// Reading the counter is nearly free, so it is sampled every 40 ms: two copies
+// closer together than that are not something a hand can produce, and the
+// clipboard text is only read when the counter actually moved.
 func watchDoubleCopy(fire func(text string)) {
 	if _, ok := doublecopy.Sequence(); !ok {
 		log.Println("double copy: clipboard counter unavailable on this system")
 		return
 	}
 	d := &doublecopy.Detector{}
-	for range time.Tick(180 * time.Millisecond) {
+	for range time.Tick(40 * time.Millisecond) {
 		p := currentPrefs()
 		if !p.DoubleCopy || hotkeyActive() { // the helper's hotkey handles it instead
 			d = &doublecopy.Detector{} // forget history while switched off

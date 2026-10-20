@@ -15,7 +15,8 @@ public enum TolkLanguages {
     public static let autoLabel = "自动检测"
     public static let autoCode = "auto"
 
-    /// 协议规定的 15 个标签，顺序即界面里的顺序。
+    /// 与 Go 端语言表一致的 38 个标签（含「自动检测」），顺序即界面里的顺序。
+    /// 某个语言能不能翻由具体的服务（OCR、Apple 翻译）自己判断并如实报错，这里不再替它们拒绝。
     public static let all: [TolkLanguage] = [
         TolkLanguage(label: "自动检测", code: "auto"),
         TolkLanguage(label: "简体中文", code: "zh-CN"),
@@ -31,7 +32,30 @@ public enum TolkLanguages {
         TolkLanguage(label: "葡萄牙语", code: "pt"),
         TolkLanguage(label: "越南语", code: "vi"),
         TolkLanguage(label: "泰语", code: "th"),
-        TolkLanguage(label: "阿拉伯语", code: "ar")
+        TolkLanguage(label: "阿拉伯语", code: "ar"),
+        TolkLanguage(label: "荷兰语", code: "nl"),
+        TolkLanguage(label: "瑞典语", code: "sv"),
+        TolkLanguage(label: "丹麦语", code: "da"),
+        TolkLanguage(label: "挪威语", code: "no"),
+        TolkLanguage(label: "芬兰语", code: "fi"),
+        TolkLanguage(label: "波兰语", code: "pl"),
+        TolkLanguage(label: "捷克语", code: "cs"),
+        TolkLanguage(label: "匈牙利语", code: "hu"),
+        TolkLanguage(label: "罗马尼亚语", code: "ro"),
+        TolkLanguage(label: "保加利亚语", code: "bg"),
+        TolkLanguage(label: "希腊语", code: "el"),
+        TolkLanguage(label: "乌克兰语", code: "uk"),
+        TolkLanguage(label: "土耳其语", code: "tr"),
+        TolkLanguage(label: "希伯来语", code: "he"),
+        TolkLanguage(label: "波斯语", code: "fa"),
+        TolkLanguage(label: "印地语", code: "hi"),
+        TolkLanguage(label: "孟加拉语", code: "bn"),
+        TolkLanguage(label: "泰米尔语", code: "ta"),
+        TolkLanguage(label: "印尼语", code: "id"),
+        TolkLanguage(label: "马来语", code: "ms"),
+        TolkLanguage(label: "菲律宾语", code: "fil"),
+        TolkLanguage(label: "乌尔都语", code: "ur"),
+        TolkLanguage(label: "斯瓦希里语", code: "sw")
     ]
 
     /// 旧版 bagayalu 界面里的叫法，以及直接传内部代码，都宽容地接受。
@@ -55,7 +79,7 @@ public enum TolkLanguages {
         return nil
     }
 
-    /// 内部代码 -> 标签。不在这 15 个里（比如检测出了荷兰语）返回 nil。
+    /// 内部代码 -> 标签。不在表里（比如检测出了拉丁语）返回 nil。
     public static func label(forCode code: String) -> String? {
         all.first(where: { $0.code == code })?.label
     }

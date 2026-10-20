@@ -92,7 +92,7 @@ jobs:
           EXE="$(ls build/windows-amd64/*.exe | grep -vi setup | head -1)"
           echo "主程序：$EXE"
           mkdir -p dist
-          ./tolk-release.exe winpack -exe "$EXE" -icon design/logo.ico -version "$VERSION" -out dist -extra LICENSE,third_party/DeepLX-LICENSE
+          ./tolk-release.exe winpack -exe "$EXE" -icon design/logo.ico -version "$VERSION" -out dist -extra third_party/DeepLX-LICENSE
           ./tolk-release.exe winsign -zip "dist/dazuofanyiguan_full.for.windows_$VERSION.zip" -version "$VERSION"
           cp "$EXE" dist/Tolk-windows.exe
       - name: Installer (Inno Setup, same AppId as the old installer)

@@ -93,9 +93,13 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 	}
 	select {
 	case builtinSlot <- struct{}{}:
-		defer func() { <-builtinSlot }()
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
+	}
+	// Requests queued behind a 429 must respect the cooldown it just set.
+	if d := builtinWait(time.Now()); d > 0 {
+		<-builtinSlot
+		return Result{}, limitedErr(d)
 	}
 
 	type out struct {
@@ -104,7 +108,15 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 	}
 	ch := make(chan out, 1)
 	go func() {
+		// The slot is held until the call itself ends, not until the caller
+		// gives up, so timeouts cannot pile up concurrent DeepLX requests.
+		defer func() { <-builtinSlot }()
 		r, err := builtinCall(src, tgt, text, "", "", "")
+		// Record a rate limit before the slot is released, so a queued request
+		// cannot slip past the cooldown while the caller is still reading ch.
+		if err == nil && (r.Code == http.StatusTooManyRequests || looksLimited(r.Message)) {
+			builtinCoolDown(time.Now())
+		}
 		ch <- out{r, err}
 	}()
 	select {
@@ -115,7 +127,6 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 			return Result{}, fmt.Errorf("内置引擎请求失败：%v", o.err)
 		}
 		if o.r.Code == http.StatusTooManyRequests || looksLimited(o.r.Message) {
-			builtinCoolDown(time.Now())
 			return Result{}, limitedErr(builtinCooldown)
 		}
 		if o.r.Code != http.StatusOK {

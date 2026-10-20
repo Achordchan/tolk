@@ -160,7 +160,11 @@ func (Tolk) SetDoubleCopy(on bool, windowMs int) error {
 	if windowMs < 200 || windowMs > 2000 {
 		return fmt.Errorf("时间窗口需要在 200 到 2000 毫秒之间")
 	}
-	return setTolkPref(func(t map[string]any) { t["double_copy"], t["double_copy_ms"] = on, windowMs })
+	if err := setTolkPref(func(t map[string]any) { t["double_copy"], t["double_copy_ms"] = on, windowMs }); err != nil {
+		return err
+	}
+	macApplyHotkeys() // the helper's double-copy hotkey follows this switch too
+	return nil
 }
 
 func setTolkPref(fn func(t map[string]any)) error {

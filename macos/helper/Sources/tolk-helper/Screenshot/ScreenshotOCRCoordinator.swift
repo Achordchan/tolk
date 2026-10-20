@@ -34,6 +34,8 @@ final class ScreenshotOCRCoordinator {
     /// 回贴图在后台画，同一时间只画一张；画的时候又来的请求合并成画完后的一次。
     private var overlayRenderTask: Task<Void, Never>?
     private var overlayNeedsRender = false
+    /// 每次 start / cancelAll 都 +1。取冻结背景要等一会儿，回来时对不上就说明已经被新的一次取代。
+    private var startToken = 0
     /// 同一批识别结果多次重画时复用量过的样式；重新识别时换一个。
     private var overlayStyleCache = ScreenshotTranslationRenderer.StyleCache()
 
@@ -54,9 +56,11 @@ final class ScreenshotOCRCoordinator {
         }
 
         isRunning = true
+        startToken &+= 1
+        let token = startToken
         let frozen = await captureFrozenBackgrounds()
-        // 取背景的这一会儿里可能已经被 cancel 了。
-        guard isRunning else {
+        // 取背景的这一会儿里可能已经被 cancel，或者被后来的又一次 start 取代了。
+        guard isRunning, startToken == token else {
             return .failed(message: "截图已取消", needs: nil)
         }
         presentSelection(
@@ -70,6 +74,7 @@ final class ScreenshotOCRCoordinator {
 
     /// 主程序要求取消：关掉选区层，不发事件（是它自己要取消的）。钉图窗口保留。
     func cancelAll() {
+        startToken &+= 1
         overlayRenderTask?.cancel()
         overlayRenderTask = nil
         overlayNeedsRender = false
@@ -156,11 +161,12 @@ final class ScreenshotOCRCoordinator {
             onFinishTapped: { [weak self] in
                 Task { @MainActor in
                     // 按钮这时是灰的；真点进来了也别往下走，什么都没复制就退出，用户会以为复制好了。
-                    guard self?.session?.canExport == true else { return }
-                    guard await self?.finishCaptureToPasteboardIfPossible() == true else { return }
-                    self?.emitDone()
+                    guard let self, let finishing = self.session, finishing.canExport else { return }
+                    guard await self.finishCaptureToPasteboardIfPossible() else { return }
+                    self.emitDone()
                     try? await Task.sleep(nanoseconds: 650_000_000)
-                    self?.cancelAll()
+                    // 等的这一会儿里用户可能又开了新的一次截图，别把新的关掉。
+                    if self.session === finishing { self.cancelAll() }
                 }
             }
         )
@@ -404,7 +410,8 @@ final class ScreenshotOCRCoordinator {
             height: initialSize.height
         )
 
-        var windowToRemove: PinnedScreenshotWindow?
+        // 弱引用：关闭回调由窗口自己持有，强引用会让窗口和它的整张截图永远释放不掉。
+        weak var windowToRemove: PinnedScreenshotWindow?
         let pinned = PinnedScreenshotWindow(
             image: image,
             initialRect: initialRect,
@@ -431,7 +438,8 @@ final class ScreenshotOCRCoordinator {
         // 钉图后结束截图翻译（把识别结果交给主程序），但保留钉图窗口。
         emitDone()
         try? await Task.sleep(nanoseconds: 420_000_000)
-        cancelAll()
+        // 同上：只关掉发起钉图的这一次。
+        if self.session === session { cancelAll() }
     }
 
     private func closeAllPinnedWindows() {
@@ -484,7 +492,34 @@ final class ScreenshotOCRCoordinator {
         return rep.representation(using: .png, properties: [:])
     }
 
+    /// 选区完全落在某一块冻结背景里时，直接从这张冻结图里裁：用户看着框选的就是它，
+    /// 视频、滚动页面、通知在框选期间变了也不会让识别和导出的内容与所见不同。
+    /// 跨屏、或者没有冻结背景时返回 nil，由实时截图兜底。
+    private func croppedFrozenImage(rect: CGRect) -> NSImage? {
+        guard let session, !session.frozenBackgrounds.isEmpty else { return nil }
+        let virtual = ScreenshotSelectionWindow.fullVirtualScreenFrame()
+        for item in session.frozenBackgrounds {
+            let frame = item.rect.offsetBy(dx: virtual.minX, dy: virtual.minY) // 回到全局屏幕坐标
+            guard frame.contains(rect),
+                  let cg = item.image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+                  frame.width > 0, frame.height > 0 else { continue }
+            let scaleX = CGFloat(cg.width) / frame.width
+            let scaleY = CGFloat(cg.height) / frame.height
+            // 屏幕坐标原点在左下，CGImage 在左上。
+            let pixelRect = CGRect(
+                x: (rect.minX - frame.minX) * scaleX,
+                y: (frame.maxY - rect.maxY) * scaleY,
+                width: rect.width * scaleX,
+                height: rect.height * scaleY
+            ).integral
+            guard let cropped = cg.cropping(to: pixelRect) else { continue }
+            return NSImage(cgImage: cropped, size: rect.size)
+        }
+        return nil
+    }
+
     private func captureImageExcludingOverlay(rect: CGRect, selectionWindow: ScreenshotSelectionWindow) async throws -> NSImage {
+        if let frozen = croppedFrozenImage(rect: rect) { return frozen }
         let prevAlpha = selectionWindow.alphaValue
         let prevIgnoresMouse = selectionWindow.ignoresMouseEvents
 

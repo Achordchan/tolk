@@ -1,10 +1,12 @@
 package legacy
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 )
 
@@ -109,5 +111,35 @@ func TestUpdateCreatesMissingFile(t *testing.T) {
 	}
 	if _, err := os.Stat(p + ".pre-tolk.bak"); err == nil {
 		t.Fatal("no backup expected for a new file")
+	}
+}
+
+func TestBuildEngineDoesNotReuseAnotherVendorsKey(t *testing.T) {
+	m := map[string]any{"openai_compat": map[string]any{
+		"vendor": "新服务商", "api_key": "sk-old-vendor",
+		"profiles": map[string]any{"新服务商": map[string]any{"base_url": "https://new.example/v1", "model": "m"}},
+	}}
+	e, err := BuildEngine(m, "openai_compat")
+	if err == nil && e != nil {
+		t.Fatal("a vendor without its own key must not borrow the top-level key")
+	}
+}
+
+func TestUpdateConcurrentKeepsEveryEdit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := Update(path, func(m map[string]any) { m[fmt.Sprintf("k%d", i)] = i }); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	m, err := Load(path)
+	if err != nil || len(m) != 20 {
+		t.Fatalf("lost updates: %d keys, err=%v", len(m), err)
 	}
 }

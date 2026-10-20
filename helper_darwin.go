@@ -15,6 +15,7 @@ import (
 
 	"github.com/egoist/mygo"
 
+	"tolk/internal/doublecopy"
 	"tolk/internal/engine"
 	"tolk/internal/helper"
 	"tolk/internal/legacy"
@@ -205,6 +206,7 @@ func helperEvent(name string, raw json.RawMessage) {
 		Name   string `json:"name"`
 		Error  string `json:"error"`
 		Needs  string `json:"needs"`
+		Count  int64  `json:"changeCount"`
 		Level  string `json:"level"`
 		Msg    string `json:"msg"`
 		State  string `json:"state"`
@@ -217,8 +219,25 @@ func helperEvent(name string, raw json.RawMessage) {
 	case "hotkey":
 		switch e.Name {
 		case "doubleCopy":
+			if !currentPrefs().DoubleCopy {
+				return // the general switch also covers the system-wide hotkey
+			}
+			count := uint64(e.Count)
 			go func() {
-				time.Sleep(220 * time.Millisecond) // let the second copy land
+				// The second copy must actually have updated the clipboard;
+				// otherwise whatever sits there is stale (or private) text.
+				if seq, ok := doublecopy.Sequence(); ok {
+					deadline := time.Now().Add(700 * time.Millisecond)
+					for seq <= count {
+						if time.Now().After(deadline) {
+							return
+						}
+						time.Sleep(30 * time.Millisecond)
+						seq, _ = doublecopy.Sequence()
+					}
+				} else {
+					time.Sleep(220 * time.Millisecond)
+				}
 				text := strings.TrimSpace(mygo.Clipboard.ReadText())
 				hs.mu.Lock()
 				fire := hs.fire
@@ -228,10 +247,14 @@ func helperEvent(name string, raw json.RawMessage) {
 				}
 			}()
 		case "screenshot":
-			if err := macScreenshot("translate"); err != nil {
-				Logs.Warnf("截图翻译：%v", err)
-				_ = MacNotice.Broadcast(err.Error())
-			}
+			// Not on the reader goroutine: macScreenshot waits for a reply
+			// that only this reader can deliver.
+			go func() {
+				if err := macScreenshot("translate"); err != nil {
+					Logs.Warnf("截图翻译：%v", err)
+					_ = MacNotice.Broadcast(err.Error())
+				}
+			}()
 		}
 	case "hotkey.stopped":
 		hs.mu.Lock()
@@ -268,7 +291,7 @@ func macApplyHotkeys() {
 		Error   string `json:"error"`
 	}
 	err := c.Call(ctx, "hotkeys.configure", map[string]any{
-		"doubleCopy": p.SystemHotkey, "screenshot": p.ScreenshotHotkey,
+		"doubleCopy": p.SystemHotkey && p.DoubleCopy, "screenshot": p.ScreenshotHotkey,
 		"windowMs": p.DoubleCopyMs, "screenshotKeyCode": p.ScreenshotKeyCode,
 	}, &res)
 	hs.mu.Lock()
@@ -361,6 +384,7 @@ func macImport(manual bool) ([]string, error) {
 		return nil, err
 	}
 	loadPrefs()
+	macApplyHotkeys() // the imported preferences may enable the system hotkeys
 	Logs.Infof("已导入旧版 Mac 设置（%d 项设置，%d 个 API Key）", len(data.Defaults), len(data.Keys))
 	for _, n := range notes {
 		Logs.Warnf("%s", n)

@@ -2,8 +2,8 @@ import XCTest
 @testable import TolkHelperCore
 
 final class LanguagesTests: XCTestCase {
-    func testAllFifteenLabelsMapAndBack() {
-        XCTAssertEqual(TolkLanguages.all.count, 15)
+    func testAllLabelsMapAndBack() {
+        XCTAssertEqual(TolkLanguages.all.count, 38)
         for language in TolkLanguages.all {
             XCTAssertEqual(TolkLanguages.code(forLabel: language.label), language.code)
             XCTAssertEqual(TolkLanguages.label(forCode: language.code), language.label)
@@ -35,14 +35,15 @@ final class LanguagesTests: XCTestCase {
 
     func testRequestLabelFallsBackToAuto() {
         XCTAssertEqual(TolkLanguages.labelForRequest(code: "ja"), "日语")
-        XCTAssertEqual(TolkLanguages.labelForRequest(code: "nl"), "自动检测")
+        XCTAssertEqual(TolkLanguages.labelForRequest(code: "nl"), "荷兰语")
+        XCTAssertEqual(TolkLanguages.labelForRequest(code: "la"), "自动检测")
     }
 }
 
 final class LegacyLanguageMapTests: XCTestCase {
     func testCodeToLabelCoversAllIncludingAuto() {
         let map = TolkLanguages.codeToLabel
-        XCTAssertEqual(map.count, 15)
+        XCTAssertEqual(map.count, 38)
         XCTAssertEqual(map["auto"], "自动检测")
         XCTAssertEqual(map["zh-CN"], "简体中文")
         XCTAssertEqual(map["zh-TW"], "繁体中文")

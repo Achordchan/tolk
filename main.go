@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -31,6 +32,21 @@ func main() {
 		createMini()
 
 		showMain := func() { win.Show(); win.Focus() }
+
+		// Closing the window only hides it: the app stays in the tray / Dock
+		// and a shortcut must be able to bring the same window back. A
+		// destroyed window ignores Show, which left the shortcuts doing nothing.
+		var quitting atomic.Bool
+		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting.Store(true) })
+		win.OnClose(func(e *mygo.CloseEvent) {
+			if !quitting.Load() {
+				e.PreventDefault()
+				win.Hide()
+			}
+		})
+		// Dock icon clicked. Not gated on "has visible windows": the Mini
+		// bubble counts as one while the main window is hidden.
+		mygo.App.OnActivate(func(bool) { showMain() })
 		translateInMain := func(text string) {
 			showMain()
 			_ = Copied.Emit(win, text)

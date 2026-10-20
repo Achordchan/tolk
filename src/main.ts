@@ -67,8 +67,33 @@ const langs = await Tolk.languages();
 fill(source, [AUTO, ...langs].map((n) => [n, shown(n)]));
 fill(target, langs.map((n) => [n, shown(n)]));
 fill(engineSel, ENGINES);
-source.value = load("source", AUTO);
-target.value = load("target", "简体中文");
+let prefs = await Tolk.getPrefs();
+source.value = prefs.sourceLang;
+target.value = prefs.targetLang;
+const miniBtn = $("#mini");
+function showMini() {
+  miniBtn.classList.toggle("active", prefs.miniMode);
+  miniBtn.title = prefs.miniMode ? "关闭 Mini 模式" : "开启 Mini 模式";
+}
+showMini();
+miniBtn.addEventListener("click", async () => {
+  try {
+    await Tolk.setMini(!prefs.miniMode);
+    prefs = await Tolk.getPrefs();
+    showMini();
+    toast(prefs.miniMode ? "Mini 模式已开启：双击复制会在鼠标旁显示译文" : "Mini 模式已关闭");
+  } catch (e) {
+    toast(String(e instanceof Error ? e.message : e));
+  }
+});
+
+async function saveLanguages() {
+  try {
+    await Tolk.setLanguages(source.value, target.value);
+  } catch (e) {
+    toast(String(e instanceof Error ? e.message : e));
+  }
+}
 
 async function refreshSettings() {
   const s = await Tolk.getSettings();
@@ -120,8 +145,8 @@ input.addEventListener("input", () => {
   $("#count").textContent = input.value ? `${input.value.length} 字` : "";
   schedule();
 });
-source.addEventListener("change", () => { save("source", source.value); schedule(0); });
-target.addEventListener("change", () => { save("target", target.value); schedule(0); });
+source.addEventListener("change", () => { void saveLanguages(); schedule(0); });
+target.addEventListener("change", () => { void saveLanguages(); schedule(0); });
 engineSel.addEventListener("change", async () => {
   try {
     await Tolk.setEngine(engineSel.value);
@@ -136,8 +161,7 @@ engineSel.addEventListener("change", async () => {
 $("#swap").addEventListener("click", () => {
   if (source.value === AUTO) return toast("源语言是自动检测，无法交换");
   [source.value, target.value] = [target.value, source.value];
-  save("source", source.value);
-  save("target", target.value);
+  void saveLanguages();
   schedule(0);
 });
 
@@ -174,6 +198,8 @@ const sAiKey = $<HTMLInputElement>("#s-ai-key");
 const sDeeplKey = $<HTMLInputElement>("#s-deepl-key");
 const sMsKey = $<HTMLInputElement>("#s-ms-key");
 const sMsRegion = $<HTMLInputElement>("#s-ms-region");
+const sDc = $<HTMLInputElement>("#s-dc");
+const sDcMs = $<HTMLInputElement>("#s-dc-ms");
 const sError = $("#settings-error");
 
 type Cfg = Awaited<ReturnType<typeof Tolk.getSettings>>;
@@ -209,6 +235,8 @@ $("#open-settings").addEventListener("click", async () => {
   sMsKey.value = "";
   sMsKey.placeholder = cfg.microsoftHasKey ? "已保存，留空则不修改" : "";
   sMsRegion.value = cfg.microsoftRegion;
+  sDc.checked = cfg.prefs.doubleCopy;
+  sDcMs.value = String(cfg.prefs.doubleCopyMs);
   $("#settings-note").textContent = "与旧版大佐翻译官共用同一份设置，密钥只保存在本机。";
   sError.hidden = true;
   syncSections();
@@ -230,7 +258,9 @@ $("#settings-form").addEventListener("submit", async (e) => {
       microsoftKey: sMsKey.value,
       microsoftRegion: sMsRegion.value,
     });
+    await Tolk.setDoubleCopy(sDc.checked, Number(sDcMs.value));
     dlg.close();
+    prefs = await Tolk.getPrefs();
     await refreshSettings();
     toast("设置已保存");
     schedule(0);

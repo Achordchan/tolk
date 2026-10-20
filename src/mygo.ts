@@ -4,6 +4,30 @@ import { call, event } from "mygo-runtime";
 
 // ---- Types ----
 
+/** MiniState is sent to the bubble page. */
+export interface MiniState {
+  /** translating | result | error */
+  state: string;
+  text: string;
+  detected: string;
+  /** the direction differs from the configured pair */
+  smart: boolean;
+  source: string;
+  target: string;
+}
+
+/**
+ * Prefs are Tolk's own switches, kept under "tolk" in the shared config file
+ * so dazuo-win ignores them. The language pair lives where dazuo-win keeps it.
+ */
+export interface Prefs {
+  miniMode: boolean;
+  doubleCopy: boolean;
+  doubleCopyMs: number;
+  sourceLang: string;
+  targetLang: string;
+}
+
 /** Profile is one AI vendor's saved settings; the key never leaves Go. */
 export interface Profile {
   baseUrl: string;
@@ -20,6 +44,7 @@ export interface Settings {
   microsoftHasKey: boolean;
   microsoftRegion: string;
   vendors: Vendor[];
+  prefs: Prefs;
 }
 
 /** SettingsUpdate is what the sheet sends back. An empty key keeps the saved one. */
@@ -66,9 +91,17 @@ export const Tolk = {
   clipboardText(): Promise<string> {
     return call("Tolk.ClipboardText");
   },
+  /** GetPrefs returns the switches and the language pair. */
+  getPrefs(): Promise<Prefs> {
+    return call("Tolk.GetPrefs");
+  },
   /** GetSettings returns the current settings without any secret. */
   getSettings(): Promise<Settings> {
     return call("Tolk.GetSettings");
+  },
+  /** HideMini closes the bubble and drops the request in flight. */
+  hideMini(): Promise<void> {
+    return call("Tolk.HideMini");
   },
   /** Languages are the labels for the language pickers. */
   languages(): Promise<string[]> {
@@ -78,18 +111,31 @@ export const Tolk = {
   legacyConfig(): Promise<Summary> {
     return call("Tolk.LegacyConfig");
   },
+  /** ResizeMini fits the bubble to its content; the page reports the height. */
+  resizeMini(height: number): Promise<void> {
+    return call("Tolk.ResizeMini", height);
+  },
   /** SaveSettings writes the settings back to the shared config file. */
   saveSettings(u: SettingsUpdate): Promise<void> {
     return call("Tolk.SaveSettings", u);
+  },
+  /** SetDoubleCopy sets the Cmd/Ctrl+C+C switch and its time window. */
+  setDoubleCopy(on: boolean, windowMs: number): Promise<void> {
+    return call("Tolk.SetDoubleCopy", on, windowMs);
   },
   /** SetEngine switches the active service from the main window's picker. */
   setEngine(engine: string): Promise<void> {
     return call("Tolk.SetEngine", engine);
   },
-  /**
-   * Translate runs the engine chosen in the legacy config. Newlines are
-   * wrapped in a marker so engines keep paragraph breaks, as dazuo-win did.
-   */
+  /** SetLanguages remembers the language pair in the shared config. */
+  setLanguages(source: string, target: string): Promise<void> {
+    return call("Tolk.SetLanguages", source, target);
+  },
+  /** SetMini turns the Mini bubble on or off. */
+  setMini(on: boolean): Promise<void> {
+    return call("Tolk.SetMini", on);
+  },
+  /** Translate runs the engine chosen in the legacy config. */
   translate(text: string, source: string, target: string): Promise<TranslateResult> {
     return call("Tolk.Translate", text, source, target);
   },
@@ -103,6 +149,8 @@ export const Tolk = {
 
 /** Events sent by the Go side. Subscribe with `events.name.on(listener)`. */
 export const events = {
-  /** Copied is sent when the global shortcut fires, with the clipboard text. */
+  /** Copied is sent to the main window when text should be translated there. */
   copied: event<string>("copied"),
+  /** MiniUpdate carries MiniState to the bubble window. */
+  mini: event<MiniState>("mini"),
 } as const;

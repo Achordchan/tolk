@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tolk Mini</title>
+    <link rel="stylesheet" href="./src/style.css" />
+    <link rel="stylesheet" href="./src/mini.css" />
+  </head>
+  <body class="mini">
+    <div id="bubble" class="bubble">
+      <div class="bar">
+        <span id="meta" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="copy" class="icon small" title="复制译文" aria-label="复制译文">
+          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+        </button>
+        <button id="close" class="icon small" title="关闭" aria-label="关闭">
+          <svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="body" class="mini-body"></div>
+      <div id="foot" class="mini-foot muted"></div>
+    </div>
+    <script type="module" src="./src/mini.ts"></script>
+  </body>
+</html>

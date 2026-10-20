@@ -133,3 +133,8 @@ legend { padding: 0 6px; color: var(--muted); font-size: 13px; }
 .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 button.ghost, button.primary { height: 34px; padding: 0 16px; border-radius: 9px; cursor: pointer; border: 1px solid var(--stroke); background: var(--control); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
+.inline { display: flex; align-items: center; gap: 8px; }
+.inline input { width: 90px; }
+button.icon.active { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }

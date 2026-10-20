@@ -40,6 +40,7 @@ type Settings struct {
 	MicrosoftHasKey bool               `json:"microsoftHasKey"`
 	MicrosoftRegion string             `json:"microsoftRegion"`
 	Vendors         []Vendor           `json:"vendors"`
+	Prefs           Prefs              `json:"prefs"`
 }
 
 // SettingsUpdate is what the sheet sends back. An empty key keeps the saved one.
@@ -82,6 +83,7 @@ func (Tolk) GetSettings() (Settings, error) {
 		MicrosoftHasKey: hasKey(ms, "api_key"),
 		MicrosoftRegion: strings.TrimSpace(fmt.Sprint(valOr(ms, "region"))),
 		Vendors:         vendors,
+		Prefs:           loadPrefs(),
 	}
 	if v, _ := oc["vendor"].(string); v != "" {
 		s.Vendor = v

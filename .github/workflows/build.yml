@@ -64,6 +64,8 @@ jobs:
           mkdir -p out
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
             cp build/darwin-universal/*.dmg out/Tolk-macos.dmg
+            # 发布工具（含 keygen），在自己的 Mac 上直接运行，不用装 Go
+            GOOS=darwin GOARCH=arm64 go build -o out/tolk-release-macos-arm64 ./cmd/tolk-release
           else
             cp build/windows-amd64/tolk.exe out/Tolk-windows.exe
           fi

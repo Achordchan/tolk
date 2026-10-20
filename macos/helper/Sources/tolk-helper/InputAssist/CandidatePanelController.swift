@@ -43,6 +43,8 @@ final class CandidatePanelController {
     /// 助手自己被激活（语言包下载提示）期间不再拦截按键，免得吞掉系统对话框的回车/方向键；
     /// 用户回到原应用时面板会被收起，拦截随之结束。
     private var interceptionSuspended = false
+    /// 弹出面板时的前台应用；下载提示结束后焦点还回它，不算切走。
+    private var originProcessIdentifier: pid_t?
     private var anchorRect: CGRect = .zero
 
     init() {
@@ -86,6 +88,7 @@ final class CandidatePanelController {
         commitMode: InputAssistCommitMode
     ) -> Bool {
         interceptionSuspended = false
+        originProcessIdentifier = NSWorkspace.shared.frontmostApplication?.processIdentifier
         model.state = CandidateListState(languageCodes: languageCodes)
         model.showsDebugInfo = false
         model.showsCacheBadge = showsCacheBadge
@@ -251,7 +254,15 @@ final class CandidatePanelController {
                 return
             }
             MainActor.assumeIsolated {
-                self?.dismiss(reason: .applicationSwitched)
+                guard let self else { return }
+                // 下载提示结束后焦点还给了弹出面板时的应用：恢复拦截，保留候选。
+                if self.interceptionSuspended,
+                   let origin = self.originProcessIdentifier,
+                   activated?.processIdentifier == origin {
+                    self.interceptionSuspended = false
+                    return
+                }
+                self.dismiss(reason: .applicationSwitched)
             }
         }
 

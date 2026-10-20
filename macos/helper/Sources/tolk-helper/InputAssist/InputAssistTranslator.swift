@@ -43,6 +43,27 @@ final class InputAssistTranslator {
         self.cache = cache
     }
 
+    // Apple 本地翻译同一时刻只能处理一个请求，新请求会打断旧的。
+    // 首轮各语言和用户点的重试都走这把 FIFO 锁，互相不打断。
+    private var appleBusy = false
+    private var appleWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func acquireApple() async {
+        if !appleBusy {
+            appleBusy = true
+            return
+        }
+        await withCheckedContinuation { appleWaiters.append($0) }
+    }
+
+    private func releaseApple() {
+        if appleWaiters.isEmpty {
+            appleBusy = false
+        } else {
+            appleWaiters.removeFirst().resume()
+        }
+    }
+
     /// 向 Go 要当前引擎的标识。失败时返回 `.unknown`（照常翻译，只是不读写缓存）。
     func fetchEngine() async -> InputAssistEngineInfo {
         let reply = await Bridge.shared.request(op: "inputassist.engine", params: [:], timeout: 10)
@@ -143,6 +164,14 @@ final class InputAssistTranslator {
             ))
             return
         }
+
+        if engine.isApple {
+            await acquireApple()
+        }
+        defer {
+            if engine.isApple { releaseApple() }
+        }
+        guard !Task.isCancelled else { return }
 
         if engine.isApple, !allowsLanguagePackDownload {
             // 缺语言包只影响这一行，其它语言继续。首次不自动下载：那会弹系统对话框打断用户输入。

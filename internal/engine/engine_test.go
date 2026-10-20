@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -244,5 +245,45 @@ func TestOpenAICompatTruncatedIsAnError(t *testing.T) {
 	o, _ := NewOpenAICompat(srv.URL, "m", "k")
 	if _, err := o.Translate(context.Background(), "x", Auto, "English"); err == nil {
 		t.Fatal("a length-limited reply must not be reported as a finished translation")
+	}
+}
+
+func TestBuiltinQueuedRequestRespectsFreshCooldown(t *testing.T) {
+	old := builtinCall
+	defer func() { builtinCall = old; builtinUntil = time.Time{} }()
+	builtinUntil = time.Time{}
+	var mu sync.Mutex
+	calls := 0
+	started := make(chan struct{})
+	release := make(chan struct{})
+	builtinCall = func(_, _, _, _, _, _ string) (translate.DeepLXTranslationResult, error) {
+		mu.Lock()
+		calls++
+		first := calls == 1
+		mu.Unlock()
+		if first {
+			close(started)
+			<-release
+			return translate.DeepLXTranslationResult{Code: 429, Message: "Too many requests"}, nil
+		}
+		return translate.DeepLXTranslationResult{Code: 200, Data: "a"}, nil
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = NewBuiltin().Translate(context.Background(), "x", "自动检测", "简体中文")
+		}(i)
+		if i == 0 {
+			<-started // the first request holds the slot; the second queues behind it
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	close(release)
+	wg.Wait()
+	if calls != 1 || errs[0] == nil || errs[1] == nil {
+		t.Fatalf("queued request must not hit DeepLX during the cooldown: calls=%d errs=%v", calls, errs)
 	}
 }

@@ -64,7 +64,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 - `doubleCopy`、`screenshot` 都为 false 就停止监听；可重复调用（改配置，不会重建 tap）。
 - 缺辅助功能权限时**不弹窗**，只回 `running:false` 和 `error`（Go 再调 `permissions.guide`）。
 - 事件（helper → Go）：
-  - `{"event":"hotkey","name":"doubleCopy","changeCount":<第二次 ⌘C 按下前的 NSPasteboard.changeCount>}`（helper 不读剪贴板，Go 自己等剪贴板更新再读）
+  - `{"event":"hotkey","name":"doubleCopy","changeCount":<第一次 ⌘C 按下前的 NSPasteboard.changeCount>}`（helper 不读剪贴板，Go 自己等剪贴板更新再读）
   - `{"event":"hotkey","name":"screenshot"}`
   - `{"event":"hotkey.stopped","error":"<中文原因>"}`：权限丢失或 tap 失效、监听已停止。tap 只是超时被系统停用时 helper 会自动重新启用，不发这个事件。
 

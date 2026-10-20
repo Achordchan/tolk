@@ -112,6 +112,11 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 		// gives up, so timeouts cannot pile up concurrent DeepLX requests.
 		defer func() { <-builtinSlot }()
 		r, err := builtinCall(src, tgt, text, "", "", "")
+		// Record a rate limit before the slot is released, so a queued request
+		// cannot slip past the cooldown while the caller is still reading ch.
+		if err == nil && (r.Code == http.StatusTooManyRequests || looksLimited(r.Message)) {
+			builtinCoolDown(time.Now())
+		}
 		ch <- out{r, err}
 	}()
 	select {
@@ -122,7 +127,6 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 			return Result{}, fmt.Errorf("内置引擎请求失败：%v", o.err)
 		}
 		if o.r.Code == http.StatusTooManyRequests || looksLimited(o.r.Message) {
-			builtinCoolDown(time.Now())
 			return Result{}, limitedErr(builtinCooldown)
 		}
 		if o.r.Code != http.StatusOK {

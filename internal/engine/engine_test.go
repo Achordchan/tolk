@@ -222,3 +222,16 @@ func TestLanguageTableCoversBothApps(t *testing.T) {
 		t.Fatal("built-in engine has no Swahili")
 	}
 }
+
+func TestAppleUsesTheHelperCall(t *testing.T) {
+	a := &Apple{Call: func(_ context.Context, texts []string, s, tg string) ([]string, error) {
+		return []string{texts[0] + "|" + s + "|" + tg}, nil
+	}}
+	r, err := a.Translate(context.Background(), "hi", Auto, "简体中文")
+	if err != nil || r.Text != "hi|自动检测|简体中文" {
+		t.Fatalf("%v %v", r, err)
+	}
+	if _, err := (&Apple{}).Translate(context.Background(), "hi", Auto, "英语"); err == nil {
+		t.Fatal("no helper must be an error")
+	}
+}

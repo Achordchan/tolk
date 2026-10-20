@@ -113,7 +113,7 @@ func valOr(m map[string]any, k string) any {
 	return ""
 }
 
-var engineNames = map[string]bool{"google": true, "microsoft": true, "deepl": true, "openai_compat": true, "achord_builtin": true}
+var engineNames = map[string]bool{"google": true, "microsoft": true, "deepl": true, "openai_compat": true, "achord_builtin": true, "apple": true}
 
 // SaveSettings writes the settings back to the shared config file.
 func (Tolk) SaveSettings(u SettingsUpdate) error {

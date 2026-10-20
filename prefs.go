@@ -11,11 +11,16 @@ import (
 // Prefs are Tolk's own switches, kept under "tolk" in the shared config file
 // so dazuo-win ignores them. The language pair lives where dazuo-win keeps it.
 type Prefs struct {
-	MiniMode     bool   `json:"miniMode"`
-	DoubleCopy   bool   `json:"doubleCopy"`
-	DoubleCopyMs int    `json:"doubleCopyMs"`
-	SourceLang   string `json:"sourceLang"`
-	TargetLang   string `json:"targetLang"`
+	MiniMode     bool `json:"miniMode"`
+	DoubleCopy   bool `json:"doubleCopy"`
+	DoubleCopyMs int  `json:"doubleCopyMs"`
+	// macOS: listen for ⌘C⌘C system-wide through the helper (needs Accessibility)
+	// instead of watching the clipboard; and the double ⌘+key screenshot shortcut.
+	SystemHotkey      bool   `json:"systemHotkey"`
+	ScreenshotHotkey  bool   `json:"screenshotHotkey"`
+	ScreenshotKeyCode int    `json:"screenshotKeyCode"`
+	SourceLang        string `json:"sourceLang"`
+	TargetLang        string `json:"targetLang"`
 	// Theme is "system", "light", "dark" or "pink" (dazuo-win's three themes).
 	Theme      string `json:"theme"`
 	SourceFont int    `json:"sourceFont"`
@@ -29,7 +34,7 @@ const (
 )
 
 func defaultPrefs() Prefs {
-	return Prefs{DoubleCopy: true, DoubleCopyMs: 550, SourceLang: engine.Auto, TargetLang: "简体中文",
+	return Prefs{DoubleCopy: true, DoubleCopyMs: 550, ScreenshotHotkey: true, ScreenshotKeyCode: 7, SourceLang: engine.Auto, TargetLang: "简体中文",
 		Theme: "system", SourceFont: defaultFont, TargetFont: defaultFont}
 }
 
@@ -71,6 +76,15 @@ func loadPrefs() Prefs {
 		}
 		if v, ok := t["double_copy_ms"].(float64); ok && v >= 200 && v <= 2000 {
 			out.DoubleCopyMs = int(v)
+		}
+		if v, ok := t["system_hotkey"].(bool); ok {
+			out.SystemHotkey = v
+		}
+		if v, ok := t["screenshot_hotkey"].(bool); ok {
+			out.ScreenshotHotkey = v
+		}
+		if v, ok := t["screenshot_key_code"].(float64); ok && v >= 0 && v < 128 {
+			out.ScreenshotKeyCode = int(v)
 		}
 	}
 	if v, _ := m["theme"].(string); v == "light" || v == "dark" || v == "pink" {

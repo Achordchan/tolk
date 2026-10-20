@@ -43,14 +43,16 @@ func main() {
 			log.Println("shortcut:", err)
 		}
 
-		go watchUpdates()
-		go watchDoubleCopy(func(text string) {
+		onCopied := func(text string) {
 			if currentPrefs().MiniMode {
 				showMini(text)
 			} else {
 				translateInMain(text)
 			}
-		})
+		}
+		go watchUpdates()
+		go watchDoubleCopy(onCopied)
+		startHelper(onCopied)
 
 		menu := mygo.NewMenu([]*mygo.MenuItem{
 			{Label: "Show Tolk", Click: func(*mygo.MenuItem, *mygo.Window) { showMain() }},
@@ -76,7 +78,7 @@ func watchDoubleCopy(fire func(text string)) {
 	d := &doublecopy.Detector{}
 	for range time.Tick(180 * time.Millisecond) {
 		p := currentPrefs()
-		if !p.DoubleCopy {
+		if !p.DoubleCopy || hotkeyActive() { // the helper's hotkey handles it instead
 			d = &doublecopy.Detector{} // forget history while switched off
 			continue
 		}

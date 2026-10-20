@@ -2,6 +2,7 @@ import { Tolk, events } from "./mygo";
 import { THEMES, initLook } from "./look";
 import { engineList } from "./engines";
 import { initSettings } from "./settings";
+import { macPane } from "./mac";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -184,10 +185,12 @@ events.copied.on((text) => {
   schedule(0);
 });
 
+events.macNotice.on((m) => toast(m));
 
 initSettings({
   os: about.os,
   toast,
+  mac: about.os === "darwin" ? macPane(toast, () => $("#s-cancel").click()) : undefined,
   saved: async (next) => {
     prefs = next;
     showMini();

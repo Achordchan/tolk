@@ -21,6 +21,19 @@ export interface Entry {
   text: string;
 }
 
+/** MacStatus is what the "截图与权限" pane shows. */
+export interface MacStatus {
+  /** this build has a helper at all */
+  available: boolean;
+  running: boolean;
+  version: string;
+  capabilities: string[];
+  accessibility: boolean;
+  screenRecording: boolean;
+  hotkeyRunning: boolean;
+  hotkeyError: string;
+}
+
 /** MiniState is sent to the bubble page. */
 export interface MiniState {
   /** translating | result | error */
@@ -41,6 +54,13 @@ export interface Prefs {
   miniMode: boolean;
   doubleCopy: boolean;
   doubleCopyMs: number;
+  /**
+   * macOS: listen for ⌘C⌘C system-wide through the helper (needs Accessibility)
+   * instead of watching the clipboard; and the double ⌘+key screenshot shortcut.
+   */
+  systemHotkey: boolean;
+  screenshotHotkey: boolean;
+  screenshotKeyCode: number;
   sourceLang: string;
   targetLang: string;
   /** Theme is "system", "light", "dark" or "pink" (dazuo-win's three themes). */
@@ -172,6 +192,32 @@ export const Tolk = {
   legacyConfig(): Promise<Summary> {
     return call("Tolk.LegacyConfig");
   },
+  /** MacGuide opens the helper's permission guide window. */
+  macGuide(): Promise<void> {
+    return call("Tolk.MacGuide");
+  },
+  /**
+   * MacImportLegacy copies the old Mac app's settings and API key into Tolk.
+   * It returns notes about anything that did not carry over.
+   */
+  macImportLegacy(): Promise<string[]> {
+    return call("Tolk.MacImportLegacy");
+  },
+  /** MacRequestPermission asks macOS for "accessibility" or "screenRecording". */
+  macRequestPermission(kind: string): Promise<void> {
+    return call("Tolk.MacRequestPermission", kind);
+  },
+  /**
+   * MacScreenshot starts screenshot translation ("translate") or text
+   * extraction ("ocr") with the current language pair.
+   */
+  macScreenshot(mode: string): Promise<void> {
+    return call("Tolk.MacScreenshot", mode);
+  },
+  /** MacStatus reads the helper's state and permissions (no system prompts). */
+  macStatus(): Promise<MacStatus> {
+    return call("Tolk.MacStatus");
+  },
   /** ResizeMini fits the bubble to its content; the page reports the height. */
   resizeMini(height: number): Promise<void> {
     return call("Tolk.ResizeMini", height);
@@ -203,6 +249,10 @@ export const Tolk = {
   setLanguages(source: string, target: string): Promise<void> {
     return call("Tolk.SetLanguages", source, target);
   },
+  /** SetMacHotkeys saves the two Mac shortcut switches and applies them. */
+  setMacHotkeys(system: boolean, screenshot: boolean, keyCode: number): Promise<void> {
+    return call("Tolk.SetMacHotkeys", system, screenshot, keyCode);
+  },
   /** SetMini turns the Mini bubble on or off. */
   setMini(on: boolean): Promise<void> {
     return call("Tolk.SetMini", on);
@@ -229,6 +279,11 @@ export const events = {
   prefsChanged: event<Prefs>("prefsChanged"),
   /** UpdateChanged is broadcast whenever the update state changes. */
   updateChanged: event<UpdateState>("updateChanged"),
+  /**
+   * MacNotice carries a short message from the native helper to the windows
+   * (a screenshot problem, a lost permission).
+   */
+  macNotice: event<string>("macNotice"),
   /** Copied is sent to the main window when text should be translated there. */
   copied: event<string>("copied"),
   /** MiniUpdate carries MiniState to the bubble window. */

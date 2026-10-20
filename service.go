@@ -61,9 +61,16 @@ func translate(text, source, target string) (TranslateResult, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	token := fmt.Sprintf("[[DZFYQ_NL_%x]]", time.Now().UnixNano())
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
 	start := time.Now()
+	if api == "apple" { // the system translator keeps line breaks itself
+		res, err := eng.Translate(ctx, text, source, target)
+		if err != nil {
+			return TranslateResult{}, err
+		}
+		return TranslateResult{Text: res.Text, Detected: res.Detected, Engine: api, DurationMs: time.Since(start).Milliseconds()}, nil
+	}
+	token := fmt.Sprintf("[[DZFYQ_NL_%x]]", time.Now().UnixNano())
 	res, err := eng.Translate(ctx, strings.ReplaceAll(text, "\n", " "+token+" "), source, target)
 	if err != nil {
 		return TranslateResult{}, err

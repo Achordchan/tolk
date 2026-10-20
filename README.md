@@ -43,3 +43,7 @@ bun run build -- -platform darwin/universal
 开发时也可以用环境变量 `TOLK_HELPER=/path/to/tolk-helper` 指定小助手。
 
 发布流程见 [docs/RELEASING.md](docs/RELEASING.md)，更新日志见 [CHANGELOG.md](CHANGELOG.md)。
+
+## 许可证
+
+本项目以 [GNU GPL v3](LICENSE) 发布。内置的 DeepLX 部分沿用其 MIT 许可证，见 [third_party/DeepLX-LICENSE](third_party/DeepLX-LICENSE)。

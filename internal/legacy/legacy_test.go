@@ -57,3 +57,20 @@ func TestBackupLeavesOriginal(t *testing.T) {
 		t.Fatal("backup or original changed")
 	}
 }
+
+func TestBuildEngineUsesVendorProfile(t *testing.T) {
+	m := map[string]any{"openai_compat": map[string]any{
+		"vendor": "deepseek", "base_url": "old", "model": "old", "api_key": "old",
+		"profiles": map[string]any{"deepseek": map[string]any{"base_url": "https://x/v1", "model": "m", "api_key": "k"}},
+	}}
+	e, err := BuildEngine(m, "openai_compat")
+	if err != nil || e == nil {
+		t.Fatalf("got %v, %v", e, err)
+	}
+	if _, err := BuildEngine(map[string]any{}, "openai_compat"); err == nil {
+		t.Fatal("expected missing url error")
+	}
+	if _, err := BuildEngine(m, "microsoft"); err == nil {
+		t.Fatal("microsoft is not ported yet")
+	}
+}

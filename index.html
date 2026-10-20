@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,12 +7,36 @@
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
-    <main>
-      <h1>Tolk <small id="version" class="muted"></small></h1>
-      <p class="muted">Prototype: shortcut Ctrl/Cmd+Shift+C, tray, legacy config.</p>
-      <p id="legacy" class="card"></p>
-      <p id="clip" class="card">Press Ctrl/Cmd+Shift+C to capture the clipboard.</p>
-    </main>
+    <div class="app">
+      <header class="toolbar card">
+        <select id="source" aria-label="源语言"></select>
+        <button id="swap" class="icon" title="交换翻译方向" aria-label="交换翻译方向">⇄</button>
+        <select id="target" aria-label="目标语言"></select>
+        <span class="spacer"></span>
+        <span id="engine" class="badge" title="当前翻译服务"></span>
+        <button id="theme" class="icon" title="切换主题" aria-label="切换主题">◐</button>
+      </header>
+
+      <main class="panes">
+        <section class="pane card">
+          <textarea id="input" placeholder="输入或粘贴要翻译的文字，也可以复制后按 Ctrl/Cmd+Shift+C" spellcheck="false"></textarea>
+          <footer>
+            <span id="count" class="muted"></span>
+            <button id="clear" class="ghost">清空</button>
+          </footer>
+        </section>
+        <section class="pane card">
+          <div id="output" class="output" aria-live="polite"></div>
+          <footer>
+            <span id="status" class="muted"></span>
+            <button id="copy" class="ghost">复制译文</button>
+          </footer>
+        </section>
+      </main>
+
+      <div id="toast" class="toast" hidden></div>
+      <p id="legacy" class="muted foot"></p>
+    </div>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

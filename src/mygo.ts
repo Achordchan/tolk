@@ -13,6 +13,14 @@ export interface Summary {
   unknownKeys: string[];
 }
 
+/** TranslateResult is what the page shows after a translation. */
+export interface TranslateResult {
+  text: string;
+  detected: string;
+  engine: string;
+  durationMs: number;
+}
+
 // ---- Services ----
 
 /** Tolk is callable from the frontend. */
@@ -21,9 +29,20 @@ export const Tolk = {
   clipboardText(): Promise<string> {
     return call("Tolk.ClipboardText");
   },
+  /** Languages are the labels for the language pickers. */
+  languages(): Promise<string[]> {
+    return call("Tolk.Languages");
+  },
   /** LegacyConfig summarizes an existing dazuo-win config (no secrets). */
   legacyConfig(): Promise<Summary> {
     return call("Tolk.LegacyConfig");
+  },
+  /**
+   * Translate runs the engine chosen in the legacy config. Newlines are
+   * wrapped in a marker so engines keep paragraph breaks, as dazuo-win did.
+   */
+  translate(text: string, source: string, target: string): Promise<TranslateResult> {
+    return call("Tolk.Translate", text, source, target);
   },
   /** Version of the app, shown in the prototype page. */
   version(): Promise<string> {

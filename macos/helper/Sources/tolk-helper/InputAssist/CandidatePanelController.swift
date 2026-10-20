@@ -169,22 +169,43 @@ final class CandidatePanelController {
             return false
         }
 
+        // 这个函数在事件 tap 的回调里同步执行：回调不返回，全系统的键盘投递都在等。
+        // 所以只同步改选中状态（连按 ↓ 时下一次判定要看到最新的选中项），
+        // 窗口操作、写剪贴板、提交替换这些可能慢的动作都挪到回调之外再做。
+        var deferredAction: (@MainActor (CandidatePanelController) -> Void)?
         switch decision.action {
         case .moveUp:
-            if model.state.moveSelection(by: -1) { resizeToFitContent() }
+            if model.state.moveSelection(by: -1) {
+                deferredAction = { $0.resizeToFitContent() }
+            }
         case .moveDown:
-            if model.state.moveSelection(by: 1) { resizeToFitContent() }
+            if model.state.moveSelection(by: 1) {
+                deferredAction = { $0.resizeToFitContent() }
+            }
         case .commit:
-            onCommit?(model.state.selectedIndex)
+            let index = model.state.selectedIndex
+            deferredAction = { $0.onCommit?(index) }
         case .commitIndex(let index):
-            if model.state.select(index: index) { resizeToFitContent() }
-            onCommit?(index)
+            let changed = model.state.select(index: index)
+            deferredAction = {
+                if changed { $0.resizeToFitContent() }
+                $0.onCommit?(index)
+            }
         case .copySelection:
-            onCopy?(model.state.selectedIndex)
+            let index = model.state.selectedIndex
+            deferredAction = { $0.onCopy?(index) }
         case .dismiss:
-            dismiss(reason: .escape)
+            deferredAction = { $0.dismiss(reason: .escape) }
         case .dismissPassingEventThrough:
-            dismiss(reason: dismissReason(for: event))
+            let reason = dismissReason(for: event)
+            deferredAction = { $0.dismiss(reason: reason) }
+        }
+
+        if let deferredAction {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                deferredAction(self)
+            }
         }
 
         return decision.swallowsEvent

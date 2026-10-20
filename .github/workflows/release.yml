@@ -20,6 +20,11 @@ on:
         required: false
         default: true
         type: boolean
+      replace_published:
+        description: 同版本已经发布过时，删掉旧的 Release 和标签后重发（仅用于还没有用户的试跑）
+        required: false
+        default: false
+        type: boolean
       force_update:
         description: 在说明里加 update=1（强制更新）
         required: false
@@ -58,13 +63,17 @@ jobs:
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          REPLACE_PUBLISHED: ${{ inputs.replace_published }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ] || { echo "$TAG 已经发布过，请提升版本号。" >&2; exit 1; }
-          else
-            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Tolk $TAG" --notes "构建中…"
+            if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" != "true" ]; then
+              [ "$REPLACE_PUBLISHED" = "true" ] || { echo "$TAG 已经发布过，请提升版本号（试跑可勾选 replace_published）。" >&2; exit 1; }
+            fi
+            # 旧草稿的标签会停在它创建时的提交上，所以一律删掉重建，让标签指向这次构建的提交。
+            gh release delete "$TAG" --cleanup-tag --yes
           fi
+          gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Tolk $TAG" --notes "构建中…"
 
   windows:
     needs: prepare

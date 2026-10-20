@@ -402,8 +402,16 @@ func repairDoubleCopy() {
 	if err != nil {
 		return
 	}
-	if _, err := legacy.Load(p); err != nil {
+	cfg, err := legacy.Load(p)
+	if err != nil {
 		return // no config yet: nothing to repair
+	}
+	if !macmigrate.RepairPending(cfg) {
+		if !macmigrate.RepairDone(cfg) {
+			// Nothing to fix; record that so a later deliberate choice is never "repaired".
+			_ = legacy.Update(p, func(m map[string]any) { macmigrate.Repair(m, macmigrate.Data{}) })
+		}
+		return
 	}
 	c, _ := current()
 	if c == nil {

@@ -50,6 +50,23 @@ func TestRepairRevivesDoubleCopyOnceForImportedGlobalMode(t *testing.T) {
 	}
 }
 
+func TestRepairPendingSkipsConfigsThatCannotNeedIt(t *testing.T) {
+	broken := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": true, "double_copy": false}}
+	if !RepairPending(broken) {
+		t.Fatal("the broken combination must be pending")
+	}
+	for name, tk := range map[string]map[string]any{
+		"already repaired": {Done: true, repairMarker: true, "system_hotkey": true, "double_copy": false},
+		"never imported":   {"system_hotkey": true, "double_copy": false},
+		"double copy on":   {Done: true, "system_hotkey": true, "double_copy": true},
+		"clipboard mode":   {Done: true, "system_hotkey": false, "double_copy": false},
+	} {
+		if RepairPending(map[string]any{"tolk": tk}) {
+			t.Errorf("%s: should not read the old app's settings", name)
+		}
+	}
+}
+
 func TestRepairLeavesConfigsThatDidNotComeFromGlobalMode(t *testing.T) {
 	for name, d := range map[string]Data{
 		"clipboard mode":  {Defaults: map[string]any{"globalHotkeyEnabled": false, "doubleCopyEnabled": true}},

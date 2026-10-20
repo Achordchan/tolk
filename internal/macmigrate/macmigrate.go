@@ -55,6 +55,28 @@ func Imported(cfg map[string]any) bool {
 // repairMarker is kept under "tolk" once Repair ran.
 const repairMarker = "mac_repair_double_copy"
 
+// RepairPending reports whether the config could still need Repair: it was
+// imported, the repair has not run, and it has the broken combination. It
+// lets the caller skip reading the old app's settings (which touches the
+// Keychain) when the answer is already no.
+func RepairPending(cfg map[string]any) bool {
+	t, _ := cfg["tolk"].(map[string]any)
+	if done, _ := t[repairMarker].(bool); done {
+		return false
+	}
+	imported, _ := t[Done].(bool)
+	sys, _ := t["system_hotkey"].(bool)
+	dc, ok := t["double_copy"].(bool)
+	return imported && sys && ok && !dc
+}
+
+// RepairDone reports whether the repair marker is already set.
+func RepairDone(cfg map[string]any) bool {
+	t, _ := cfg["tolk"].(map[string]any)
+	done, _ := t[repairMarker].(bool)
+	return done
+}
+
 // Repair fixes a config imported before double_copy followed the old app's
 // global mode: system_hotkey on with double_copy off, which left ⌘C⌘C dead.
 // It only acts when the old app's own settings show that mode (global hotkey

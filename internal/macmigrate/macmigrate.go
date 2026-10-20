@@ -52,6 +52,32 @@ func Imported(cfg map[string]any) bool {
 	return v
 }
 
+// repairMarker is kept under "tolk" once Repair ran.
+const repairMarker = "mac_repair_double_copy"
+
+// Repair fixes a config imported before double_copy followed the old app's
+// global mode: system_hotkey on with double_copy off, which left ⌘C⌘C dead.
+// It runs once and reports whether it changed anything.
+func Repair(cfg map[string]any) bool {
+	t, _ := cfg["tolk"].(map[string]any)
+	if t == nil {
+		return false
+	}
+	if done, _ := t[repairMarker].(bool); done {
+		return false
+	}
+	t[repairMarker] = true
+	if imported, _ := t[Done].(bool); !imported {
+		return true
+	}
+	if sys, _ := t["system_hotkey"].(bool); sys {
+		if dc, ok := t["double_copy"].(bool); ok && !dc {
+			t["double_copy"] = true
+		}
+	}
+	return true
+}
+
 func str(v any) string { s, _ := v.(string); return strings.TrimSpace(s) }
 
 func num(v any) (float64, bool) { f, ok := v.(float64); return f, ok }
@@ -135,6 +161,12 @@ func Apply(cfg map[string]any, d Data) (notes []string) {
 	}
 	if b, ok := d.Defaults["globalHotkeyEnabled"].(bool); ok {
 		t["system_hotkey"] = b
+		// The old app turned "global" mode on and the clipboard mode off
+		// (doubleCopyEnabled = false), and either one meant "⌘C⌘C translates".
+		// In Tolk double_copy is the one switch for both, so it must stay on.
+		if b {
+			t["double_copy"] = true
+		}
 	}
 	if b, ok := d.Defaults["miniModeEnabled"].(bool); ok {
 		t["mini_mode"] = b

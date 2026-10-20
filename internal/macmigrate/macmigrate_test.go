@@ -30,11 +30,27 @@ func TestApplyMapsOldMacSettings(t *testing.T) {
 		t.Fatalf("look: %v", cfg)
 	}
 	tk := cfg["tolk"].(map[string]any)
-	if tk["double_copy"] != false || tk["system_hotkey"] != true || !Imported(cfg) {
+	if tk["double_copy"] != true || tk["system_hotkey"] != true || !Imported(cfg) {
 		t.Fatalf("tolk: %v", tk)
 	}
 	if len(notes) != 1 {
 		t.Fatalf("notes: %v", notes)
+	}
+}
+
+func TestRepairRevivesDoubleCopyOnceForImportedGlobalMode(t *testing.T) {
+	cfg := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": true, "double_copy": false}}
+	if !Repair(cfg) || cfg["tolk"].(map[string]any)["double_copy"] != true {
+		t.Fatalf("not repaired: %v", cfg)
+	}
+	cfg["tolk"].(map[string]any)["double_copy"] = false // the user turned it off afterwards
+	if Repair(cfg) || cfg["tolk"].(map[string]any)["double_copy"] != false {
+		t.Fatal("repaired twice")
+	}
+	clip := map[string]any{"tolk": map[string]any{Done: true, "system_hotkey": false, "double_copy": false}}
+	Repair(clip)
+	if clip["tolk"].(map[string]any)["double_copy"] != false {
+		t.Fatal("switched on a deliberately off double copy")
 	}
 }
 

@@ -153,6 +153,16 @@ func firstRun() {
 				Logs.Warnf("导入旧版 Mac 设置：%v", err)
 			}
 		}
+		repaired := false
+		if _, err := legacy.Load(p); err != nil {
+			// no config yet: nothing to repair
+		} else if err := legacy.Update(p, func(m map[string]any) { repaired = macmigrate.Repair(m) }); err != nil {
+			Logs.Warnf("修正双击复制设置：%v", err)
+		} else if repaired {
+			loadPrefs()
+			macApplyHotkeys()
+			_ = PrefsChanged.Broadcast(currentPrefs())
+		}
 	}
 	st := macStatus()
 	if st.Running && !st.Accessibility && !st.ScreenRecording {

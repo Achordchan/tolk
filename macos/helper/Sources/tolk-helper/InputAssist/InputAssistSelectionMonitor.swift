@@ -54,6 +54,9 @@ final class InputAssistSelectionMonitor {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if event.type == .leftMouseDown {
+                    // 新的划选开始了：还没触发的取词作废，等 mouse-up 再重新排。
+                    self.pendingTask?.cancel()
+                    self.pendingTask = nil
                     if isReselectGesture {
                         self.lastFingerprint = nil
                     }

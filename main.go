@@ -44,11 +44,9 @@ func main() {
 				win.Hide()
 			}
 		})
-		mygo.App.OnActivate(func(visible bool) { // Dock icon clicked
-			if !visible {
-				showMain()
-			}
-		})
+		// Dock icon clicked. Not gated on "has visible windows": the Mini
+		// bubble counts as one while the main window is hidden.
+		mygo.App.OnActivate(func(bool) { showMain() })
 		translateInMain := func(text string) {
 			showMain()
 			_ = Copied.Emit(win, text)

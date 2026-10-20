@@ -16,11 +16,38 @@ type Prefs struct {
 	DoubleCopyMs int    `json:"doubleCopyMs"`
 	SourceLang   string `json:"sourceLang"`
 	TargetLang   string `json:"targetLang"`
+	// Theme is "system", "light", "dark" or "pink" (dazuo-win's three themes).
+	Theme      string `json:"theme"`
+	SourceFont int    `json:"sourceFont"`
+	TargetFont int    `json:"targetFont"`
+}
+
+const (
+	minFont     = 12
+	maxFont     = 28
+	defaultFont = 18
+)
+
+func defaultPrefs() Prefs {
+	return Prefs{DoubleCopy: true, DoubleCopyMs: 550, SourceLang: engine.Auto, TargetLang: "简体中文",
+		Theme: "system", SourceFont: defaultFont, TargetFont: defaultFont}
+}
+
+func validTheme(t string) bool { return t == "system" || t == "light" || t == "dark" || t == "pink" }
+
+func clampFont(n int) int {
+	if n < minFont {
+		return minFont
+	}
+	if n > maxFont {
+		return maxFont
+	}
+	return n
 }
 
 var (
 	prefsMu sync.Mutex
-	prefs   = Prefs{DoubleCopy: true, DoubleCopyMs: 550, SourceLang: engine.Auto, TargetLang: "简体中文"}
+	prefs   = defaultPrefs()
 )
 
 func loadPrefs() Prefs {
@@ -34,7 +61,7 @@ func loadPrefs() Prefs {
 	if err != nil {
 		return prefs
 	}
-	out := Prefs{DoubleCopy: true, DoubleCopyMs: 550, SourceLang: engine.Auto, TargetLang: "简体中文"}
+	out := defaultPrefs()
 	if t, ok := m["tolk"].(map[string]any); ok {
 		if v, ok := t["mini_mode"].(bool); ok {
 			out.MiniMode = v
@@ -44,6 +71,17 @@ func loadPrefs() Prefs {
 		}
 		if v, ok := t["double_copy_ms"].(float64); ok && v >= 200 && v <= 2000 {
 			out.DoubleCopyMs = int(v)
+		}
+	}
+	if v, _ := m["theme"].(string); v == "light" || v == "dark" || v == "pink" {
+		out.Theme = v
+	}
+	if d, ok := m["display"].(map[string]any); ok {
+		if v, ok := d["source_font_size"].(float64); ok {
+			out.SourceFont = clampFont(int(v))
+		}
+		if v, ok := d["target_font_size"].(float64); ok {
+			out.TargetFont = clampFont(int(v))
 		}
 	}
 	if t, ok := m["translation"].(map[string]any); ok {
@@ -120,5 +158,31 @@ func setTolkPref(fn func(t map[string]any)) error {
 		return err
 	}
 	loadPrefs()
+	return nil
+}
+
+// SetAppearance stores the theme and text sizes where dazuo-win keeps them. An
+// automatic theme drops the key, which the old app reads as its default.
+func (Tolk) SetAppearance(theme string, sourceFont, targetFont int) error {
+	if !validTheme(theme) {
+		return fmt.Errorf("不支持的主题：%s", theme)
+	}
+	p, err := legacy.DefaultPath()
+	if err != nil {
+		return err
+	}
+	if err := legacy.Update(p, func(m map[string]any) {
+		if theme == "system" {
+			delete(m, "theme")
+		} else {
+			m["theme"] = theme
+		}
+		d := legacy.Sub(m, "display")
+		d["source_font_size"], d["target_font_size"] = clampFont(sourceFont), clampFont(targetFont)
+	}); err != nil {
+		return err
+	}
+	loadPrefs()
+	_ = PrefsChanged.Broadcast(currentPrefs())
 	return nil
 }

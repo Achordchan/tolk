@@ -28,21 +28,20 @@ var (
 	builtinCall  = translate.TranslateByDeepLX
 )
 
-var builtinSource = map[string]string{
-	"自动检测": "auto", "简体中文": "ZH", "中文": "ZH", "繁体中文": "ZH-HANT",
-	"英语": "EN", "日语": "JA", "韩语": "KO", "法语": "FR", "德语": "DE",
-	"西班牙语": "ES", "俄语": "RU", "意大利语": "IT", "葡萄牙语": "PT",
-	"越南语": "VI", "泰语": "TH", "阿拉伯语": "AR",
-}
+var builtinSource = func() map[string]string {
+	m := codes(func(l lang) string { return l.dlSrc })
+	m["自动检测"] = "auto"
+	m["中文"] = "ZH"
+	m["繁体中文"] = "ZH-HANT"
+	return m
+}()
 
 var builtinTarget = func() map[string]string {
-	m := make(map[string]string, len(builtinSource))
-	for k, v := range builtinSource {
-		m[k] = v
-	}
+	m := codes(func(l lang) string { return l.dlSrc })
+	m["中文"] = "ZH"
+	m["繁体中文"] = "ZH-HANT"
 	m["英语"] = "EN-US"
 	m["葡萄牙语"] = "PT-BR"
-	delete(m, "自动检测")
 	return m
 }()
 
@@ -50,6 +49,9 @@ var builtinNames = map[string]string{
 	"ZH": "简体中文", "ZH-HANS": "简体中文", "ZH-HANT": "繁体中文", "EN": "英语", "EN-US": "英语",
 	"JA": "日语", "KO": "韩语", "FR": "法语", "DE": "德语", "ES": "西班牙语", "RU": "俄语",
 	"IT": "意大利语", "PT": "葡萄牙语", "PT-BR": "葡萄牙语", "VI": "越南语", "TH": "泰语", "AR": "阿拉伯语",
+	"NL": "荷兰语", "SV": "瑞典语", "DA": "丹麦语", "NB": "挪威语", "FI": "芬兰语", "PL": "波兰语", "CS": "捷克语",
+	"HU": "匈牙利语", "RO": "罗马尼亚语", "BG": "保加利亚语", "EL": "希腊语", "UK": "乌克兰语", "TR": "土耳其语",
+	"HE": "希伯来语", "ID": "印尼语",
 }
 
 func builtinWait(now time.Time) time.Duration {
@@ -80,11 +82,11 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 	}
 	tgt, ok := builtinTarget[target]
 	if !ok {
-		return Result{}, fmt.Errorf("内置引擎不支持目标语言：%s", target)
+		return Result{}, unsupported("内置引擎", "目标", target)
 	}
 	src, ok := builtinSource[source]
 	if !ok {
-		src = "auto"
+		return Result{}, unsupported("内置引擎", "源", source)
 	}
 	if d := builtinWait(time.Now()); d > 0 {
 		return Result{}, limitedErr(d)

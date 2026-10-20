@@ -1,4 +1,5 @@
 import { Tolk, events } from "./mygo";
+import { initLook } from "./look";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const body = $("#body");
@@ -8,13 +9,7 @@ const foot = $("#foot");
 const SHOWN: Record<string, string> = { 简体中文: "中文（简体）", 繁体中文: "中文（繁体）" };
 const shown = (name: string) => SHOWN[name] ?? name;
 
-// Follow the system theme, or the one chosen in the main window.
-try {
-  const theme = localStorage.getItem("theme");
-  if (theme) document.documentElement.dataset.theme = theme;
-} catch {
-  /* storage can be unavailable */
-}
+void initLook();
 
 let dismissTimer: number | undefined;
 let hovering = false;

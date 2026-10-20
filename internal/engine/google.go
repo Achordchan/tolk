@@ -10,11 +10,11 @@ import (
 	"strings"
 )
 
-var googleCodes = map[string]string{
-	"简体中文": "zh-CN", "繁体中文": "zh-TW", "英语": "en", "日语": "ja", "韩语": "ko",
-	"法语": "fr", "德语": "de", "西班牙语": "es", "俄语": "ru", "意大利语": "it",
-	"葡萄牙语": "pt", "越南语": "vi", "泰语": "th", "阿拉伯语": "ar", Auto: "auto",
-}
+var googleCodes = func() map[string]string {
+	m := codes(func(l lang) string { return l.google })
+	m[Auto] = "auto"
+	return m
+}()
 
 // Google uses the unofficial web endpoints, with the same fallback as the
 // Python app: translate.googleapis.com first, clients5.google.com second.
@@ -39,11 +39,11 @@ func (g *Google) Translate(ctx context.Context, text, source, target string) (Re
 	}
 	sl, ok := googleCodes[source]
 	if !ok {
-		sl = "auto"
+		return Result{}, unsupported("Google 翻译", "源", source)
 	}
 	tl, ok := googleCodes[target]
-	if !ok {
-		tl = "zh-CN"
+	if !ok || tl == "auto" {
+		return Result{}, unsupported("Google 翻译", "目标", target)
 	}
 	res, err := g.primary(ctx, text, sl, tl)
 	if err == nil {

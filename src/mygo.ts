@@ -4,6 +4,23 @@ import { call, event } from "mygo-runtime";
 
 // ---- Types ----
 
+/** About is the About pane's data. */
+export interface About {
+  version: string;
+  os: string;
+  arch: string;
+  configPath: string;
+  /** "" when this system has no helper */
+  helper: string;
+}
+
+export interface Entry {
+  id: number;
+  time: number;
+  level: string;
+  text: string;
+}
+
 /** MiniState is sent to the bubble page. */
 export interface MiniState {
   /** translating | result | error */
@@ -26,6 +43,10 @@ export interface Prefs {
   doubleCopyMs: number;
   sourceLang: string;
   targetLang: string;
+  /** Theme is "system", "light", "dark" or "pink" (dazuo-win's three themes). */
+  theme: string;
+  sourceFont: number;
+  targetFont: number;
 }
 
 /** Profile is one AI vendor's saved settings; the key never leaves Go. */
@@ -76,6 +97,18 @@ export interface TranslateResult {
   durationMs: number;
 }
 
+/** UpdateState is what the update row of the About pane shows. */
+export interface UpdateState {
+  /** idle, checking, latest, available, downloading, installing, error */
+  state: string;
+  version: string;
+  notes: string;
+  force: boolean;
+  percent: number;
+  error: string;
+  source: string;
+}
+
 /** Vendor presets, the same as dazuo-win's VENDOR_DEFAULTS. */
 export interface Vendor {
   name: string;
@@ -87,9 +120,29 @@ export interface Vendor {
 
 /** Tolk is callable from the frontend. */
 export const Tolk = {
+  /** About returns version and environment details for the About pane. */
+  about(): Promise<About> {
+    return call("Tolk.About");
+  },
+  /** Autostart reports whether Tolk starts at login. */
+  autostart(): Promise<boolean> {
+    return call("Tolk.Autostart");
+  },
+  /** CheckUpdate asks the release sources whether a newer version exists. */
+  checkUpdate(): Promise<UpdateState> {
+    return call("Tolk.CheckUpdate");
+  },
+  /** ClearConsole empties the console. */
+  clearConsole(): Promise<void> {
+    return call("Tolk.ClearConsole");
+  },
   /** ClipboardText returns the current clipboard text. */
   clipboardText(): Promise<string> {
     return call("Tolk.ClipboardText");
+  },
+  /** ConsoleLines returns the log lines newer than after. */
+  consoleLines(after: number): Promise<Entry[]> {
+    return call("Tolk.ConsoleLines", after);
   },
   /** GetPrefs returns the switches and the language pair. */
   getPrefs(): Promise<Prefs> {
@@ -102,6 +155,14 @@ export const Tolk = {
   /** HideMini closes the bubble and drops the request in flight. */
   hideMini(): Promise<void> {
     return call("Tolk.HideMini");
+  },
+  /**
+   * InstallUpdate downloads the update found by CheckUpdate and swaps it in. It
+   * returns at once; progress arrives as UpdateChanged events, and the app quits
+   * when the swap script is running.
+   */
+  installUpdate(): Promise<void> {
+    return call("Tolk.InstallUpdate");
   },
   /** Languages are the labels for the language pickers. */
   languages(): Promise<string[]> {
@@ -118,6 +179,17 @@ export const Tolk = {
   /** SaveSettings writes the settings back to the shared config file. */
   saveSettings(u: SettingsUpdate): Promise<void> {
     return call("Tolk.SaveSettings", u);
+  },
+  /**
+   * SetAppearance stores the theme and text sizes where dazuo-win keeps them. An
+   * automatic theme drops the key, which the old app reads as its default.
+   */
+  setAppearance(theme: string, sourceFont: number, targetFont: number): Promise<void> {
+    return call("Tolk.SetAppearance", theme, sourceFont, targetFont);
+  },
+  /** SetAutostart turns start-at-login on or off. */
+  setAutostart(on: boolean): Promise<void> {
+    return call("Tolk.SetAutostart", on);
   },
   /** SetDoubleCopy sets the Cmd/Ctrl+C+C switch and its time window. */
   setDoubleCopy(on: boolean, windowMs: number): Promise<void> {
@@ -139,7 +211,11 @@ export const Tolk = {
   translate(text: string, source: string, target: string): Promise<TranslateResult> {
     return call("Tolk.Translate", text, source, target);
   },
-  /** Version of the app, shown in the prototype page. */
+  /** UpdateStatus returns the last known update state. */
+  updateStatus(): Promise<UpdateState> {
+    return call("Tolk.UpdateStatus");
+  },
+  /** Version of the app. */
   version(): Promise<string> {
     return call("Tolk.Version");
   },
@@ -149,6 +225,10 @@ export const Tolk = {
 
 /** Events sent by the Go side. Subscribe with `events.name.on(listener)`. */
 export const events = {
+  /** PrefsChanged tells every window to re-read the look (theme, text sizes). */
+  prefsChanged: event<Prefs>("prefsChanged"),
+  /** UpdateChanged is broadcast whenever the update state changes. */
+  updateChanged: event<UpdateState>("updateChanged"),
   /** Copied is sent to the main window when text should be translated there. */
   copied: event<string>("copied"),
   /** MiniUpdate carries MiniState to the bubble window. */

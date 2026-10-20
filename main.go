@@ -43,6 +43,7 @@ func main() {
 			log.Println("shortcut:", err)
 		}
 
+		go watchUpdates()
 		go watchDoubleCopy(func(text string) {
 			if currentPrefs().MiniMode {
 				showMini(text)

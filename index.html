@@ -63,43 +63,152 @@
     </div>
 
     <dialog id="settings">
-      <form method="dialog" id="settings-form">
-        <h2>设置</h2>
-        <p id="settings-note" class="muted"></p>
-        <label class="row">翻译服务
-          <select id="s-engine"></select>
-        </label>
+      <form method="dialog" id="settings-form" class="sheet">
+        <nav class="side" aria-label="设置分类">
+          <div class="side-head">
+            <img src="/icon.png" alt="" width="36" height="36" />
+            <div><strong>Tolk</strong><span class="muted">设置</span></div>
+          </div>
+          <button type="button" class="tab" data-pane="service">翻译服务</button>
+          <button type="button" class="tab" data-pane="general">通用</button>
+          <button type="button" class="tab" data-pane="look">外观</button>
+          <button type="button" class="tab" data-pane="mac" id="tab-mac" hidden>截图与权限</button>
+          <button type="button" class="tab" data-pane="console">控制台</button>
+          <button type="button" class="tab" data-pane="about">关于</button>
+          <span class="spacer"></span>
+          <span id="side-version" class="muted ver"></span>
+        </nav>
 
-        <fieldset>
-          <legend>双击复制</legend>
-          <label class="check"><input id="s-dc" type="checkbox" /> 连按两次复制（Cmd/Ctrl+C+C）翻译所选文字</label>
-          <label class="row">时间窗口 <span class="inline"><input id="s-dc-ms" type="number" min="200" max="2000" step="50" /> 毫秒</span></label>
-        </fieldset>
+        <div class="content">
+          <section class="pane-body" data-pane="service">
+            <h2>翻译服务</h2>
+            <p class="muted">与旧版大佐翻译官共用同一份设置，密钥只保存在本机。</p>
+            <label class="row">翻译服务
+              <select id="s-engine"></select>
+            </label>
+            <fieldset data-for="achord_builtin">
+              <legend>Achord 内置引擎</legend>
+              <p class="muted">不用填任何东西。免费线路偶尔会被限流，提示后稍等一分钟或换别的服务。</p>
+            </fieldset>
+            <fieldset data-for="google">
+              <legend>Google 翻译</legend>
+              <p class="muted">不用填。需要能访问海外网站的网络。</p>
+            </fieldset>
+            <fieldset data-for="deepl">
+              <legend>DeepL</legend>
+              <label class="row">API Key <input id="s-deepl-key" type="password" autocomplete="off" /></label>
+            </fieldset>
+            <fieldset data-for="microsoft">
+              <legend>微软翻译</legend>
+              <p class="muted">默认免费，不用填。想用 Azure 官方接口再填下面两项。</p>
+              <label class="row">Azure Key <input id="s-ms-key" type="password" autocomplete="off" /></label>
+              <label class="row">区域 <input id="s-ms-region" placeholder="例如 eastasia" /></label>
+            </fieldset>
+            <fieldset data-for="openai_compat">
+              <legend>AI 翻译</legend>
+              <label class="row">厂家 <select id="s-vendor"></select></label>
+              <label class="row">模型 URL <input id="s-base" placeholder="https://…/v1" /></label>
+              <label class="row">模型名 <input id="s-model" /></label>
+              <label class="row">API Key <input id="s-ai-key" type="password" autocomplete="off" /></label>
+            </fieldset>
+            <fieldset data-for="apple" id="fs-apple" hidden>
+              <legend>Apple 本地翻译</legend>
+              <p class="muted">在这台 Mac 上离线翻译，不用 API Key。第一次用某个语言对时系统会提示下载语言包。</p>
+            </fieldset>
+          </section>
 
-        <fieldset data-for="deepl">
-          <legend>DeepL</legend>
-          <label class="row">API Key <input id="s-deepl-key" type="password" autocomplete="off" /></label>
-        </fieldset>
+          <section class="pane-body" data-pane="general" hidden>
+            <h2>通用</h2>
+            <fieldset>
+              <legend>启动</legend>
+              <label class="check"><input id="s-autostart" type="checkbox" /> 开机自动启动</label>
+            </fieldset>
+            <fieldset>
+              <legend>双击复制</legend>
+              <label class="check"><input id="s-dc" type="checkbox" /> 连按两次复制（Cmd/Ctrl+C+C）翻译所选文字</label>
+              <label class="row">时间窗口 <span class="inline"><input id="s-dc-ms" type="number" min="200" max="2000" step="50" /> 毫秒</span></label>
+              <label class="check"><input id="s-mini" type="checkbox" /> Mini 模式：译文显示在鼠标附近，不唤起主窗口</label>
+            </fieldset>
+          </section>
 
-        <fieldset data-for="microsoft">
-          <legend>微软翻译</legend>
-          <p class="muted">默认免费，不用填。想用 Azure 官方接口再填下面两项。</p>
-          <label class="row">Azure Key <input id="s-ms-key" type="password" autocomplete="off" /></label>
-          <label class="row">区域 <input id="s-ms-region" placeholder="例如 eastasia" /></label>
-        </fieldset>
+          <section class="pane-body" data-pane="look" hidden>
+            <h2>外观</h2>
+            <fieldset>
+              <legend>主题</legend>
+              <div class="themes" id="themes"></div>
+            </fieldset>
+            <fieldset>
+              <legend>文字大小</legend>
+              <label class="row">原文 <span class="inline"><input id="s-src-font" type="range" min="12" max="28" step="1" /> <output id="o-src-font"></output></span></label>
+              <label class="row">译文 <span class="inline"><input id="s-dst-font" type="range" min="12" max="28" step="1" /> <output id="o-dst-font"></output></span></label>
+              <div class="preview card" id="font-preview">译文预览 Preview 翻訳</div>
+            </fieldset>
+          </section>
 
-        <fieldset data-for="openai_compat">
-          <legend>AI 翻译</legend>
-          <label class="row">厂家 <select id="s-vendor"></select></label>
-          <label class="row">模型 URL <input id="s-base" placeholder="https://…/v1" /></label>
-          <label class="row">模型名 <input id="s-model" /></label>
-          <label class="row">API Key <input id="s-ai-key" type="password" autocomplete="off" /></label>
-        </fieldset>
+          <section class="pane-body" data-pane="mac" hidden>
+            <h2>截图与权限</h2>
+            <fieldset>
+              <legend>快捷键</legend>
+              <label class="check"><input id="s-hk-dc" type="checkbox" /> 系统级 ⌘C⌘C 监听（需要辅助功能权限，比剪贴板检测更稳）</label>
+              <label class="check"><input id="s-hk-shot" type="checkbox" /> 连按两次 ⌘X 启动截图翻译</label>
+            </fieldset>
+            <fieldset>
+              <legend>系统权限</legend>
+              <div class="perm"><span>辅助功能</span><span id="p-ax" class="badge">—</span></div>
+              <div class="perm"><span>屏幕录制</span><span id="p-sr" class="badge">—</span></div>
+              <div class="actions left">
+                <button type="button" id="p-guide" class="ghost">授权引导</button>
+                <button type="button" id="p-shot" class="ghost">现在截图翻译</button>
+                <button type="button" id="p-migrate" class="ghost">导入旧版设置</button>
+              </div>
+            </fieldset>
+          </section>
 
-        <p id="settings-error" class="error" hidden></p>
-        <div class="actions">
-          <button type="button" id="s-cancel" class="ghost">取消</button>
-          <button type="submit" id="s-save" class="primary">保存</button>
+          <section class="pane-body console" data-pane="console" hidden>
+            <h2>控制台</h2>
+            <div class="console-bar">
+              <select id="c-level" aria-label="级别">
+                <option value="all">全部</option><option value="info">信息</option>
+                <option value="warn">警告</option><option value="error">错误</option>
+              </select>
+              <input id="c-search" type="search" placeholder="搜索" />
+              <span class="spacer"></span>
+              <button type="button" id="c-copy" class="ghost">复制</button>
+              <button type="button" id="c-clear" class="ghost">清空</button>
+            </div>
+            <div id="c-list" class="c-list" role="log"></div>
+          </section>
+
+          <section class="pane-body" data-pane="about" hidden>
+            <h2>关于</h2>
+            <div class="about card">
+              <img src="/icon.png" alt="" width="64" height="64" />
+              <div>
+                <strong id="a-name">Tolk</strong>
+                <div class="muted" id="a-version"></div>
+              </div>
+              <span class="spacer"></span>
+              <button type="button" id="a-check" class="ghost">检查更新</button>
+            </div>
+            <div id="a-update" class="update card" hidden>
+              <div class="update-head"><strong id="u-title"></strong><span class="spacer"></span><button type="button" id="u-install" class="primary" hidden>立即更新</button></div>
+              <div class="bar" id="u-bar" hidden><i id="u-fill"></i></div>
+              <pre id="u-notes" class="notes"></pre>
+            </div>
+            <dl class="facts">
+              <dt>系统</dt><dd id="a-os"></dd>
+              <dt>设置文件</dt><dd id="a-config" class="mono"></dd>
+              <dt id="a-helper-t" hidden>原生助手</dt><dd id="a-helper" hidden></dd>
+            </dl>
+            <p class="muted">Tolk 由大佐翻译官（Windows）与 bagayalu（macOS）合并而来，沿用同一份设置和更新渠道。</p>
+            <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">问题反馈</a></p>
+          </section>
+
+          <p id="settings-error" class="error" hidden></p>
+          <div class="actions" id="settings-actions">
+            <button type="button" id="s-cancel" class="ghost">关闭</button>
+            <button type="submit" id="s-save" class="primary">保存</button>
+          </div>
         </div>
       </form>
     </dialog>

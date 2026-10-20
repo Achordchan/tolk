@@ -204,3 +204,21 @@ func TestBuiltinMapsLanguagesAndCoolsDown(t *testing.T) {
 		t.Fatalf("cooldown should block, calls=%d err=%v", calls, err)
 	}
 }
+
+func TestLanguageTableCoversBothApps(t *testing.T) {
+	if len(Languages) != 37 {
+		t.Fatalf("want 37 target languages (Mac's 38 minus auto, plus none), got %d", len(Languages))
+	}
+	for _, l := range Languages {
+		if googleCodes[l] == "" || microsoftCodes[l] == "" {
+			t.Errorf("%s missing a Google or Microsoft code", l)
+		}
+	}
+	_, err := NewGoogle().Translate(context.Background(), "x", Auto, "火星语")
+	if err == nil || !strings.Contains(err.Error(), "火星语") {
+		t.Fatalf("unknown target must be an error, got %v", err)
+	}
+	if _, err := NewBuiltin().Translate(context.Background(), "x", Auto, "斯瓦希里语"); err == nil {
+		t.Fatal("built-in engine has no Swahili")
+	}
+}

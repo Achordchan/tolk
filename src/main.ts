@@ -1,4 +1,7 @@
 import { Tolk, events } from "./mygo";
+import { THEMES, initLook } from "./look";
+import { engineList } from "./engines";
+import { initSettings } from "./settings";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -12,13 +15,6 @@ const status = $("#status");
 const dot = $("#dot");
 
 const AUTO = "自动检测";
-const ENGINES: [string, string][] = [
-  ["google", "Google 翻译"],
-  ["microsoft", "微软翻译"],
-  ["deepl", "DeepL"],
-  ["openai_compat", "AI 翻译"],
-  ["achord_builtin", "Achord 内置引擎"],
-];
 // The config keeps the Chinese labels; the pickers show the Mac app's wording.
 const SHOWN: Record<string, string> = { 简体中文: "中文（简体）", 繁体中文: "中文（繁体）" };
 const shown = (name: string) => SHOWN[name] ?? name;
@@ -47,18 +43,6 @@ function toast(message: string) {
   toastTimer = window.setTimeout(() => (el.hidden = true), 1800);
 }
 
-// Theme: follow the system until the user picks one.
-const root = document.documentElement;
-const savedTheme = load("theme", "");
-if (savedTheme) root.dataset.theme = savedTheme;
-$("#theme").addEventListener("click", () => {
-  const dark = root.dataset.theme
-    ? root.dataset.theme === "dark"
-    : matchMedia("(prefers-color-scheme: dark)").matches;
-  root.dataset.theme = dark ? "light" : "dark";
-  save("theme", root.dataset.theme);
-});
-
 function fill(sel: HTMLSelectElement, items: [string, string][]) {
   sel.replaceChildren(...items.map(([value, label]) => new Option(label, value)));
 }
@@ -66,10 +50,22 @@ function fill(sel: HTMLSelectElement, items: [string, string][]) {
 const langs = await Tolk.languages();
 fill(source, [AUTO, ...langs].map((n) => [n, shown(n)]));
 fill(target, langs.map((n) => [n, shown(n)]));
-fill(engineSel, ENGINES);
-let prefs = await Tolk.getPrefs();
+const about = await Tolk.about();
+fill(engineSel, engineList(about.os));
+let prefs = await initLook();
 source.value = prefs.sourceLang;
 target.value = prefs.targetLang;
+$("#theme").addEventListener("click", async () => {
+  const order = THEMES.map(([id]) => id);
+  const next = order[(order.indexOf(prefs.theme) + 1) % order.length]!;
+  try {
+    await Tolk.setAppearance(next, prefs.sourceFont, prefs.targetFont);
+    prefs = await Tolk.getPrefs();
+    toast(`主题：${THEMES.find(([id]) => id === next)![1]}`);
+  } catch (e) {
+    toast(String(e instanceof Error ? e.message : e));
+  }
+});
 const miniBtn = $("#mini");
 function showMini() {
   miniBtn.classList.toggle("active", prefs.miniMode);
@@ -188,86 +184,16 @@ events.copied.on((text) => {
   schedule(0);
 });
 
-// ---- settings sheet ----
-const dlg = $<HTMLDialogElement>("#settings");
-const sEngine = $<HTMLSelectElement>("#s-engine");
-const sVendor = $<HTMLSelectElement>("#s-vendor");
-const sBase = $<HTMLInputElement>("#s-base");
-const sModel = $<HTMLInputElement>("#s-model");
-const sAiKey = $<HTMLInputElement>("#s-ai-key");
-const sDeeplKey = $<HTMLInputElement>("#s-deepl-key");
-const sMsKey = $<HTMLInputElement>("#s-ms-key");
-const sMsRegion = $<HTMLInputElement>("#s-ms-region");
-const sDc = $<HTMLInputElement>("#s-dc");
-const sDcMs = $<HTMLInputElement>("#s-dc-ms");
-const sError = $("#settings-error");
 
-type Cfg = Awaited<ReturnType<typeof Tolk.getSettings>>;
-let cfg: Cfg;
-
-function syncSections() {
-  document.querySelectorAll<HTMLElement>("fieldset[data-for]").forEach((f) => {
-    f.hidden = f.dataset.for !== sEngine.value;
-  });
-}
-
-function fillVendor() {
-  const p = cfg.profiles?.[sVendor.value];
-  const preset = cfg.vendors.find((v) => v.name === sVendor.value);
-  sBase.value = p?.baseUrl || preset?.baseUrl || "";
-  sModel.value = p?.model || preset?.model || "";
-  sAiKey.value = "";
-  sAiKey.placeholder = p?.hasKey ? "已保存，留空则不修改" : "";
-}
-
-sEngine.addEventListener("change", syncSections);
-sVendor.addEventListener("change", fillVendor);
-
-$("#open-settings").addEventListener("click", async () => {
-  cfg = await Tolk.getSettings();
-  fill(sEngine, ENGINES);
-  sEngine.value = cfg.engine;
-  fill(sVendor, cfg.vendors.map((v) => [v.name, v.name]));
-  sVendor.value = cfg.vendor;
-  fillVendor();
-  sDeeplKey.value = "";
-  sDeeplKey.placeholder = cfg.deeplHasKey ? "已保存，留空则不修改" : "";
-  sMsKey.value = "";
-  sMsKey.placeholder = cfg.microsoftHasKey ? "已保存，留空则不修改" : "";
-  sMsRegion.value = cfg.microsoftRegion;
-  sDc.checked = cfg.prefs.doubleCopy;
-  sDcMs.value = String(cfg.prefs.doubleCopyMs);
-  $("#settings-note").textContent = "与旧版大佐翻译官共用同一份设置，密钥只保存在本机。";
-  sError.hidden = true;
-  syncSections();
-  dlg.showModal();
-});
-
-$("#s-cancel").addEventListener("click", () => dlg.close());
-
-$("#settings-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  try {
-    await Tolk.saveSettings({
-      engine: sEngine.value,
-      vendor: sVendor.value,
-      baseUrl: sBase.value,
-      model: sModel.value,
-      aiKey: sAiKey.value,
-      deeplKey: sDeeplKey.value,
-      microsoftKey: sMsKey.value,
-      microsoftRegion: sMsRegion.value,
-    });
-    await Tolk.setDoubleCopy(sDc.checked, Number(sDcMs.value));
-    dlg.close();
-    prefs = await Tolk.getPrefs();
+initSettings({
+  os: about.os,
+  toast,
+  saved: async (next) => {
+    prefs = next;
+    showMini();
     await refreshSettings();
-    toast("设置已保存");
     schedule(0);
-  } catch (err) {
-    sError.textContent = String(err instanceof Error ? err.message : err);
-    sError.hidden = false;
-  }
+  },
 });
 
 showEmpty(true);

@@ -15,8 +15,8 @@ import (
 // Tolk is callable from the frontend.
 type Tolk struct{}
 
-// Version of the app, shown in the prototype page.
-func (Tolk) Version() string { return "0.1.0-proto" }
+// Version of the app.
+func (Tolk) Version() string { return Version }
 
 // LegacyConfig summarizes an existing dazuo-win config (no secrets).
 func (Tolk) LegacyConfig() (legacy.Summary, error) {

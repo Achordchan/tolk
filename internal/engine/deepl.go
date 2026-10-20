@@ -10,17 +10,10 @@ import (
 	"strings"
 )
 
-var deeplTarget = map[string]string{
-	"简体中文": "ZH-HANS", "繁体中文": "ZH-HANT", "英语": "EN-US", "日语": "JA", "韩语": "KO",
-	"法语": "FR", "德语": "DE", "西班牙语": "ES", "俄语": "RU", "意大利语": "IT",
-	"葡萄牙语": "PT-PT", "越南语": "VI", "泰语": "TH", "阿拉伯语": "AR",
-}
-
-var deeplSource = map[string]string{
-	"简体中文": "ZH", "繁体中文": "ZH", "英语": "EN", "日语": "JA", "韩语": "KO",
-	"法语": "FR", "德语": "DE", "西班牙语": "ES", "俄语": "RU", "意大利语": "IT",
-	"葡萄牙语": "PT", "越南语": "VI", "泰语": "TH", "阿拉伯语": "AR",
-}
+var (
+	deeplTarget = codes(func(l lang) string { return l.dlTgt })
+	deeplSource = codes(func(l lang) string { return l.dlSrc })
+)
 
 // DeepL uses the official API; keys ending in ":fx" are the free plan.
 type DeepL struct {
@@ -47,10 +40,14 @@ func (d *DeepL) Translate(ctx context.Context, text, source, target string) (Res
 	}
 	tl, ok := deeplTarget[target]
 	if !ok {
-		return Result{}, fmt.Errorf("DeepL暂不支持目标语言：%s", target)
+		return Result{}, unsupported("DeepL", "目标", target)
 	}
 	payload := map[string]any{"text": []string{text}, "target_lang": tl, "preserve_formatting": true}
-	if sl, ok := deeplSource[source]; ok {
+	if source != Auto {
+		sl, ok := deeplSource[source]
+		if !ok {
+			return Result{}, unsupported("DeepL", "源", source)
+		}
 		payload["source_lang"] = sl
 	}
 	body, _ := json.Marshal(payload)

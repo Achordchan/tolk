@@ -17,11 +17,11 @@ import (
 	"unicode/utf8"
 )
 
-var microsoftCodes = map[string]string{
-	"简体中文": "zh-Hans", "繁体中文": "zh-Hant", "英语": "en", "日语": "ja", "韩语": "ko",
-	"法语": "fr", "德语": "de", "西班牙语": "es", "俄语": "ru", "意大利语": "it",
-	"葡萄牙语": "pt", "越南语": "vi", "泰语": "th", "阿拉伯语": "ar", Auto: "auto-detect",
-}
+var microsoftCodes = func() map[string]string {
+	m := codes(func(l lang) string { return l.ms })
+	m[Auto] = "auto-detect"
+	return m
+}()
 
 var (
 	igRe     = regexp.MustCompile(`IG:"([^"]+)"`)
@@ -70,11 +70,11 @@ func (m *Microsoft) Translate(ctx context.Context, text, source, target string) 
 	}
 	tl, ok := microsoftCodes[target]
 	if !ok || tl == "auto-detect" {
-		return Result{}, fmt.Errorf("微软翻译暂不支持目标语言：%s", target)
+		return Result{}, unsupported("微软翻译", "目标", target)
 	}
 	sl, ok := microsoftCodes[source]
 	if !ok {
-		sl = "auto-detect"
+		return Result{}, unsupported("微软翻译", "源", source)
 	}
 	limit, one := webChunkLimit, m.webChunk
 	if m.APIKey != "" {

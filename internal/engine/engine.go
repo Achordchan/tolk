@@ -23,12 +23,6 @@ type Engine interface {
 	Translate(ctx context.Context, text, source, target string) (Result, error)
 }
 
-// Languages lists the language labels in display order.
-var Languages = []string{
-	"简体中文", "繁体中文", "英语", "日语", "韩语", "法语", "德语",
-	"西班牙语", "俄语", "意大利语", "葡萄牙语", "越南语", "泰语", "阿拉伯语",
-}
-
 // ErrEmpty is returned when there is nothing to translate.
 var ErrEmpty = errors.New("没有要翻译的文本")
 

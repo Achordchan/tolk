@@ -14,7 +14,7 @@ final class Bridge {
     private var pending: [String: CheckedContinuation<Frame, Never>] = [:]
     private var handler: ((String, String, [String: JSONValue]) async -> Frame)?
 
-    private static let writeLock = NSLock()
+    nonisolated private static let writeLock = NSLock()
 
     // MARK: - 启动
 

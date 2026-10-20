@@ -6,6 +6,7 @@ import ScreenCaptureKit
 // 截取屏幕上的一个矩形区域。
 // rect 使用“屏幕坐标”（全局坐标系）：原点在主屏左下角。
 
+@available(macOS 14.0, *)
 enum ScreenRegionCapture {
     enum CaptureError: LocalizedError {
         case invalidRect

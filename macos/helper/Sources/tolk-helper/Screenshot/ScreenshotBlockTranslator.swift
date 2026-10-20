@@ -1,15 +1,16 @@
 import Foundation
 import NaturalLanguage
-import OpenAI
 
 /// 截图翻译按段翻译的调度：在线引擎分批、分不回原段数时逐段重来、太长的段拆开翻、失败怎么处理。
 /// 不碰界面和具体引擎，翻译调用从外部传进来，方便单测。
 ///
-/// 失败分三类：
-/// - 整体性的（断网、超时、被取消、鉴权失败、限流、服务端出错）：后面的段再试也一样，立刻停下。
-/// - 语言组合本身用不了（Apple 报告不支持这个语言对）：同语言的其他段不再尝试，换别的语言的段照常翻。
-///   自动检测（`auto`）的段不这样熔断：每一段实际是什么语言可能都不一样。
-/// - 其余都只算这一次请求的问题（空响应、个别请求被拒）：这一段保留原文，其他段照常翻。
+/// 翻译本身由 Tolk 主程序完成（协议里 helper → Go 的 `translate`），这里只管调度：
+/// 每次请求带一批同源语言的文字，要求对方等长同序地返回译文。
+///
+/// 失败怎么处理：
+/// - 一批请求失败（或者返回的条数对不上）：这一批逐段重来；逐段重来时有一段请求失败，
+///   Tolk 主程序那边多半是整体出了问题（断网、鉴权、限流…），后面的段再试也一样，立刻停下。
+/// - 请求成功但某一段译文是空的：只算这一段的问题，保留原文，其他段照常翻。
 ///
 /// 没翻成的段一律保留原文。
 ///
@@ -54,12 +55,11 @@ struct ScreenshotBlockTranslator {
     }
 
     /// 单次请求最多多少字：合批不超过它，单独一段超过它就拆开。取 2200，是原先 OpenAI 分块的大小，
-    /// 也在 Google（8000）、微软（30000）的单次上限以内——请求里的换行标记会让实际长度再多一点。
+    /// 也在 Google（8000）、微软（30000）的单次上限以内，不管 Tolk 当前用的是哪个引擎都放得下。
     nonisolated static let defaultMaxCharactersPerRequest = 2200
 
-    /// 在线引擎合批请求；Apple 本地翻译逐段翻。
-    let batchesRequests: Bool
-    let translate: (_ text: String, _ sourceLanguageCode: String) async -> Result<String, Error>
+    /// 翻一批文字；成功时返回与输入等长同序的译文。
+    let translate: (_ texts: [String], _ sourceLanguageCode: String) async -> Result<[String], Error>
     /// 第一遍的译文还要不要按另一种源语言补翻一次；nil 表示不用。
     var followUpSource: (_ translation: String) -> String? = { _ in nil }
     var maxCharactersPerRequest = Self.defaultMaxCharactersPerRequest
@@ -78,7 +78,6 @@ struct ScreenshotBlockTranslator {
         var convertedIDs: Set<UUID> = []
         var failures: [Error] = []
         var stoppedEarly = false
-        var failedSources: Set<String> = []
 
         /// 拼回按段的结果：所有块都有了结果才算这一段有结果；有一块没翻成，整段保留原文。
         func assembled() -> [UUID: String] {
@@ -94,37 +93,35 @@ struct ScreenshotBlockTranslator {
             return result
         }
 
+        func isUsable(_ text: String) -> Bool {
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
         // 补翻（`isFollowUp`）失败时不覆盖第一遍的译文。
         func translateOne(_ job: Job, isFollowUp: Bool) async {
-            if failedSources.contains(job.sourceLanguageCode) {
-                if !isFollowUp { translations[job.id] = job.text }
-                return
-            }
-            switch await translate(job.text, job.sourceLanguageCode) {
-            case .success(let text):
-                translations[job.id] = text
-                if isFollowUp {
-                    convertedIDs.insert(job.id)
+            switch await translate([job.text], job.sourceLanguageCode) {
+            case .success(let texts):
+                if texts.count == 1, isUsable(texts[0]) {
+                    translations[job.id] = texts[0]
+                    if isFollowUp {
+                        convertedIDs.insert(job.id)
+                    } else {
+                        translatedIDs.insert(job.id)
+                    }
                 } else {
-                    translatedIDs.insert(job.id)
+                    if !isFollowUp { translations[job.id] = job.text }
+                    failures.append(HelperTranslateError("翻译结果为空"))
                 }
             case .failure(let error):
                 if !isFollowUp { translations[job.id] = job.text }
                 failures.append(error)
-                if Self.isRequestWide(error) {
-                    stoppedEarly = true
-                } else if Self.isLanguagePairUnavailable(error),
-                          job.sourceLanguageCode != LanguagePreset.auto.code {
-                    failedSources.insert(job.sourceLanguageCode)
-                }
+                stoppedEarly = true
             }
         }
 
         /// 翻一轮；选区换了返回 false。
         func translateAll(_ jobs: [Job], isFollowUp: Bool) async -> Bool {
-            let groups = batchesRequests
-                ? Self.batches(jobs, maxCharacters: maxCharactersPerRequest)
-                : jobs.map { [$0] }
+            let groups = Self.batches(jobs, maxCharacters: maxCharactersPerRequest)
             for group in groups {
                 guard shouldContinue() else { return false }
                 if stoppedEarly {
@@ -135,36 +132,21 @@ struct ScreenshotBlockTranslator {
                 }
 
                 var handled = false
-                if group.count > 1, !failedSources.contains(group[0].sourceLanguageCode) {
-                    // 一批里的块用换行分隔，走现有的换行标记机制；分不回原来的块数就逐块重来。
-                    let result = await translate(group.map(\.text).joined(separator: "\n"), group[0].sourceLanguageCode)
+                if group.count > 1 {
+                    let result = await translate(group.map(\.text), group[0].sourceLanguageCode)
                     guard shouldContinue() else { return false }
-                    switch result {
-                    case .success(let text):
-                        let parts = text.components(separatedBy: "\n")
-                            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                            .filter { !$0.isEmpty }
-                        if parts.count == group.count {
-                            for (job, part) in zip(group, parts) {
-                                translations[job.id] = part
-                            }
-                            if isFollowUp {
-                                convertedIDs.formUnion(group.map(\.id))
-                            } else {
-                                translatedIDs.formUnion(group.map(\.id))
-                            }
-                            handled = true
+                    if case .success(let texts) = result,
+                       texts.count == group.count,
+                       texts.allSatisfy(isUsable) {
+                        for (job, text) in zip(group, texts) {
+                            translations[job.id] = text
                         }
-                    case .failure(let error):
-                        // 整体性失败不用再逐块试一遍。
-                        if Self.isRequestWide(error) {
-                            failures.append(error)
-                            stoppedEarly = true
-                            if !isFollowUp {
-                                for job in group { translations[job.id] = job.text }
-                            }
-                            handled = true
+                        if isFollowUp {
+                            convertedIDs.formUnion(group.map(\.id))
+                        } else {
+                            translatedIDs.formUnion(group.map(\.id))
                         }
+                        handled = true
                     }
                 }
                 if !handled {
@@ -299,57 +281,15 @@ struct ScreenshotBlockTranslator {
         }
         return batches
     }
+}
 
-    /// 这个语言组合本身用不了。
-    nonisolated static func isLanguagePairUnavailable(_ error: Error) -> Bool {
-        (error as? AppleTranslationError)?.isLanguagePairUnavailable ?? false
+/// helper 自己拼出来的翻译失败原因（Tolk 主程序回的 `error` 文本也包成它）。
+struct HelperTranslateError: LocalizedError {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
     }
 
-    /// 后面的段再试也一样会失败的错误。
-    nonisolated static func isRequestWide(_ error: Error) -> Bool {
-        if error is CancellationError || error is URLError {
-            return true
-        }
-        if error is OpenAICompatibleEngine.RateLimitError || error is OpenAICompatibleEngine.ResponsesCompatibilityError {
-            return true
-        }
-        // 各引擎自己包装过的：Google 的 405/501（这个接口用不了）、微软的限流、OpenAI 的配置错误。
-        if case .methodNotAllowed? = error as? GoogleTranslateEngine.EngineError {
-            return true
-        }
-        if case .rateLimited? = error as? MicrosoftTranslateEngine.EngineError {
-            return true
-        }
-        if let engineError = error as? OpenAICompatibleEngine.EngineError {
-            switch engineError {
-            case .missingAPIKey, .missingModel, .invalidBaseURL:
-                return true
-            case .emptyResponse:
-                return false
-            }
-        }
-        if case .badStatus(let code, _)? = error as? HTTPClient.HTTPError {
-            return isRequestWideStatus(code)
-        }
-        // OpenAI SDK 的三种失败形态：流式请求带状态码；普通请求能解码出错误体时只有 type / code；
-        // Gemini 格式的错误体里 code 就是状态码。
-        if case .statusError(_, let code)? = error as? OpenAIError {
-            return isRequestWideStatus(code)
-        }
-        if let response = error as? APIErrorResponse {
-            let fields = [response.error.type, response.error.code ?? ""].map { $0.lowercased() }
-            let markers = ["auth", "permission", "invalid_api_key", "quota", "billing", "rate_limit",
-                           "server_error", "overloaded", "model_not_found"]
-            return fields.contains { field in markers.contains { field.contains($0) } }
-        }
-        if let response = error as? GeminiAPIErrorResponse {
-            return isRequestWideStatus(response.error.code)
-        }
-        return (error as NSError).domain == NSURLErrorDomain
-    }
-
-    /// 鉴权失败、没权限、限流、服务端出错：换一段文字也一样。
-    nonisolated private static func isRequestWideStatus(_ code: Int) -> Bool {
-        code == 401 || code == 403 || code == 429 || code >= 500
-    }
+    var errorDescription: String? { message }
 }

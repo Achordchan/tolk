@@ -36,8 +36,7 @@ struct InputAssistTextRange: Equatable {
 /// 跨 App 的 AX 文本读取。
 ///
 /// 实现参考 lglot/translate-kit 的 `ReplaceEngine`（MIT）与
-/// everettjf/TypeTide 的 `SelectionCapture` / `PopupPositioner`（MIT），
-/// 详见 `InputAssist-reuse-notes.md`。
+/// everettjf/TypeTide 的 `SelectionCapture`（MIT），移植自 bagayalu 的 InputAssist。
 enum InputAssistAXTextCapture {
     static func focusedElement() -> AXUIElement? {
         let systemWide = AXUIElementCreateSystemWide()

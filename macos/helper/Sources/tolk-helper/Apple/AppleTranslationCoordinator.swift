@@ -38,8 +38,10 @@ struct AppleTranslationServingTracker {
 /// 陷入持续的 SwiftUI 布局循环（实测 90% CPU）。因此本类遵守一条铁律：
 /// **action 不随单次翻译结束，会话按语言对常驻复用**（`runSessionWorker`），
 /// 只有语言对变化才允许重建会话。
+@available(macOS 15.0, *)
 @MainActor
-final class AppleTranslationCoordinator: ObservableObject {    private struct TranslationContext {
+final class AppleTranslationCoordinator: ObservableObject {
+    private struct TranslationContext {
         let sourceLanguage: Locale.Language?
         let targetLanguage: Locale.Language
         let availabilityStatus: LanguageAvailability.Status
@@ -636,6 +638,13 @@ enum AppleTranslationError: LocalizedError {
     }
 }
 
+/// 一次翻译的结果。
+struct TranslationResult {
+    let translatedText: String
+    let detectedSourceLanguageCode: String?
+}
+
+@available(macOS 15.0, *)
 private struct AppleTranslationSessionModifier: ViewModifier {
     @ObservedObject var coordinator: AppleTranslationCoordinator
 
@@ -649,6 +658,7 @@ private struct AppleTranslationSessionModifier: ViewModifier {
     }
 }
 
+@available(macOS 15.0, *)
 extension View {
     func appleTranslationSession(using coordinator: AppleTranslationCoordinator) -> some View {
         modifier(AppleTranslationSessionModifier(coordinator: coordinator))

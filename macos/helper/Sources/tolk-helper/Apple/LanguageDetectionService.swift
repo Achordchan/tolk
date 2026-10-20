@@ -106,7 +106,7 @@ struct LanguageDetectionService {
             return "zh-TW"
         default:
             let code = language.rawValue
-            return LanguagePreset.common.contains(where: { $0.code == code })
+            return LanguagePreset.detectableCodes.contains(code)
                 ? code
                 : nil
         }

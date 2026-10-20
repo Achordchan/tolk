@@ -149,7 +149,7 @@ struct PinnedScreenshotView: View {
                 startGlowPulse()
             }
         }
-        .onChange(of: model.isAlwaysOnTop) { _, enabled in
+        .onChange(of: model.isAlwaysOnTop) { enabled in
             if enabled {
                 startGlowPulse()
             } else {

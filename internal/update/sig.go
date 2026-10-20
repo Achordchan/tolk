@@ -21,11 +21,22 @@ import (
 	"strings"
 )
 
-// Public keys of the existing release channels. The private halves stay in
-// the maintainer's CI secrets.
+// Public keys of the channels the old apps read. Only the one-off bridge
+// releases in dazuo-win and bagayalu-translate are signed with their private
+// halves, which live in those repos' own CI secrets.
 const (
-	WindowsPublicKeyB64 = "RUYCZIcVqIzgPf56cREkoGvQnYYiujdI/nG7EGiGPWA="
-	SparklePublicKeyB64 = "uYKsIloVV+bt+R3StPtVAxMd2CPIHvmS5LZlbYmxQ0Y="
+	LegacyWindowsPublicKeyB64 = "RUYCZIcVqIzgPf56cREkoGvQnYYiujdI/nG7EGiGPWA="
+	LegacySparklePublicKeyB64 = "uYKsIloVV+bt+R3StPtVAxMd2CPIHvmS5LZlbYmxQ0Y="
+)
+
+// Public keys Tolk's own updater trusts. Releases published from Tolk's repo
+// are signed with the matching private keys (secrets TOLK_UPDATE_PRIVATE_KEY_PEM
+// and TOLK_SPARKLE_PRIVATE_KEY, made with `tolk-release keygen`). Until those
+// are generated they stay on the legacy keys, which keeps everything working
+// for anyone who still holds the old private keys.
+const (
+	WindowsPublicKeyB64 = LegacyWindowsPublicKeyB64
+	SparklePublicKeyB64 = LegacySparklePublicKeyB64
 )
 
 // Payload is what the Windows signature covers. Field order is the

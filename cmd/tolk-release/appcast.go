@@ -39,8 +39,15 @@ func appcast(args []string) error {
 	minOS := fs.String("min-os", "13.0", "最低系统版本")
 	out := fs.String("out", "appcast.xml", "输出")
 	title := fs.String("title", "Tolk", "频道标题")
-	pub := fs.String("pub", update.SparklePublicKeyB64, "用于自检的公钥")
+	pub := fs.String("pub", "", "用于自检的公钥（默认是 Tolk 内置公钥；-legacy 时是 bagayalu 的 SUPublicEDKey）")
+	legacy := fs.Bool("legacy", false, "给旧版 bagayalu 的桥接版本签名：用旧版公钥自检")
 	fs.Parse(args)
+	if *pub == "" {
+		*pub = update.SparklePublicKeyB64
+		if *legacy {
+			*pub = update.LegacySparklePublicKeyB64
+		}
+	}
 	if *zipPath == "" || *version == "" || *build == "" || *url == "" {
 		return errors.New("需要 -zip -version -build -url")
 	}

@@ -122,8 +122,15 @@ func winsign(args []string) error {
 	zipPath := fs.String("zip", "", "全量包 zip")
 	version := fs.String("version", "", "版本号")
 	keyFile := fs.String("key", "", "私钥 PEM 文件（默认读环境变量 DZFYQ_UPDATE_PRIVATE_KEY_PEM）")
-	pub := fs.String("pub", update.WindowsPublicKeyB64, "用于自检的公钥（默认客户端内置公钥）")
+	pub := fs.String("pub", "", "用于自检的公钥（默认是 Tolk 内置公钥；-legacy 时是旧版客户端的公钥）")
+	legacy := fs.Bool("legacy", false, "给旧版客户端的桥接版本签名：用旧版公钥自检")
 	fs.Parse(args)
+	if *pub == "" {
+		*pub = update.WindowsPublicKeyB64
+		if *legacy {
+			*pub = update.LegacyWindowsPublicKeyB64
+		}
+	}
 	if *zipPath == "" || *version == "" {
 		return errors.New("需要 -zip -version")
 	}

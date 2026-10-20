@@ -88,3 +88,24 @@ func TestAppcastSignsWithSparkleKey(t *testing.T) {
 		t.Fatal("a key that does not match SUPublicEDKey must be rejected")
 	}
 }
+
+func TestKeygenWritesPrivateFilesAndOnlyPrintsPublicKeys(t *testing.T) {
+	dir := t.TempDir()
+	if err := keygen([]string{"-out", dir}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "tolk-windows-update-private.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadEd25519(b); err != nil {
+		t.Fatal(err)
+	}
+	seed, _ := os.ReadFile(filepath.Join(dir, "tolk-sparkle-private.txt"))
+	if _, err := sparklePrivateKey(string(seed)); err != nil {
+		t.Fatal(err)
+	}
+	if err := keygen([]string{"-out", dir}); err == nil {
+		t.Fatal("must not overwrite existing keys")
+	}
+}

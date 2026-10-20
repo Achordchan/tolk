@@ -3,8 +3,9 @@ name: Release
 # 一次发布做完所有事：
 #   1. Windows：主程序 → 在线更新包（旧版 Ed25519 签名）→ 安装器
 #   2. macOS：helper + 主程序 → 用固定的 Apple Development 身份签名 → zip / dmg / Sparkle appcast
-#   3. 发布 Tolk 自己的 Release，镜像到 Gitee，再（可选）向旧仓库发"桥接版本"，
-#      让还在用大佐翻译官 / bagayalu 的用户从原来的更新渠道直接升级。
+#   3. 发布 Tolk 自己的 Release，并镜像到 Gitee。
+# 老用户的"桥接版本"不在这里发：它必须用旧私钥签名，而旧私钥只在旧仓库的 Secrets 里，
+# 所以由 dazuo-win / bagayalu-translate 里的 tolk-bridge 工作流完成（见 docs/RELEASING.md）。
 # 需要的 Secrets 见 docs/RELEASING.md。
 
 on:
@@ -14,11 +15,6 @@ on:
         description: 要发布的版本号（必须等于 version.go 里的 Version）
         required: true
         type: string
-      bridge:
-        description: 同时向 dazuo-win / bagayalu-translate 发布桥接版本（老用户从此升级）
-        required: false
-        default: false
-        type: boolean
       gitee:
         description: 同时镜像到 Gitee
         required: false
@@ -88,10 +84,10 @@ jobs:
       - name: Package, sign and verify the update ZIP
         shell: bash
         env:
-          DZFYQ_UPDATE_PRIVATE_KEY_PEM: ${{ secrets.DZFYQ_UPDATE_PRIVATE_KEY_PEM }}
+          DZFYQ_UPDATE_PRIVATE_KEY_PEM: ${{ secrets.TOLK_UPDATE_PRIVATE_KEY_PEM }}
         run: |
           set -euo pipefail
-          [ -n "$DZFYQ_UPDATE_PRIVATE_KEY_PEM" ] || { echo "缺少 Secret DZFYQ_UPDATE_PRIVATE_KEY_PEM" >&2; exit 1; }
+          [ -n "$DZFYQ_UPDATE_PRIVATE_KEY_PEM" ] || { echo "缺少 Secret TOLK_UPDATE_PRIVATE_KEY_PEM（用 tolk-release keygen 生成，见 docs/RELEASING.md）" >&2; exit 1; }
           go build -o tolk-release.exe ./cmd/tolk-release
           EXE="$(ls build/windows-amd64/*.exe | grep -vi setup | head -1)"
           echo "主程序：$EXE"
@@ -223,12 +219,12 @@ jobs:
           sleep 6
           if ! kill -0 "$PID" 2>/dev/null; then cat "$RUNNER_TEMP/launch.log" >&2; echo "启动后提前退出" >&2; exit 1; fi
           kill -TERM "$PID"; wait "$PID" || true
-      - name: Package, appcast and bridge files
+      - name: Package and appcast
         env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.TOLK_SPARKLE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "缺少 Secret SPARKLE_PRIVATE_KEY" >&2; exit 1; }
+          [ -n "$SPARKLE_PRIVATE_KEY" ] || { echo "缺少 Secret TOLK_SPARKLE_PRIVATE_KEY（用 tolk-release keygen 生成，见 docs/RELEASING.md）" >&2; exit 1; }
           BUILD="$(( ${VERSION%%.*} * 10000 + $(echo "$VERSION" | cut -d. -f2) * 100 + $(echo "$VERSION" | cut -d. -f3) ))"
           mkdir -p dist
           go build -o tolk-release ./cmd/tolk-release
@@ -242,20 +238,10 @@ jobs:
           ./tolk-release appcast -zip "dist/$ZIP" -version "$VERSION" -build "$BUILD" \
             -url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$ZIP" \
             -notes dist/mac_notes.md -out dist/appcast.xml
-          # 桥接：旧 bagayalu 的 Sparkle 从它自己的仓库读 appcast，包里的应用沿用旧名字，
-          # 这样更新后仍然替换原来的那个 App。
-          BR="$RUNNER_TEMP/bridge"; mkdir -p "$BR"
-          ditto "$APP" "$BR/大佐翻译官v1.app"
-          BZIP="bagayalu-translate-v$VERSION-universal.zip"
-          ditto -c -k --sequesterRsrc --keepParent "$BR/大佐翻译官v1.app" "dist/$BZIP"
-          codesign --verify --deep --strict "$BR/大佐翻译官v1.app"
-          ./tolk-release appcast -zip "dist/$BZIP" -version "$VERSION" -build "$BUILD" \
-            -url "https://github.com/Achordchan/bagayalu-translate/releases/download/$TAG/$BZIP" \
-            -notes dist/mac_notes.md -out dist/bridge-appcast.xml
       - name: Upload to the draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" --clobber dist/*.zip dist/*.dmg dist/appcast.xml dist/bridge-appcast.xml
+        run: gh release upload "$TAG" --clobber dist/*.zip dist/*.dmg dist/appcast.xml
 
   publish:
     needs: [windows, macos]
@@ -288,25 +274,3 @@ jobs:
           set -euo pipefail
           [ -n "$GITEE_TOKEN" ] || { echo "缺少 Secret GITEE_TOKEN（或取消勾选 gitee）" >&2; exit 1; }
           go run ./cmd/tolk-release gitee -version "$VERSION" -assets dist -notes dist/release_notes.md -repo tolk
-          # 老客户端读的是 dazuofanyiguan 仓库，同一批文件再放一份。
-          go run ./cmd/tolk-release gitee -version "$VERSION" -assets dist -notes dist/release_notes.md -repo dazuofanyiguan
-      - name: Bridge release for dazuo-win (old Windows updater, GitHub)
-        if: ${{ inputs.bridge }}
-        env:
-          GH_TOKEN: ${{ secrets.LEGACY_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          [ -n "$GH_TOKEN" ] || { echo "缺少 Secret LEGACY_RELEASE_TOKEN" >&2; exit 1; }
-          gh release create "$TAG" --repo Achordchan/dazuo-win --title "Tolk $TAG" --notes-file dist/release_notes.md \
-            "dist/dazuofanyiguan_full.for.windows_$VERSION.zip" "dist/dazuofanyiguan_full.for.windows_$VERSION.zip.sig.json" \
-            dist/Tolk-setup-windows_*.exe
-      - name: Bridge release for bagayalu-translate (old Sparkle feed)
-        if: ${{ inputs.bridge }}
-        env:
-          GH_TOKEN: ${{ secrets.LEGACY_RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          cp dist/bridge-appcast.xml dist/appcast.bridge.xml
-          mkdir -p bridge && cp dist/bagayalu-translate-v"$VERSION"-universal.zip bridge/ && cp dist/bridge-appcast.xml bridge/appcast.xml
-          gh release create "$TAG" --repo Achordchan/bagayalu-translate --title "Tolk $TAG" --notes-file dist/mac_notes.md --latest \
-            bridge/bagayalu-translate-v"$VERSION"-universal.zip bridge/appcast.xml

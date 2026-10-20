@@ -10,9 +10,8 @@ extension InputAssistAppIdentity {
         self.init(
             bundleIdentifier: application.bundleIdentifier,
             localizedName: application.localizedName,
-            executableName: application.bundleURL?
-                .deletingPathExtension()
-                .lastPathComponent,
+            // 黑名单里写的是可执行文件名（比如 VS Code 的 Electron），不是 .app 包名。
+            executableName: application.executableURL?.lastPathComponent,
             // 没有进程的应用这里是 -1。
             processIdentifier: application.processIdentifier > 0 ? application.processIdentifier : nil
         )

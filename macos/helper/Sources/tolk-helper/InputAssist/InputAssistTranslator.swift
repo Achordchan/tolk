@@ -192,6 +192,9 @@ final class InputAssistTranslator {
 
     /// 本机查一下 Apple 翻译的语言包装没装（`supported` = 受支持但要先下载）。
     private func appleLanguagePackMissing(sourceLanguageCode: String, targetLanguageCode: String) async -> Bool {
+        // 没认出原文语言时 status 只能拿英语/中文估一个语言对，估出来「已安装」
+        // 并不代表真实语言对可用；保守处理成需要用户点击，由 Apple 翻译引导下载。
+        if sourceLanguageCode == LanguagePreset.auto.code { return true }
         if #available(macOS 15.1, *) {
             let state = await Ops.apple.status(
                 sourceLanguageCode: sourceLanguageCode,

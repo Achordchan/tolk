@@ -30,6 +30,7 @@ func main() {
 			URL:             "/",
 		})
 		createMini()
+		createInputAssistPanel()
 
 		showMain := func() { win.Show(); win.Focus() }
 
@@ -69,6 +70,7 @@ func main() {
 		go watchUpdates()
 		go watchDoubleCopy(onCopied)
 		startHelper(onCopied)
+		startInputAssist()
 
 		menu := mygo.NewMenu([]*mygo.MenuItem{
 			{Label: "Show Tolk", Click: func(*mygo.MenuItem, *mygo.Window) { showMain() }},
@@ -95,9 +97,15 @@ func watchDoubleCopy(fire func(text string)) {
 		return
 	}
 	d := &doublecopy.Detector{}
+	var seen uint64
 	for range time.Tick(40 * time.Millisecond) {
 		p := currentPrefs()
-		if !p.DoubleCopy || hotkeyActive() { // the helper's hotkey handles it instead
+		// A transaction that began and ended between two polls leaves the
+		// same text behind under a new counter, which is not a second copy.
+		txns := inputAssistClipboardTransactions()
+		borrowed := inputAssistClipboardBusy() || txns != seen
+		seen = txns
+		if !p.DoubleCopy || hotkeyActive() || borrowed { // the helper's hotkey handles it instead; 输入助手 borrows the clipboard
 			d = &doublecopy.Detector{} // forget history while switched off
 			continue
 		}

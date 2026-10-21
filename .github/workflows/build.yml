@@ -28,6 +28,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install
       - run: go test ./...
+      # 输入助手（Windows）：对真实窗口读选区、粘贴替换、还原剪贴板、摆放浮层。
+      - name: Input Assist against a real desktop (Windows)
+        if: runner.os == 'Windows'
+        env:
+          TOLK_WIN_E2E: "1"
+        run: go test -count=1 -timeout 4m -v ./internal/winsel
       - name: Build the native helper into the app (macOS)
         if: runner.os == 'macOS'
         working-directory: macos/helper

@@ -72,6 +72,29 @@ export interface MiniState {
 }
 
 /**
+ * PanelView is what the floating candidate panel (Windows) shows: the rows of
+ * a session, or a short message. Go computes the whole layout, so the page only
+ * draws it, and the mouse hook can tell which row a click hit.
+ */
+export interface PanelView {
+  /** "list" | "message" | "none" */
+  mode: string;
+  rows: Row[];
+  selected: number;
+  tops: number[];
+  heights: number[];
+  width: number;
+  height: number;
+  /** text lines reserved per row */
+  lines: number;
+  /** show ⚡ on cache hits */
+  badge: boolean;
+  message: string;
+  /** success | info | warning | copied */
+  style: string;
+}
+
+/**
  * Prefs are Tolk's own switches, kept under "tolk" in the shared config file
  * so dazuo-win ignores them. The language pair lives where dazuo-win keeps it.
  */
@@ -99,6 +122,23 @@ export interface Profile {
   baseUrl: string;
   model: string;
   hasKey: boolean;
+}
+
+export interface Row {
+  code: string;
+  label: string;
+  state: RowState;
+}
+
+export type RowKind = string;
+
+export interface RowState {
+  kind: RowKind;
+  text?: string;
+  cached?: boolean;
+  latencyMs?: number;
+  engine?: string;
+  message?: string;
 }
 
 /** Settings is what the settings sheet shows. */
@@ -251,6 +291,13 @@ export const Tolk = {
   macStatus(): Promise<MacStatus> {
     return call("Tolk.MacStatus");
   },
+  /**
+   * PanelSnapshot is the view now, for a panel page that loaded after the
+   * event was sent.
+   */
+  panelSnapshot(): Promise<PanelView> {
+    return call("Tolk.PanelSnapshot");
+  },
   /** ResizeMini fits the bubble to its content; the page reports the height. */
   resizeMini(height: number): Promise<void> {
     return call("Tolk.ResizeMini", height);
@@ -319,6 +366,8 @@ export const events = {
   prefsChanged: event<Prefs>("prefsChanged"),
   /** UpdateChanged is broadcast whenever the update state changes. */
   updateChanged: event<UpdateState>("updateChanged"),
+  /** PanelUpdate carries the panel's view to its window. */
+  panel: event<PanelView>("panel"),
   /**
    * MacNotice carries a short message from the native helper to the windows
    * (a screenshot problem, a lost permission).

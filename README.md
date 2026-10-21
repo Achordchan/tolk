@@ -4,7 +4,8 @@ Windows 和 macOS 通用的翻译工具，由「大佐翻译官」（Windows，P
 
 - 引擎：Google、微软、DeepL、AI 翻译（OpenAI 兼容）、Achord 内置引擎；macOS 另有 Apple 本地翻译
 - 37 种语言；复制两次呼出翻译；Mini 模式；浅色 / 深色 / 粉色主题
-- macOS：截图翻译、系统级 ⌘C⌘C 监听、权限引导（由 `macos/helper` 里的 Swift 小助手提供）
+- 输入助手：选中文字，按快捷键，弹出多语言候选，选一个替换回去（Windows 与 macOS 都有）
+- macOS：截图翻译、系统级 ⌘C⌘C 监听、权限引导（由 `macos/helper` 里的 Swift 小助手提供）；两端功能差异见 [docs/platform-differences.md](docs/platform-differences.md)
 - 设置沿用 `~/.dzfyq/config.json`；老用户升级不丢设置，Mac 用户沿用原来的授权
 
 ## 目录
@@ -13,13 +14,15 @@ Windows 和 macOS 通用的翻译工具，由「大佐翻译官」（Windows，P
 |---|---|
 | `main.go` `service.go` `prefs.go` `settings.go` `app.go` `mini.go` | 主程序与前端可调用的服务 |
 | `mac.go` `helper_darwin.go` `helper_stub.go` | macOS 小助手的接入（其他平台为空实现） |
+| `ia_windows.go` `internal/winsel` | Windows 输入助手：读选区（UI 自动化 / 模拟复制）、粘贴替换、热键、不抢焦点的候选浮层 |
+| `internal/inputassist` | 输入助手的设置和与平台无关的逻辑（应用过滤、语言、候选列表、按键裁决、版面、缓存、翻译编排） |
 | `internal/engine` | 翻译引擎与语言表 |
 | `internal/legacy` | 旧配置读写，引擎构建 |
 | `internal/update` | 更新器：Windows 旧格式 Ed25519 更新包、macOS Sparkle appcast |
 | `internal/helper` `macos/helper` | 小助手的 Go 客户端、Swift 实现与协议（`PROTOCOL.md`） |
 | `internal/macmigrate` | 导入旧版 Mac 的设置和 API Key |
 | `cmd/tolk-release` | 发布工具：打包、签名、appcast、Gitee 镜像 |
-| `src` `index.html` `mini.html` | 前端 |
+| `src` `index.html` `mini.html` `panel.html` | 前端（`panel.html` 是 Windows 输入助手的候选面板） |
 | `installer/setup.iss` | Windows 安装器（沿用旧 AppId，原地升级） |
 
 ## 开发

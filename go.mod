@@ -6,6 +6,7 @@ require (
 	github.com/OwO-Network/DeepLX v1.2.2
 	github.com/ebitengine/purego v0.11.1
 	github.com/egoist/mygo v0.5.5
+	golang.org/x/sys v0.48.0
 )
 
 require (
@@ -22,6 +23,5 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

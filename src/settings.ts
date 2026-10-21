@@ -15,6 +15,8 @@ interface Hooks {
   saved: (prefs: Prefs) => void;
   /** Mac-only panes plug in here (permissions, hotkeys, screenshot). */
   mac?: MacPane;
+  /** 输入助手, on macOS and Windows. */
+  ia?: MacPane;
 }
 
 export interface MacPane {
@@ -252,6 +254,7 @@ export function initSettings(h: Hooks) {
       preview();
       $("#fs-apple").hidden = h.os !== "darwin";
       $("#tab-mac").hidden = h.os !== "darwin";
+      $("#tab-ia").hidden = !h.ia;
       $("#side-version").textContent = `版本 ${about.version}`;
       $("#a-version").textContent = `版本 ${about.version}`;
       $("#a-os").textContent = `${about.os} / ${about.arch}`;
@@ -260,6 +263,7 @@ export function initSettings(h: Hooks) {
       $("#a-helper").textContent = about.helper;
       drawUpdate(await Tolk.updateStatus());
       await h.mac?.load();
+      await h.ia?.load();
       syncSections();
       show("service");
       sError.hidden = true;
@@ -299,6 +303,7 @@ export function initSettings(h: Hooks) {
       if (sAuto.checked !== autostartWas) await Tolk.setAutostart(sAuto.checked);
       await Tolk.setAppearance(draftTheme, Number(sSrcFont.value), Number(sDstFont.value));
       await h.mac?.save();
+      await h.ia?.save();
       const next = await Tolk.getPrefs();
       saved = next;
       stopConsole();

@@ -72,6 +72,7 @@
           <button type="button" class="tab" data-pane="service">翻译服务</button>
           <button type="button" class="tab" data-pane="general">通用</button>
           <button type="button" class="tab" data-pane="look">外观</button>
+          <button type="button" class="tab" data-pane="ia" id="tab-ia" hidden>输入助手</button>
           <button type="button" class="tab" data-pane="mac" id="tab-mac" hidden>截图与权限</button>
           <button type="button" class="tab" data-pane="console">控制台</button>
           <button type="button" class="tab" data-pane="about">关于</button>
@@ -145,33 +146,34 @@
             </fieldset>
           </section>
 
+          <section class="pane-body" data-pane="ia" hidden>
+            <h2>输入助手</h2>
+            <label class="check"><input id="ia-enabled" type="checkbox" /> 启用选区翻译</label>
+            <p class="muted" id="ia-intro"></p>
+            <div id="ia-body">
+              <label class="row">快捷键 <select id="ia-shortcut"></select></label>
+              <p class="muted">必须先选中文字。没有选区时不会猜测或修改光标附近的内容。</p>
+              <div class="row top"><span>目标语言</span><div id="ia-targets" class="langs" role="group" aria-label="目标语言"></div></div>
+              <p class="muted" id="ia-count"></p>
+              <label class="row">应用范围 <select id="ia-scope"><option value="global">全局启用</option><option value="allowlist">仅指定应用</option></select></label>
+              <label class="row top"><span id="ia-list-title">黑名单</span><textarea id="ia-block" class="list" rows="4" spellcheck="false"></textarea></label>
+              <label class="row top" id="ia-allow-row" hidden><span>仅在这些应用启用</span><textarea id="ia-allow" class="list" rows="4" spellcheck="false"></textarea></label>
+              <p class="muted" id="ia-list-hint"></p>
+              <label class="check"><input id="ia-auto" type="checkbox" /><span id="ia-auto-text"></span></label>
+              <label class="check"><input id="ia-badge" type="checkbox" /> 缓存命中显示 ⚡</label>
+            </div>
+            <div class="actions left">
+              <button type="button" id="ia-test" class="ghost">测试</button>
+              <span id="ia-status" class="muted ia-status"></span>
+            </div>
+          </section>
+
           <section class="pane-body" data-pane="mac" hidden>
             <h2>截图与权限</h2>
             <fieldset>
               <legend>快捷键</legend>
               <label class="check"><input id="s-hk-dc" type="checkbox" /> 系统级 ⌘C⌘C 监听（需要辅助功能权限，比剪贴板检测更稳）</label>
               <label class="check"><input id="s-hk-shot" type="checkbox" /> 连按两次 ⌘X 启动截图翻译</label>
-            </fieldset>
-            <fieldset id="fs-ia">
-              <legend>输入助手</legend>
-              <label class="check"><input id="ia-enabled" type="checkbox" /> 启用选区翻译</label>
-              <p class="muted">选中文字后按快捷键查看翻译候选；支持精确写入的编辑器可原位替换，其它应用会复制译文。需要辅助功能权限。</p>
-              <div id="ia-body">
-                <label class="row">快捷键 <select id="ia-shortcut"></select></label>
-                <p class="muted">必须先选中文字。没有选区时不会猜测或修改光标附近的内容。</p>
-                <div class="row top"><span>目标语言</span><div id="ia-targets" class="langs" role="group" aria-label="目标语言"></div></div>
-                <p class="muted" id="ia-count"></p>
-                <label class="row">应用范围 <select id="ia-scope"><option value="global">全局启用</option><option value="allowlist">仅指定应用</option></select></label>
-                <label class="row top"><span id="ia-list-title">黑名单</span><textarea id="ia-block" class="list" rows="4" spellcheck="false"></textarea></label>
-                <label class="row top" id="ia-allow-row" hidden><span>仅在这些应用启用</span><textarea id="ia-allow" class="list" rows="4" spellcheck="false"></textarea></label>
-                <p class="muted" id="ia-list-hint"></p>
-                <label class="check"><input id="ia-auto" type="checkbox" /> 选区完成后自动显示候选（实验）</label>
-                <label class="check"><input id="ia-badge" type="checkbox" /> 缓存命中显示 ⚡</label>
-              </div>
-              <div class="actions left">
-                <button type="button" id="ia-test" class="ghost">测试</button>
-                <span id="ia-status" class="muted ia-status"></span>
-              </div>
             </fieldset>
             <fieldset>
               <legend>系统权限</legend>

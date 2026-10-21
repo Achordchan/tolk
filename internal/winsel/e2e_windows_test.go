@@ -19,16 +19,14 @@ import (
 // only run when TOLK_WIN_E2E=1.
 
 var (
-	pCreateWindowEx  = user32.NewProc("CreateWindowExW")
-	pDestroyWindow   = user32.NewProc("DestroyWindow")
-	pSendMessage     = user32.NewProc("SendMessageW")
-	pSetForeground   = user32.NewProc("SetForegroundWindow")
-	pSetFocus        = user32.NewProc("SetFocus")
-	pPeekMessage     = user32.NewProc("PeekMessageW")
-	pTranslateMsg    = user32.NewProc("TranslateMessage")
-	pDispatchMessage = user32.NewProc("DispatchMessageW")
-	pKeybdEvent      = user32.NewProc("keybd_event")
-	pGetWindowText   = user32.NewProc("GetWindowTextW")
+	pDestroyWindow = user32.NewProc("DestroyWindow")
+	pSendMessage   = user32.NewProc("SendMessageW")
+	pSetForeground = user32.NewProc("SetForegroundWindow")
+	pSetFocus      = user32.NewProc("SetFocus")
+	pPeekMessage   = user32.NewProc("PeekMessageW")
+	pTranslateMsg  = user32.NewProc("TranslateMessage")
+	pKeybdEvent    = user32.NewProc("keybd_event")
+	pGetWindowText = user32.NewProc("GetWindowTextW")
 )
 
 const (
@@ -262,7 +260,14 @@ func TestSnapshotRoundTripsSeveralFormats(t *testing.T) {
 	if err := SetClipboardText("other"); err != nil {
 		t.Fatal(err)
 	}
-	if err := snap.restore(); err != nil {
+	mine := ClipboardSeq()
+	if err := snap.restore(mine + 1); err != errSuperseded {
+		t.Fatalf("a newer clipboard must not be overwritten: %v", err)
+	}
+	if got, _ := clipboardText(); got != "other" {
+		t.Fatalf("overwritten with %q", got)
+	}
+	if err := snap.restore(mine); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := clipboardText(); got != "ab" {

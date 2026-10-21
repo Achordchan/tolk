@@ -75,6 +75,9 @@ type uiaResult struct {
 	text      string
 	rect      inputassist.Rect
 	haveRect  bool
+	// truncated: the text is longer than GetText was asked for, so only the
+	// start of it was read.
+	truncated bool
 }
 
 // readUIA reads the selection of the focused control, which must belong to
@@ -171,7 +174,11 @@ func readUIAOnThread(pid int) (res uiaResult, err error) {
 		}
 		var bstr uintptr
 		if hr := com(rg, vtRangeGetText, MaxChars+1, ptr(&bstr)); !failed(hr) && bstr != 0 {
-			text = append(text, bstrToUTF16(bstr)...)
+			part := bstrToUTF16(bstr)
+			text = append(text, part...)
+			if len(part) > MaxChars {
+				res.truncated = true // GetText stops at MaxChars+1 units
+			}
 			pSysFreeString.Call(bstr)
 		}
 		if r, ok := rangeRect(rg); ok {
@@ -183,6 +190,9 @@ func readUIAOnThread(pid int) (res uiaResult, err error) {
 			}
 		}
 		release(rg)
+	}
+	if len(text) > MaxChars {
+		res.truncated = true
 	}
 	res.text = windows.UTF16ToString(text)
 	if have {

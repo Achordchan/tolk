@@ -52,6 +52,9 @@ type iaLayout struct {
 }
 
 type iaState struct {
+	applyMu sync.Mutex // one application of the settings at a time, start to finish
+	hookMu  sync.Mutex // one install or removal of the mouse hook at a time
+
 	mu      sync.Mutex // guards everything below, never held across a hook call
 	cfg     inputassist.Config
 	active  bool
@@ -121,6 +124,8 @@ func startInputAssist() {
 
 func inputAssistClipboardBusy() bool { return winsel.Busy() }
 
+func inputAssistClipboardTransactions() uint64 { return winsel.Transactions() }
+
 func panelSnapshot() PanelView {
 	ia.mu.Lock()
 	defer ia.mu.Unlock()
@@ -150,6 +155,8 @@ func triggerInputAssist() error {
 // pushInputAssist applies the saved settings: registers (or drops) the
 // shortcut and the automatic display, and reports whether it all came up.
 func pushInputAssist() {
+	ia.applyMu.Lock() // a later application must not be overtaken by an earlier one
+	defer ia.applyMu.Unlock()
 	cfg := loadInputAssist()
 	ia.mu.Lock()
 	ia.cfg = cfg
@@ -202,6 +209,8 @@ func pushInputAssist() {
 // syncMouseHook keeps the mouse hook installed exactly while it is needed: for
 // the automatic display, or while a panel is open.
 func (st *iaState) syncMouseHook() {
+	st.hookMu.Lock()
+	defer st.hookMu.Unlock()
 	st.mu.Lock()
 	need := (st.cfg.Enabled && st.cfg.AutoShow) || st.cur.Load() != nil
 	have := st.mouse != nil
@@ -220,14 +229,8 @@ func (st *iaState) syncMouseHook() {
 			return
 		}
 		st.mu.Lock()
-		if st.mouse == nil {
-			st.mouse = h
-			h = nil
-		}
+		st.mouse = h
 		st.mu.Unlock()
-		if h != nil {
-			h.Remove()
-		}
 	}
 }
 
@@ -446,10 +449,14 @@ func (st *iaState) dismiss(s *iaSession) {
 	if kbd != nil {
 		kbd.Remove()
 	}
+	// A render that is already past its checks finishes first, and any later
+	// one sees the session closed: the panel cannot reappear after this.
+	s.renderMu.Lock()
 	_ = PanelUpdate.Emit(st.panelWin, PanelView{Mode: "none"})
 	if panel != nil {
 		panel.Hide()
 	}
+	s.renderMu.Unlock()
 	st.syncMouseHook()
 }
 
@@ -718,9 +725,15 @@ func abs(n int) int {
 // only asks UI Automation: it never presses keys on its own.
 func (st *iaState) autoCapture() {
 	cfg := st.config()
-	if !cfg.Enabled || !cfg.AutoShow || st.cur.Load() != nil || st.busy.Load() {
+	if !cfg.Enabled || !cfg.AutoShow || st.cur.Load() != nil {
 		return
 	}
+	// Taken before the read, which can be slow: a manual trigger arriving
+	// meanwhile finds the operation reserved instead of racing this one.
+	if !st.busy.CompareAndSwap(false, true) {
+		return
+	}
+	defer st.busy.Store(false)
 	fg, ok := winsel.GetForeground()
 	if !ok || !st.allowed(&fg.App, cfg) {
 		return
@@ -739,9 +752,13 @@ func (st *iaState) autoCapture() {
 	st.mu.Lock()
 	same := st.lastFp == fp
 	st.mu.Unlock()
-	if same || !st.busy.CompareAndSwap(false, true) {
+	if same {
 		return
 	}
-	defer st.busy.Store(false)
+	// The read took a while: the world may have moved on.
+	now, ok := winsel.GetForeground()
+	if cfg := st.config(); !cfg.Enabled || !cfg.AutoShow || st.cur.Load() != nil || !ok || now.Window != fg.Window {
+		return
+	}
 	st.start(fg, sel)
 }

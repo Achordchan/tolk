@@ -182,13 +182,15 @@ func InstallKeyboard(fn KeyHandler) (*Hook, error) {
 	for i := range kbdSwallowed {
 		kbdSwallowed[i].Store(false)
 	}
-	kbdHandler.Store(&fn)
+	mine := &fn
+	kbdHandler.Store(mine)
 	h, err := install(whKeyboardLL, kbdCallback)
 	if err != nil {
-		kbdHandler.Store(nil)
+		kbdHandler.CompareAndSwap(mine, nil)
 		return nil, err
 	}
-	h.clear = func() { kbdHandler.Store(nil) }
+	// Only the handler this hook installed is dropped with it.
+	h.clear = func() { kbdHandler.CompareAndSwap(mine, nil) }
 	return h, nil
 }
 
@@ -197,13 +199,14 @@ func InstallMouse(fn MouseHandler) (*Hook, error) {
 	for i := range mouseSwallowed {
 		mouseSwallowed[i].Store(false)
 	}
-	mouseHandler.Store(&fn)
+	mine := &fn
+	mouseHandler.Store(mine)
 	h, err := install(whMouseLL, mouseCallback)
 	if err != nil {
-		mouseHandler.Store(nil)
+		mouseHandler.CompareAndSwap(mine, nil)
 		return nil, err
 	}
-	h.clear = func() { mouseHandler.Store(nil) }
+	h.clear = func() { mouseHandler.CompareAndSwap(mine, nil) }
 	return h, nil
 }
 

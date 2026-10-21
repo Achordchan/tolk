@@ -97,9 +97,15 @@ func watchDoubleCopy(fire func(text string)) {
 		return
 	}
 	d := &doublecopy.Detector{}
+	var seen uint64
 	for range time.Tick(40 * time.Millisecond) {
 		p := currentPrefs()
-		if !p.DoubleCopy || hotkeyActive() || inputAssistClipboardBusy() { // the helper's hotkey handles it instead; 输入助手 borrows the clipboard
+		// A transaction that began and ended between two polls leaves the
+		// same text behind under a new counter, which is not a second copy.
+		txns := inputAssistClipboardTransactions()
+		borrowed := inputAssistClipboardBusy() || txns != seen
+		seen = txns
+		if !p.DoubleCopy || hotkeyActive() || borrowed { // the helper's hotkey handles it instead; 输入助手 borrows the clipboard
 			d = &doublecopy.Detector{} // forget history while switched off
 			continue
 		}

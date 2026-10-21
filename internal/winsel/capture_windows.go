@@ -28,6 +28,9 @@ var (
 	ErrTextChanged = errors.New("原文已经变化")
 	// ErrClipboardBusy: another program was changing the clipboard.
 	ErrClipboardBusy = errors.New("剪贴板正被其它应用使用")
+	// ErrUnverified: the selection could not be confirmed, so nothing is
+	// typed over it.
+	ErrUnverified = errors.New("无法确认原选区")
 )
 
 // Selection is the text the user selected in another app, frozen at the time
@@ -42,6 +45,10 @@ type Selection struct {
 	// "copy" (Ctrl+C on the user's behalf, the way for apps that expose
 	// nothing, such as WeChat).
 	Via string
+	// Unverified: it came from a copy that may not have been a selection
+	// (some editors copy the whole line when nothing is selected), so it may be
+	// translated but never replaced.
+	Unverified bool
 }
 
 // Capture reads the selection of the app in front. UI Automation comes
@@ -63,7 +70,7 @@ func Capture(fg Foreground, allowCopy bool) (Selection, error) {
 		if text == "" {
 			return sel, ErrNoSelection
 		}
-		if len([]rune(text)) > MaxChars {
+		if res.truncated || len([]rune(text)) > MaxChars {
 			return sel, ErrTooLong
 		}
 		sel.Text, sel.Via = res.text, "uia"
@@ -96,6 +103,7 @@ func stillIn(fg Foreground) bool {
 func copyCapture(fg Foreground, sel Selection) (Selection, error) {
 	clipMu.Lock()
 	defer clipMu.Unlock()
+	defer txns.Add(1)
 	snap, err := takeSnapshot()
 	if err != nil {
 		return sel, err
@@ -103,6 +111,7 @@ func copyCapture(fg Foreground, sel Selection) (Selection, error) {
 	before := ClipboardSeq()
 	releaseModifiers()
 	if !stillIn(fg) {
+		snap.free()
 		return sel, ErrFocusChanged
 	}
 	ctrlChord(vkC)
@@ -112,13 +121,12 @@ func copyCapture(fg Foreground, sel Selection) (Selection, error) {
 	}
 	after := ClipboardSeq()
 	if after == before {
+		snap.free()
 		return sel, ErrNoSelection // nothing was copied: nothing is selected
 	}
 	text, ok := clipboardText()
 	// Put the user's clipboard back, unless someone else wrote to it since.
-	if ClipboardSeq() == after {
-		_ = snap.restore()
-	}
+	_ = snap.restore(after)
 	if !ok || strings.TrimSpace(text) == "" {
 		return sel, ErrNoSelection
 	}
@@ -126,6 +134,10 @@ func copyCapture(fg Foreground, sel Selection) (Selection, error) {
 		return sel, ErrTooLong
 	}
 	sel.Text, sel.Via = text, "copy"
+	// Editors that copy the current line when nothing is selected (Sublime
+	// Text, VS Code) hand back a whole line, ending in its line break; a
+	// selection made with the mouse or the keyboard hardly ever does.
+	sel.Unverified = strings.HasSuffix(text, "\n") || strings.HasSuffix(text, "\r")
 	sel.Rect = anchorFallback(fg.Window)
 	return sel, nil
 }
@@ -137,39 +149,63 @@ func sameText(a, b string) bool {
 	return norm(a) == norm(b)
 }
 
+// confirm is the last look before typing: the app in front, the control that
+// has the focus and, when the selection was read through UI Automation, the
+// selection itself must all be as they were. Anything that cannot be read
+// counts against replacing.
+func confirm(sel Selection) error {
+	cur, ok := GetForeground()
+	if !ok || cur.Window != sel.Window || cur.App.PID != sel.PID || FocusWindow(sel.Window) != sel.Focus {
+		return ErrFocusChanged
+	}
+	if sel.Via == "uia" {
+		res, err := readUIA(sel.PID, 1500*time.Millisecond)
+		if err != nil || !res.supported || res.truncated {
+			return ErrUnverified
+		}
+		if !sameText(res.text, sel.Text) {
+			return ErrTextChanged
+		}
+	}
+	return nil
+}
+
 // Replace types text over the selection, by pasting it: UI Automation can
 // only set a whole value, and Ctrl+V is what every editor, WeChat included,
 // understands. The clipboard is put back half a second later, unless the user
 // or another program changed it meanwhile. Errors say why nothing was pasted;
 // the caller then copies the translation for the user instead.
 func Replace(sel Selection, text string) error {
-	cur, ok := GetForeground()
-	if !ok || cur.Window != sel.Window || cur.App.PID != sel.PID || FocusWindow(sel.Window) != sel.Focus {
-		return ErrFocusChanged
+	if sel.Unverified {
+		return ErrUnverified
 	}
-	if sel.Via == "uia" {
-		// The selection must still be exactly what the panel was made from.
-		if res, err := readUIA(sel.PID, 1500*time.Millisecond); err == nil && res.supported && !sameText(res.text, sel.Text) {
-			return ErrTextChanged
-		}
+	// The shortcut is usually still held; wait for it first, so that what is
+	// checked afterwards is what the paste will land in.
+	releaseModifiers()
+	if err := confirm(sel); err != nil {
+		return err
 	}
 	clipMu.Lock()
 	snap, err := takeSnapshot()
 	if err != nil {
 		clipMu.Unlock()
+		txns.Add(1)
 		if strings.Contains(err.Error(), "占用") {
 			return ErrClipboardBusy
 		}
 		return err
 	}
 	if err := setClipboardText(text, true); err != nil {
+		snap.free()
 		clipMu.Unlock()
+		txns.Add(1)
 		return ErrClipboardBusy
 	}
 	mine := ClipboardSeq()
-	releaseModifiers()
-	if !stillIn(Foreground{Window: sel.Window, App: inputassist.App{PID: sel.PID}}) {
-		_ = snap.restore()
+	// Only key state and the focus are looked at again here: nothing waits
+	// between this and the key press.
+	if cur, ok := GetForeground(); !ok || cur.Window != sel.Window || cur.App.PID != sel.PID || FocusWindow(sel.Window) != sel.Focus {
+		_ = snap.restore(mine)
 		clipMu.Unlock()
 		return ErrFocusChanged
 	}
@@ -177,9 +213,7 @@ func Replace(sel Selection, text string) error {
 	go func() {
 		defer clipMu.Unlock()
 		time.Sleep(500 * time.Millisecond) // the app reads the clipboard when it gets to the key
-		if ClipboardSeq() == mine {
-			_ = snap.restore()
-		}
+		_ = snap.restore(mine)
 	}()
 	return nil
 }

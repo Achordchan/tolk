@@ -4,7 +4,9 @@ package winsel
 
 import (
 	"errors"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -40,17 +42,66 @@ func ClipboardSeq() uint32 {
 	return uint32(r)
 }
 
+// txns counts finished clipboard transactions that Tolk made on its own
+// account, so that a watcher polling slower than a transaction lasts can still
+// tell that the changes it sees are not the user's.
+var txns atomic.Uint64
+
+// Transactions is how many clipboard transactions Tolk has finished.
+func Transactions() uint64 { return txns.Load() }
+
+var (
+	ownerOnce sync.Once
+	ownerWnd  uintptr
+)
+
+// clipboardOwner is a window of ours to own what is put on the clipboard:
+// SetClipboardData fails after EmptyClipboard when the clipboard has no owner.
+// It lives on a thread of its own that keeps pumping its messages.
+func clipboardOwner() uintptr {
+	ownerOnce.Do(func() {
+		ready := make(chan uintptr, 1)
+		go func() {
+			runtime.LockOSThread()
+			const hwndMessage = ^uintptr(2) // (HWND)-3: a window that is only there for messages
+			h, _, _ := pCreateWindowEx.Call(0, ptr(u16("STATIC")), ptr(u16("Tolk clipboard")), 0, 0, 0, 0, 0, hwndMessage, 0, 0, 0)
+			ready <- h
+			if h == 0 {
+				return
+			}
+			var msg [8]uintptr
+			for {
+				if r, _, _ := pGetMessage.Call(ptr(&msg[0]), 0, 0, 0); int32(r) <= 0 {
+					return
+				}
+				pDispatchMessage.Call(ptr(&msg[0]))
+			}
+		}()
+		ownerWnd = <-ready
+	})
+	return ownerWnd
+}
+
+// openClipboard opens the clipboard and pins the goroutine to its OS thread
+// until closeClipboard: the clipboard is open for a thread, and the Go
+// scheduler would otherwise move the goroutine to another one in between.
 func openClipboard() error {
+	runtime.LockOSThread()
+	owner := clipboardOwner()
 	for i := 0; i < 20; i++ {
-		if r, _, _ := pOpenClipboard.Call(0); r != 0 {
+		if r, _, _ := pOpenClipboard.Call(owner); r != 0 {
 			return nil
 		}
 		time.Sleep(15 * time.Millisecond) // another app (or a clipboard manager) has it
 	}
+	runtime.UnlockOSThread()
 	return errors.New("剪贴板正被其它应用占用")
 }
 
-func closeClipboard() { pCloseClipboard.Call() }
+func closeClipboard() {
+	pCloseClipboard.Call()
+	runtime.UnlockOSThread()
+}
 
 // ClipboardText reads the text on the clipboard.
 func clipboardText() (string, bool) {
@@ -89,10 +140,17 @@ type snapshotItem struct {
 	data   []byte
 }
 
-// snapshot holds the clipboard content so it can be put back. Formats that
-// are GDI handles (bitmaps, palettes, metafiles) are not copied: Windows can
-// build those again from the DIB and other memory formats that are.
-type snapshot struct{ items []snapshotItem }
+// snapshot holds the clipboard content so it can be put back. Memory formats
+// are copied; an enhanced metafile (a copied vector drawing) is a GDI handle
+// and is copied with CopyEnhMetaFile. The other GDI formats (bitmaps, palettes)
+// are not: Windows builds those again from the DIB that is among the memory
+// formats. A clipboard that holds something this cannot keep is not borrowed.
+type snapshot struct {
+	items []snapshotItem
+	emf   uintptr // owned until it is handed to the clipboard
+}
+
+var errSuperseded = errors.New("剪贴板已被其它程序更新")
 
 func takeSnapshot() (*snapshot, error) {
 	if err := openClipboard(); err != nil {
@@ -101,6 +159,7 @@ func takeSnapshot() (*snapshot, error) {
 	defer closeClipboard()
 	s := &snapshot{}
 	total := 0
+	lossy := false
 	var f uintptr
 	for {
 		f, _, _ = pEnumClipboardFormats.Call(f)
@@ -108,6 +167,20 @@ func takeSnapshot() (*snapshot, error) {
 			break
 		}
 		fmtID := uint32(f)
+		switch fmtID {
+		case cfEnhMetafile:
+			h, _, _ := pGetClipboardData.Call(f)
+			if h != 0 {
+				s.emf, _, _ = pCopyEnhMetaFile.Call(h, 0)
+				if s.emf == 0 {
+					lossy = true
+				}
+			}
+			continue
+		case cfMetafile:
+			lossy = true // an old style metafile; fine only if an enhanced one came with it
+			continue
+		}
 		if skipFormat(fmtID) {
 			continue
 		}
@@ -121,6 +194,7 @@ func takeSnapshot() (*snapshot, error) {
 		}
 		total += int(size)
 		if total > maxSnapshot {
+			s.free()
 			return nil, errors.New("剪贴板里的内容太大，无法在读取选区后原样还原")
 		}
 		p, _, _ := pGlobalLock.Call(h)
@@ -132,7 +206,19 @@ func takeSnapshot() (*snapshot, error) {
 		pGlobalUnlock.Call(h)
 		s.items = append(s.items, snapshotItem{fmtID, data})
 	}
+	if lossy && s.emf == 0 {
+		s.free()
+		return nil, errors.New("剪贴板里的矢量图形无法在读取选区后原样还原")
+	}
 	return s, nil
+}
+
+// free drops what the snapshot still owns, when it is not put back.
+func (s *snapshot) free() {
+	if s != nil && s.emf != 0 {
+		pDeleteEnhMetaFile.Call(s.emf)
+		s.emf = 0
+	}
 }
 
 func skipFormat(f uint32) bool {
@@ -162,21 +248,42 @@ func globalCopy(data []byte) uintptr {
 	return h
 }
 
-// restore puts the snapshot back.
-func (s *snapshot) restore() error {
+// restore puts the snapshot back, provided the clipboard still has the change
+// number expect (what Tolk itself left there): the check is made with the
+// clipboard open, so nobody can slip a newer content in between it and the
+// emptying.
+func (s *snapshot) restore(expect uint32) error {
+	defer txns.Add(1)
+	defer s.free()
 	if err := openClipboard(); err != nil {
 		return err
 	}
 	defer closeClipboard()
+	if ClipboardSeq() != expect {
+		return errSuperseded
+	}
 	pEmptyClipboard.Call()
+	failed := 0
 	for _, it := range s.items {
 		h := globalCopy(it.data)
 		if h == 0 {
+			failed++
 			continue
 		}
 		if r, _, _ := pSetClipboardData.Call(uintptr(it.format), h); r == 0 {
 			pGlobalFree.Call(h) // the clipboard did not take it
+			failed++
 		}
+	}
+	if s.emf != 0 {
+		if r, _, _ := pSetClipboardData.Call(cfEnhMetafile, s.emf); r != 0 {
+			s.emf = 0 // the clipboard owns it now
+		} else {
+			failed++
+		}
+	}
+	if failed > 0 {
+		return errors.New("剪贴板里的部分内容没能还原")
 	}
 	return nil
 }
@@ -236,5 +343,6 @@ func setClipboardText(text string, private bool) error {
 func SetClipboardText(text string) error {
 	clipMu.Lock()
 	defer clipMu.Unlock()
+	defer txns.Add(1)
 	return setClipboardText(text, false)
 }

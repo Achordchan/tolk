@@ -12,6 +12,7 @@ import (
 
 var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
+	gdi32    = windows.NewLazySystemDLL("gdi32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	shcore   = windows.NewLazySystemDLL("shcore.dll")
 	version  = windows.NewLazySystemDLL("version.dll")
@@ -52,6 +53,11 @@ var (
 	pPostThreadMessage       = user32.NewProc("PostThreadMessageW")
 	pGetDoubleClickTime      = user32.NewProc("GetDoubleClickTime")
 	pGetAncestor             = user32.NewProc("GetAncestor")
+	pCreateWindowEx          = user32.NewProc("CreateWindowExW")
+	pDispatchMessage         = user32.NewProc("DispatchMessageW")
+
+	pCopyEnhMetaFile   = gdi32.NewProc("CopyEnhMetaFileW")
+	pDeleteEnhMetaFile = gdi32.NewProc("DeleteEnhMetaFile")
 
 	pGlobalAlloc  = kernel32.NewProc("GlobalAlloc")
 	pGlobalFree   = kernel32.NewProc("GlobalFree")

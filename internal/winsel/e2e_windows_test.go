@@ -105,7 +105,11 @@ func (w *editWindow) selectRange(from, to int) {
 func (w *editWindow) foreground(t *testing.T) Foreground {
 	t.Helper()
 	for i := 0; i < 20; i++ {
+		// A lone Alt tap opens the window's system menu, a modal loop that
+		// would stall this window's message pump; a key in between prevents it.
 		pKeybdEvent.Call(0x12, 0, 0, 0)
+		pKeybdEvent.Call(0xE8, 0, 0, 0)
+		pKeybdEvent.Call(0xE8, 0, 2, 0)
 		pKeybdEvent.Call(0x12, 0, 2, 0)
 		pSetForeground.Call(w.hwnd)
 		pSetFocus.Call(w.hwnd)

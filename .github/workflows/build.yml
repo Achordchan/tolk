@@ -33,7 +33,7 @@ jobs:
         if: runner.os == 'Windows'
         env:
           TOLK_WIN_E2E: "1"
-        run: go test -count=1 -v ./internal/winsel
+        run: go test -count=1 -timeout 4m -v ./internal/winsel
       - name: Build the native helper into the app (macOS)
         if: runner.os == 'macOS'
         working-directory: macos/helper

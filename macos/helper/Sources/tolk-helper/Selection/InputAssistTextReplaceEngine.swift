@@ -162,7 +162,10 @@ enum InputAssistTextReplaceEngine {
                 currentElementValue: value,
                 currentSelectedText: selectedText,
                 hasFocusedElement: element != nil,
-                isFocusedElementUnchanged: element.map { CFEqual($0, session.element) } ?? false,
+                isFocusedElementUnchanged: {
+                    guard let element, let expected = session.element else { return false }
+                    return CFEqual(element, expected)
+                }(),
                 isFrontmostApplicationUnchanged: isFrontmostApplication(session.appProcessIdentifier),
                 isSecureEventInputEnabled: InputAssistSecureInputGuard.isSecureEventInputEnabled
             )

@@ -4,7 +4,8 @@ import Foundation
 
 /// 一次取词的快照：替换时拿它和现场比对，对不上就放弃（见 InputAssistReplacementSafetyGuard）。
 struct InputAssistCapture {
-    let element: AXUIElement
+    /// 复制兜底得到的选区没有 AX 元素（nil），此时 `isCopyFallback` 为 true。
+    let element: AXUIElement?
     /// 要翻译并最终替换掉的文本。
     let sourceText: String
     /// `sourceText` 在控件全文里的位置（UTF-16）。拿不到就是 nil，
@@ -22,6 +23,8 @@ struct InputAssistCapture {
     /// `selectRange` 会先把用户的光标覆盖掉，之后再怎么校验都只是在验证
     /// 「我刚设的那个选区还在不在」，永远发现不了用户其实已经把光标挪走了。
     let selectedRangeAtCapture: InputAssistTextRange?
+    /// 是否来自「模拟 ⌘C」的复制兜底（没有 AX 元素，提交只能走 ⌘V 粘贴）。
+    let isCopyFallback: Bool
 }
 
 /// AX 的 CFRange 以 UTF-16 code unit 计数，整条链路统一用它，避免中途换算出错。
@@ -156,7 +159,8 @@ enum InputAssistAXTextCapture {
             capability: capability,
             role: role,
             allowsEditorPaste: allowsEditorPaste(element: element),
-            selectedRangeAtCapture: selectedRange
+            selectedRangeAtCapture: selectedRange,
+            isCopyFallback: false
         )
     }
 

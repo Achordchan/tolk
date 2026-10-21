@@ -88,7 +88,7 @@ func TestParseListAndConfigure(t *testing.T) {
 		t.Fatal(got)
 	}
 	c := Configure(Default(), "pink")
-	if c["appearance"] != "pink" || len(c["blocklist"].([]string)) != 6 || len(c["allowlist"].([]string)) != 0 {
+	if c["appearance"] != "pink" || len(c["blocklist"].([]string)) != len(BlocklistFor(runtime.GOOS)) || len(c["allowlist"].([]string)) != 0 {
 		t.Fatal(c)
 	}
 }

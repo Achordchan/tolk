@@ -65,12 +65,16 @@ enum InputAssistCopyCapture {
         // 检测到变化后再等一小段：期间如果又变了，说明有别的写入者，不去猜里面是什么。
         try? await Task.sleep(nanoseconds: settleNanoseconds)
         let changeCountAfterSettle = pasteboard.changeCount
-        let result = InputAssistCopyFallbackLogic.judgeCopy(
-            changeCountBefore: changeCountBeforeSnapshot,
-            changeCountAtDetection: changeCountAtDetection,
-            changeCountAfterSettle: changeCountAfterSettle,
-            pasteboardText: pasteboard.string(forType: .string)
-        )
+        let pasteboardText = pasteboard.string(forType: .string)
+        // 读字符串的瞬间也可能被别人写入：读完再对一次计数，对不上就当争用处理。
+        let result: InputAssistCopyFallbackLogic.CopyResult = pasteboard.changeCount == changeCountAfterSettle
+            ? InputAssistCopyFallbackLogic.judgeCopy(
+                changeCountBefore: changeCountBeforeSnapshot,
+                changeCountAtDetection: changeCountAtDetection,
+                changeCountAfterSettle: changeCountAfterSettle,
+                pasteboardText: pasteboardText
+            )
+            : .contended
 
         if result == .contended {
             // 争用时剪贴板里是谁写的无从判断：不翻译，也不覆盖，保留别人的写入。

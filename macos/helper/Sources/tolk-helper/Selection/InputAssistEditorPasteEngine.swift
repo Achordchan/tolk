@@ -169,11 +169,18 @@ enum InputAssistEditorPasteEngine {
         if session.isCopyFallback {
             // 没有 AX 元素，做不了焦点控件 / 选区 / 全文的校验：只认前台进程和安全输入。
             // 校验不过由调用方退化成复制译文，不会硬粘。
-            return InputAssistCopyFallbackLogic.validateTarget(
+            guard InputAssistCopyFallbackLogic.validateTarget(
                 expectedProcessIdentifier: session.appProcessIdentifier,
                 currentProcessIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier,
                 isSecureEventInputEnabled: InputAssistSecureInputGuard.isSecureEventInputEnabled
-            ) == .allowed
+            ) == .allowed else { return false }
+            // 同一应用内焦点可能挪进了不开系统安全输入的密码框：对当前焦点控件再查一次角色。
+            guard let focused = InputAssistAXTextCapture.focusedElement() else { return true }
+            return InputAssistSecureInputGuard.allowsAutomation(
+                role: InputAssistAXTextCapture.stringAttribute(focused, kAXRoleAttribute as String),
+                subrole: InputAssistAXTextCapture.stringAttribute(focused, kAXSubroleAttribute as String),
+                isSecureEventInputEnabled: InputAssistSecureInputGuard.isSecureEventInputEnabled
+            )
         }
         guard let sessionElement = session.element,
               let focused = InputAssistAXTextCapture.focusedElement(),

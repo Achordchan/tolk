@@ -5,6 +5,7 @@ package winsel
 import (
 	"errors"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -303,6 +304,8 @@ var privateFormats = func() []uint32 {
 // setClipboardText replaces the clipboard with text. private keeps it out of
 // the clipboard history and cloud sync, for the temporary content of a paste.
 func setClipboardText(text string, private bool) error {
+	// Windows text has CR LF line breaks, which is what apps expect to find.
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", "\r\n")
 	u, err := windows.UTF16FromString(text)
 	if err != nil {
 		return err

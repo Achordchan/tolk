@@ -78,6 +78,7 @@ type uiaResult struct {
 	// truncated: the text is longer than GetText was asked for, so only the
 	// start of it was read.
 	truncated bool
+	why       string // when not supported or empty: where it stopped (for tests and the log)
 }
 
 // readUIA reads the selection of the focused control, which must belong to
@@ -119,6 +120,7 @@ func readUIAOnThread(pid int) (res uiaResult, err error) {
 
 	var elem uintptr
 	if hr := com(auto, vtGetFocusedElement, ptr(&elem)); failed(hr) || elem == 0 {
+		res.why = "GetFocusedElement 没有返回元素"
 		return res, nil // nothing focused: not supported, the caller falls back
 	}
 	defer release(elem)
@@ -127,6 +129,7 @@ func readUIAOnThread(pid int) (res uiaResult, err error) {
 	// took the focus meanwhile.
 	var owner int32
 	if hr := com(elem, vtCurrentProcessID, ptr(&owner)); failed(hr) || int(owner) != pid {
+		res.why = fmt.Sprintf("焦点元素属于进程 %d（hr=0x%x），要的是 %d", owner, uint32(hr), pid)
 		return res, nil
 	}
 
@@ -142,12 +145,14 @@ func readUIAOnThread(pid int) (res uiaResult, err error) {
 
 	var pattern uintptr
 	if hr := com(elem, vtGetCurrentPattern, uiaTextPatternID, ptr(&pattern)); failed(hr) || pattern == 0 {
+		res.why = fmt.Sprintf("GetCurrentPattern(Text) hr=0x%x pattern=%x", uint32(hr), pattern)
 		return res, nil
 	}
 	defer release(pattern)
 	// What comes back is an IUnknown: ask it for the text pattern interface.
 	var textPattern uintptr
 	if hr := com(pattern, vtQueryInterface, ptr(&iidTextPattern), ptr(&textPattern)); failed(hr) || textPattern == 0 {
+		res.why = fmt.Sprintf("QueryInterface(TextPattern) hr=0x%x", uint32(hr))
 		return res, nil
 	}
 	defer release(textPattern)

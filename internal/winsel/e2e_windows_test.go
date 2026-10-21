@@ -54,12 +54,17 @@ type editWindow struct {
 
 func newEditWindow(t *testing.T, text string) *editWindow {
 	t.Helper()
+	return newClassWindow(t, "EDIT", "Tolk e2e", text)
+}
+
+func newClassWindow(t *testing.T, class, name, text string) *editWindow {
+	t.Helper()
 	w := &editWindow{stop: make(chan struct{}), done: make(chan struct{})}
 	ready := make(chan uintptr)
 	go func() {
 		runtime.LockOSThread()
 		defer close(w.done)
-		h, _, _ := pCreateWindowEx.Call(0, ptr(u16("EDIT")), ptr(u16("Tolk e2e")), wsOverlapped|wsVisible|esMultiline, 100, 100, 500, 200, 0, 0, 0, 0)
+		h, _, _ := pCreateWindowEx.Call(0, ptr(u16(class)), ptr(u16(name)), wsOverlapped|wsVisible|esMultiline, 100, 100, 500, 200, 0, 0, 0, 0)
 		if h != 0 {
 			pSendMessage.Call(h, wmSetText, 0, ptr(u16(text)))
 		}
@@ -151,13 +156,36 @@ func TestEdit_CaptureByUIA(t *testing.T) {
 	}
 	t.Logf("uia: supported=%v text=%q rect=%+v have=%v", res.supported, res.text, res.rect, res.haveRect)
 	if !res.supported {
-		t.Fatal("the EDIT control did not expose a text pattern")
+		// The classic EDIT control is not guaranteed a text pattern; the rich
+		// edit test below is the strict one.
+		t.Skipf("the EDIT control did not expose a text pattern: %s", res.why)
 	}
 	if res.text != "world" {
 		t.Fatalf("text %q", res.text)
 	}
 	if res.haveRect && (res.rect.W <= 0 || res.rect.H <= 0 || res.rect.X < 90 || res.rect.Y < 90) {
 		t.Fatalf("rect %+v is not where the text is", res.rect)
+	}
+}
+
+func TestRichEdit_CaptureByUIA(t *testing.T) {
+	needE2E(t)
+	if _, err := windows.LoadLibrary("Msftedit.dll"); err != nil {
+		t.Skip("no rich edit control:", err)
+	}
+	w := newClassWindow(t, "RICHEDIT50W", "Tolk e2e rich", "Hello world, this is a test")
+	w.selectRange(6, 11)
+	fg := w.foreground(t)
+	res, err := readUIA(fg.App.PID, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("uia: supported=%v text=%q rect=%+v have=%v why=%s", res.supported, res.text, res.rect, res.haveRect, res.why)
+	if !res.supported {
+		t.Fatalf("the rich edit control did not expose a text pattern: %s", res.why)
+	}
+	if res.text != "world" {
+		t.Fatalf("text %q", res.text)
 	}
 }
 
@@ -281,10 +309,10 @@ func TestSnapshotRoundTripsSeveralFormats(t *testing.T) {
 
 func TestPanelPlacement(t *testing.T) {
 	needE2E(t)
-	w := newEditWindow(t, "x") // stands in for the panel window: only the title matters
 	title := "Tolk 候选面板 (test)"
-	pSetWindowText := user32.NewProc("SetWindowTextW")
-	pSetWindowText.Call(w.hwnd, ptr(u16(title)))
+	// Stands in for the panel window: only the title matters (an EDIT keeps
+	// its text to itself, where FindWindow cannot see it).
+	newClassWindow(t, "STATIC", title, "")
 	p, err := FindPanel(title)
 	if err != nil {
 		t.Fatal(err)

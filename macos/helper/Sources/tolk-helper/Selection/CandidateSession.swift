@@ -7,7 +7,8 @@ struct CandidateSession {
     /// 取词时前台应用的进程号。替换前比的是它，不是 bundle ID——没有 bundle ID 的应用两边都是 nil，
     /// 比不出换没换应用（见 `InputAssistReplacementSafetyGuard.isSameProcess`）。
     let appProcessIdentifier: pid_t?
-    let element: AXUIElement
+    /// 复制兜底的会话没有 AX 元素。
+    let element: AXUIElement?
     let sourceText: String
     let sourceRange: InputAssistTextRange?
     let elementValueAtCapture: String?
@@ -16,6 +17,8 @@ struct CandidateSession {
     let allowsEditorPaste: Bool
     /// 取词那一刻的选区 / 光标位置，替换前要比对。
     let selectedRangeAtCapture: InputAssistTextRange?
+    /// 来自复制兜底：提交只能走 ⌘V，守卫只校验前台进程。
+    let isCopyFallback: Bool
     let createdAt: Date
 
     init(appProcessIdentifier: pid_t?, capture: InputAssistCapture, createdAt: Date = Date()) {
@@ -28,6 +31,7 @@ struct CandidateSession {
         self.role = capture.role
         self.allowsEditorPaste = capture.allowsEditorPaste
         self.selectedRangeAtCapture = capture.selectedRangeAtCapture
+        self.isCopyFallback = capture.isCopyFallback
         self.createdAt = createdAt
     }
 }

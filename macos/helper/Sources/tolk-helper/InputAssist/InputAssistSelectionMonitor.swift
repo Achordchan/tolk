@@ -189,9 +189,11 @@ final class InputAssistSelectionMonitor {
     /// 以及任何其它关闭方式都一致生效，不用去枚举关闭动作。
     @discardableResult
     func registerSelection(_ capture: InputAssistCapture) -> Bool {
+        // 复制兜底的选区没有 AX 元素，无从去重；调用方本来也不该传进来，这里兜住不崩。
+        guard let element = capture.element else { return true }
         let fingerprint = Fingerprint(
             applicationBundleIdentifier: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-            element: capture.element,
+            element: element,
             sourceText: capture.sourceText,
             sourceRange: capture.sourceRange
         )

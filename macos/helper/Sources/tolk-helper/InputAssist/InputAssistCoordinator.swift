@@ -13,7 +13,10 @@ struct InputAssistActiveSession {
     /// 这个会话是不是就为**这一段**选区开的。
     /// 用来防止两条延迟路径（自动显示等 180ms、快捷键的 Chromium 重试等 200ms）为同一段选区各开一次。
     func matchesSelection(of other: InputAssistCapture) -> Bool {
-        CFEqual(capture.element, other.element)
+        // 复制兜底的选区没有 AX 元素，无从判断是不是同一控件：一律当作不同。
+        // （自动显示那条路只会产出 AX 选区，两条路不会为同一段选区重复开面板。）
+        guard let element = capture.element, let otherElement = other.element else { return false }
+        return CFEqual(element, otherElement)
             && capture.sourceText == other.sourceText
             && capture.sourceRange == other.sourceRange
     }
@@ -284,9 +287,10 @@ final class InputAssistCoordinator {
         return capture
     }
 
-    /// 打开目标应用的辅助功能树后重试一次取词。
+    /// AX 取词失败后的后续流程：先试 Chromium 打开辅助功能树后重试，仍然取不到再用复制兜底。
     ///
     /// 只在第一次取词失败时走这条路——打开别人进程的 AX 树是有开销的，不该对每个切换到的应用都默认施加。
+    /// 整个过程（含复制兜底）都占着 `isChromiumRetryInFlight`，用户连按快捷键不会并发地动剪贴板。
     private func retryAfterEnablingChromiumAccessibility(pid: pid_t) async {
         defer { isChromiumRetryInFlight = false }
 
@@ -295,14 +299,14 @@ final class InputAssistCoordinator {
         // 而那个应用完全可能在黑名单里（默认就有终端、钥匙串、密码管理器）。
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
         guard InputAssistChromiumAccessibility.enableIfNeeded(pid: pid) else {
-            // 这个应用已经开过了、或者根本不支持这个属性，重试没有意义。
-            // 开过之后仍然读不到，说明是这个控件不暴露选中文本，再叫用户"先选择文字"就是误导。
-            showMessage(
-                InputAssistChromiumAccessibility.hasSettledResult(pid: pid)
+            // 这个应用已经开过了、或者根本不支持这个属性，AX 重试没有意义，直接用复制兜底。
+            // 兜底也失败时沿用原来的提示：开过之后仍然读不到，说明是这个控件不暴露选中文本，
+            // 再叫用户"先选择文字"就是误导。
+            await captureByCopyFallback(
+                pid: pid,
+                failureMessage: InputAssistChromiumAccessibility.hasSettledResult(pid: pid)
                     ? "当前应用没有提供选中文本，可能需要重新选择一次"
-                    : "请先选择要翻译的文字",
-                style: .warning,
-                anchorRect: InputAssistScreen.mouseAnchor()
+                    : "请先选择要翻译的文字"
             )
             return
         }
@@ -329,10 +333,9 @@ final class InputAssistCoordinator {
 
         guard let capture = captureTranslatableSelection() else {
             Bridge.log(.warn, "选区翻译未能读取选中的文字")
-            showMessage(
-                "已为当前应用开启辅助功能读取，请重新选中一次文字",
-                style: .info,
-                anchorRect: InputAssistScreen.mouseAnchor()
+            await captureByCopyFallback(
+                pid: pid,
+                failureMessage: "已为当前应用开启辅助功能读取，请重新选中一次文字"
             )
             return
         }
@@ -343,6 +346,42 @@ final class InputAssistCoordinator {
         }
 
         startSession(capture: capture, identity: identity)
+    }
+
+    /// 复制取词兜底（仅手动快捷键路径）：AX 与 Chromium 重试都取不到时，模拟 ⌘C 读选区。
+    ///
+    /// 守卫顺序：应用范围（黑白名单）→ 安全输入 / 密码框（在 `InputAssistCopyCapture` 里，先于 ⌘C）
+    /// → 复制 → 前台进程仍是批准时的那个（`startSession` 里再按 pid 校验一次）。
+    private func captureByCopyFallback(pid: pid_t, failureMessage: String) async {
+        guard config.enabled, !isCommitting else { return }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+
+        // 应用范围用**此刻**的身份重新查，并且身份必须就是被钉住的这个进程。
+        let identity = InputAssistAppIdentity.frontmost()
+        guard identity?.processIdentifier == pid, allowsApplication(identity) else {
+            Bridge.log(.info, "选区翻译已跳过当前应用（按「应用范围」设置）")
+            return
+        }
+
+        guard let capture = await InputAssistCopyCapture.captureSelectedText(expectedProcessIdentifier: pid),
+              InputAssistTextFilter.looksTranslatable(capture.sourceText)
+        else {
+            Bridge.log(.warn, "选区翻译未能读取选中的文字（复制兜底也未取到）")
+            // 用户可能在这期间切走了应用或关掉了功能，那时不该再弹提示。
+            if config.enabled, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+                showMessage(failureMessage, style: .warning, anchorRect: InputAssistScreen.mouseAnchor())
+            }
+            return
+        }
+
+        // 复制期间（最长约 700ms）用户可能关了功能、开始了提交，或者切走了应用。
+        guard !Task.isCancelled, config.enabled, !isCommitting else { return }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+        let currentIdentity = InputAssistAppIdentity.frontmost()
+        guard currentIdentity?.processIdentifier == pid, allowsApplication(currentIdentity) else { return }
+
+        Bridge.log(.info, "选区翻译改用复制取词（当前应用没有提供 AX 选中文本）")
+        startSession(capture: capture, identity: currentIdentity)
     }
 
     private func handleAutomaticSelection(_ capture: InputAssistCapture) {
@@ -391,16 +430,29 @@ final class InputAssistCoordinator {
     private func startSession(capture: InputAssistCapture, identity: InputAssistAppIdentity?) {
         // 过滤检查和取词之间用户可能已经切到别的应用：取到的控件必须属于当初批准的进程，
         // 否则（比如排除列表里的应用）里的文字会被送去翻译。
-        var ownerPid: pid_t = 0
-        if AXUIElementGetPid(capture.element, &ownerPid) == .success, ownerPid > 0 {
-            if let approved = identity?.processIdentifier {
-                guard approved == ownerPid else {
-                    Bridge.log(.info, "选区翻译：取词时前台应用已切换，放弃这次触发")
+        if let element = capture.element {
+            var ownerPid: pid_t = 0
+            if AXUIElementGetPid(element, &ownerPid) == .success, ownerPid > 0 {
+                if let approved = identity?.processIdentifier {
+                    guard approved == ownerPid else {
+                        Bridge.log(.info, "选区翻译：取词时前台应用已切换，放弃这次触发")
+                        return
+                    }
+                } else if let owner = NSRunningApplication(processIdentifier: ownerPid),
+                          !allowsApplication(InputAssistAppIdentity(application: owner)) {
+                    Bridge.log(.info, "选区翻译：选区所在应用在排除范围内，放弃这次触发")
                     return
                 }
-            } else if let owner = NSRunningApplication(processIdentifier: ownerPid),
-                      !allowsApplication(InputAssistAppIdentity(application: owner)) {
-                Bridge.log(.info, "选区翻译：选区所在应用在排除范围内，放弃这次触发")
+            }
+        } else {
+            // 复制兜底的选区没有 AX 元素可查所属进程，等价的校验是：批准时的进程必须还是前台，
+            // 且既然是兜底，批准身份必须带进程号（拿不到就当作变了）。
+            guard InputAssistCopyFallbackLogic.validateTarget(
+                expectedProcessIdentifier: identity?.processIdentifier,
+                currentProcessIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                isSecureEventInputEnabled: InputAssistSecureInputGuard.isSecureEventInputEnabled
+            ) == .allowed else {
+                Bridge.log(.info, "选区翻译：取词时前台应用已切换，放弃这次触发")
                 return
             }
         }
@@ -409,7 +461,10 @@ final class InputAssistCoordinator {
             panelController.dismiss(reason: .replacedByNewSession)
         }
 
-        let anchorRect = InputAssistAnchor.rect(element: capture.element, range: capture.sourceRange)
+        // 复制兜底没有 AX 元素，拿不到选区矩形，改用鼠标位置。
+        let anchorRect = capture.element.map {
+            InputAssistAnchor.rect(element: $0, range: capture.sourceRange)
+        } ?? InputAssistScreen.mouseAnchor()
 
         let detectedSourceLanguage = detectSourceLanguage(of: capture.sourceText)
         let visibleTargets = InputAssistLanguagePolicy.visibleTargets(
@@ -423,7 +478,10 @@ final class InputAssistCoordinator {
 
         // 让自动取词知道这段选区已经处理过了。少了这一步，用快捷键打开的面板被 Esc 关掉之后会立刻自己弹回来
         // （Esc 的 key-up 会漏到选区监听，而那时它还没记过这段选区）。
-        selectionMonitor.registerSelection(capture)
+        // 复制兜底没有 AX 元素，没有可比对的指纹，跳过（自动显示只产出 AX 选区，不会把它弹回来）。
+        if capture.element != nil {
+            selectionMonitor.registerSelection(capture)
+        }
 
         let session = InputAssistActiveSession(
             session: CandidateSession(
@@ -468,7 +526,8 @@ final class InputAssistCoordinator {
             capability: session.capability,
             allowsEditorPaste: session.allowsEditorPaste,
             hasSourceRange: session.sourceRange != nil,
-            hasElementValue: session.elementValueAtCapture != nil
+            hasElementValue: session.elementValueAtCapture != nil,
+            isCopyFallback: session.isCopyFallback
         )
     }
 
@@ -546,7 +605,7 @@ final class InputAssistCoordinator {
                 self.copyTranslatedText(
                     translatedText,
                     message: outcome.allowsPasteFallback
-                        ? "编辑器拒绝替换，译文已复制"
+                        ? (session.isCopyFallback ? "无法安全替换，译文已复制" : "编辑器拒绝替换，译文已复制")
                         : "无法确认替换是否生效，译文已复制",
                     style: .warning,
                     anchorRect: anchorRect

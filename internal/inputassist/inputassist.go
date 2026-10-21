@@ -1,11 +1,14 @@
-// Package inputassist holds the settings of the Mac "输入助手" (select text,
-// press a shortcut, pick a translation to replace it with), ported from
-// bagayalu's InputAssist. They live under "tolk"."input_assist" in the shared
-// config file; the native helper does the work and Go only pushes the settings.
+// Package inputassist holds the settings and the platform independent logic of
+// "输入助手" (select text, press a shortcut, pick a translation to replace it
+// with), ported from bagayalu's InputAssist. The settings live under
+// "tolk"."input_assist" in the shared config file. On the Mac the native helper
+// does the work and Go only pushes the settings; on Windows Go runs the whole
+// flow itself, with this package holding everything that is not Win32.
 package inputassist
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	"tolk/internal/engine"
@@ -33,9 +36,31 @@ const (
 	keySpace = 49
 )
 
-// DefaultBlocklist is the old app's InputAssistAppFilter.defaultBlocklist:
+// WindowsBlocklist is the same idea for Windows: terminals and password
+// managers, by executable name (".exe" is optional).
+var WindowsBlocklist = []string{
+	"WindowsTerminal.exe",
+	"cmd.exe",
+	"powershell.exe",
+	"pwsh.exe",
+	"conhost.exe",
+	"1Password.exe",
+	"Bitwarden.exe",
+	"KeePass.exe",
+	"KeePassXC.exe",
+}
+
+// BlocklistFor is the blocklist a fresh install starts with on goos.
+func BlocklistFor(goos string) []string {
+	if goos == "windows" {
+		return WindowsBlocklist
+	}
+	return macBlocklist
+}
+
+// macBlocklist is the old app's InputAssistAppFilter.defaultBlocklist:
 // terminals and password managers.
-var DefaultBlocklist = []string{
+var macBlocklist = []string{
 	"com.apple.Terminal",
 	"com.googlecode.iterm2",
 	"com.apple.keychainaccess",
@@ -65,7 +90,7 @@ func Default() Config {
 		ShortcutKeyCode:   keySpace,
 		ShortcutModifiers: ModOption | ModShift,
 		Scope:             ScopeGlobal,
-		Blocklist:         strings.Join(DefaultBlocklist, "\n"),
+		Blocklist:         strings.Join(BlocklistFor(runtime.GOOS), "\n"),
 		CacheBadge:        true,
 	}
 }

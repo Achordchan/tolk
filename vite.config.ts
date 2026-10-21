@@ -11,10 +11,11 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // Two pages: the main window and the Mini bubble.
+      // Three pages: the main window, the Mini bubble and the 输入助手 panel.
       input: {
         main: resolve(__dirname, "index.html"),
         mini: resolve(__dirname, "mini.html"),
+        panel: resolve(__dirname, "panel.html"),
       },
     },
   },

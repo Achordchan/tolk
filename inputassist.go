@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/egoist/mygo"
+
 	"tolk/internal/inputassist"
 	"tolk/internal/legacy"
 )
@@ -30,7 +32,7 @@ func loadInputAssist() inputassist.Config {
 
 func inputAssistState() InputAssistState {
 	st := InputAssistState{Settings: loadInputAssist()}
-	st.Active, st.Error = macInputAssistStatus()
+	st.Active, st.Error = inputAssistStatus()
 	return st
 }
 
@@ -50,12 +52,36 @@ func (Tolk) SetInputAssist(s inputassist.Config) (InputAssistState, error) {
 	if err := legacy.Update(p, func(m map[string]any) { inputassist.Store(m, s) }); err != nil {
 		return InputAssistState{}, err
 	}
-	macPushInputAssist()
+	pushInputAssist()
 	return inputAssistState(), nil
 }
 
 // InputAssistTrigger does what the shortcut does (the settings page's 测试).
-func (Tolk) InputAssistTrigger() error { return macSimple("inputassist.trigger", nil) }
+func (Tolk) InputAssistTrigger() error { return triggerInputAssist() }
+
+// PanelView is what the floating candidate panel (Windows) shows: the rows of
+// a session, or a short message. Go computes the whole layout, so the page only
+// draws it, and the mouse hook can tell which row a click hit.
+type PanelView struct {
+	Mode     string            `json:"mode"` // "list" | "message" | "none"
+	Rows     []inputassist.Row `json:"rows"`
+	Selected int               `json:"selected"`
+	Tops     []int             `json:"tops"`
+	Heights  []int             `json:"heights"`
+	Width    int               `json:"width"`
+	Height   int               `json:"height"`
+	Lines    int               `json:"lines"` // text lines reserved per row
+	Badge    bool              `json:"badge"` // show ⚡ on cache hits
+	Message  string            `json:"message"`
+	Style    string            `json:"style"` // success | info | warning | copied
+}
+
+// PanelUpdate carries the panel's view to its window.
+var PanelUpdate = mygo.NewEvent[PanelView]("panel")
+
+// PanelSnapshot is the view now, for a panel page that loaded after the
+// event was sent.
+func (Tolk) PanelSnapshot() PanelView { return panelSnapshot() }
 
 var engineTitles = map[string]string{
 	"google": "Google 翻译", "microsoft": "微软翻译", "deepl": "DeepL", "openai_compat": "AI 翻译",

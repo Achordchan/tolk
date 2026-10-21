@@ -1,0 +1,21 @@
+/* 输入助手的候选面板（Windows）。尺寸和每一行的位置都由 Go 算好，这里只负责画；
+   窗口从不接收键盘和鼠标，所以没有任何交互样式。 */
+body.panel { height: auto; margin: 0; overflow: hidden; background: var(--card); user-select: none; cursor: default; }
+html { overflow: hidden; }
+
+#panel { position: relative; width: 100vw; height: 100vh; font-size: 13px; line-height: 18px; border: 1px solid var(--stroke); box-sizing: border-box; }
+
+.row { position: absolute; left: 10px; right: 10px; display: flex; gap: 8px; padding: 5px 8px; border-radius: 5px; overflow: hidden; }
+.row.sel { background: var(--accent); color: #fff; }
+.row .code { flex: none; width: 34px; padding-top: 2px; font-size: 10px; font-weight: 600; line-height: 14px; color: var(--muted); }
+.row.sel .code { color: #fff; }
+.row .text { flex: 1; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; text-overflow: ellipsis; word-break: break-word; }
+.row .skeleton { margin: 4px 0; height: 10px; width: 220px; max-width: 100%; border-radius: 3px; background: var(--muted); opacity: 0.25; }
+.row.sel .skeleton { background: #fff; }
+.row .hint { font-size: 11px; opacity: 0.7; margin-left: 4px; }
+.row .bolt { flex: none; font-size: 10px; padding-top: 2px; }
+
+.notice { display: flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; font-size: 12px; font-weight: 500; }
+.notice svg { flex: none; width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.notice.warning svg { color: #ff9f0a; }
+.notice.success svg { color: var(--ok); }

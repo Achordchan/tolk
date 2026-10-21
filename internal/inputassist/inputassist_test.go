@@ -3,6 +3,7 @@ package inputassist
 import (
 	"encoding/json"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -12,7 +13,7 @@ func TestDefaults(t *testing.T) {
 	if d.Enabled || d.AutoShow || !d.CacheBadge || d.ShortcutKeyCode != 49 || d.ShortcutModifiers != 2560 || d.Scope != "global" || d.Allowlist != "" {
 		t.Fatalf("%+v", d)
 	}
-	if !reflect.DeepEqual(d.Targets, []string{"英语"}) || len(strings.Split(d.Blocklist, "\n")) != 6 || !strings.HasPrefix(d.Blocklist, "com.apple.Terminal\n") {
+	if !reflect.DeepEqual(d.Targets, []string{"英语"}) || len(strings.Split(d.Blocklist, "\n")) != len(BlocklistFor(runtime.GOOS)) || !strings.HasPrefix(d.Blocklist, BlocklistFor(runtime.GOOS)[0]+"\n") {
 		t.Fatalf("%+v", d)
 	}
 	if err := Validate(d); err != nil {

@@ -3,6 +3,7 @@ import { THEMES, initLook } from "./look";
 import { engineList } from "./engines";
 import { initSettings } from "./settings";
 import { macPane } from "./mac";
+import { inputAssistPane } from "./inputassist";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -191,6 +192,7 @@ initSettings({
   os: about.os,
   toast,
   mac: about.os === "darwin" ? macPane(toast, () => $("#s-cancel").click()) : undefined,
+  ia: about.os === "darwin" || about.os === "windows" ? inputAssistPane(about.os, toast, () => $("#s-cancel").click()) : undefined,
   saved: async (next) => {
     prefs = next;
     showMini();

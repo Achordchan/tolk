@@ -461,3 +461,76 @@ final class InputAssistGeometryTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(origin.x, visible.minX)
     }
 }
+
+final class InputAssistCopyFallbackTests: XCTestCase {
+    func testChangedPasteboardWithTextIsCopied() {
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(changeCountBefore: 5, changeCountNow: 6, pasteboardText: "你好"),
+            .copied("你好")
+        )
+    }
+
+    func testUnchangedPasteboardNeverTreatsOldContentAsSelection() {
+        // 剪贴板里有旧文本，但 changeCount 没变：目标应用没复制，旧文本不能当选区。
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(changeCountBefore: 5, changeCountNow: 5, pasteboardText: "旧内容"),
+            .clipboardUnchanged
+        )
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(changeCountBefore: 5, changeCountNow: 5, pasteboardText: nil),
+            .clipboardUnchanged
+        )
+    }
+
+    func testSameTextAsBeforeStillCountsWhenChangeCountMoved() {
+        // 用户原本就复制过同一段字：内容相同，但 changeCount 变了，说明这次复制生效。
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(changeCountBefore: 1, changeCountNow: 2, pasteboardText: "hello"),
+            .copied("hello")
+        )
+    }
+
+    func testChangedPasteboardWithoutUsableTextIsNoText() {
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(changeCountBefore: 1, changeCountNow: 2, pasteboardText: nil),
+            .noText
+        )
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(changeCountBefore: 1, changeCountNow: 3, pasteboardText: " \n\t"),
+            .noText
+        )
+    }
+
+    func testTargetValidationOnlyChecksProcessAndSecureInput() {
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.validateTarget(
+                expectedProcessIdentifier: 100, currentProcessIdentifier: 100, isSecureEventInputEnabled: false
+            ),
+            .allowed
+        )
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.validateTarget(
+                expectedProcessIdentifier: 100, currentProcessIdentifier: 200, isSecureEventInputEnabled: false
+            ),
+            .applicationChanged
+        )
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.validateTarget(
+                expectedProcessIdentifier: nil, currentProcessIdentifier: nil, isSecureEventInputEnabled: false
+            ),
+            .applicationChanged
+        )
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.validateTarget(
+                expectedProcessIdentifier: 100, currentProcessIdentifier: nil, isSecureEventInputEnabled: false
+            ),
+            .applicationChanged
+        )
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.validateTarget(
+                expectedProcessIdentifier: 100, currentProcessIdentifier: 100, isSecureEventInputEnabled: true
+            ),
+            .secureInputActive
+        )
+    }
+}

@@ -11,6 +11,9 @@ public enum InputAssistCopyFallbackLogic {
         /// changeCount 没变：目标应用没有写剪贴板（没有选区、或不响应 ⌘C）。
         /// 此时剪贴板里的是用户原有的内容，**绝不能**当成选区。
         case clipboardUnchanged
+        /// 检测到变化之后剪贴板又变了：有别的写入者（剪贴板管理器、通用剪贴板等）在同一窗口里动过它，
+        /// 没法确定里面的文字是不是用户选中的。不翻译、也不去覆盖它。
+        case contended
         /// 剪贴板变了，但读不到文字（比如复制出来的是图片）或只有空白。
         case noText
     }
@@ -29,6 +32,23 @@ public enum InputAssistCopyFallbackLogic {
             return .noText
         }
         return .copied(text)
+    }
+
+    /// 带稳定性检查的判定：检测到 changeCount 变化后再等一小段时间，期间如果又变了，
+    /// 说明不只一个写入者，当作争用处理，宁可不取词。
+    public static func judgeCopy(
+        changeCountBefore: Int,
+        changeCountAtDetection: Int,
+        changeCountAfterSettle: Int,
+        pasteboardText: String?
+    ) -> CopyResult {
+        guard changeCountAtDetection != changeCountBefore else { return .clipboardUnchanged }
+        guard changeCountAfterSettle == changeCountAtDetection else { return .contended }
+        return judgeCopy(
+            changeCountBefore: changeCountBefore,
+            changeCountNow: changeCountAtDetection,
+            pasteboardText: pasteboardText
+        )
     }
 
     /// 兜底来源的选区没有 AX 元素，做不了「全文没变」的校验，守卫只剩前台进程和安全输入两条。

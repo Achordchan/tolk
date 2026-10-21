@@ -16,6 +16,10 @@ enum InputAssistCopyCapture {
     static let pollNanoseconds: UInt64 = 20_000_000
     /// 等用户松开触发快捷键的修饰键（⌥⇧ 等）的上限：带着它们按 ⌘C 会变成别的快捷键。
     static let modifierReleaseTimeoutNanoseconds: UInt64 = 400_000_000
+    /// 检测到剪贴板变化后的稳定等待：这段时间内再变就当作多方写入。
+    static let settleNanoseconds: UInt64 = 80_000_000
+    /// 超时后继续盯着剪贴板的时间：迟到的复制落地后要把用户原来的内容还回去。
+    static let lateWriteWatchNanoseconds: UInt64 = 1_000_000_000
 
     /// 用模拟 ⌘C 取当前选中的文字。取不到（没选中、应用不响应、被取消、前台变了）返回 nil。
     /// 无论哪个出口，只要动过剪贴板就会还原。
@@ -57,26 +61,39 @@ enum InputAssistCopyCapture {
             waited += pollNanoseconds
         }
 
-        let changeCountAfterCopy = pasteboard.changeCount
+        let changeCountAtDetection = pasteboard.changeCount
+        if changeCountAtDetection == changeCountBeforeSnapshot {
+            // 超时或被取消：⌘C 已经发出去了，忙碌的应用可能稍后才写剪贴板。
+            // 这一笔迟到的写入没人会清理，所以留一个不随取词任务取消的收尾任务。
+            scheduleLateWriteCleanup(baseline: changeCountBeforeSnapshot, savedItems: savedItems)
+            Bridge.log(.info, "复制取词：应用没有响应 ⌘C（可能没有选中文字）")
+            return nil
+        }
+
+        // 检测到变化后再等一小段：期间如果又变了，说明有别的写入者，不去猜里面是什么。
+        try? await Task.sleep(nanoseconds: settleNanoseconds)
+        let changeCountAfterSettle = pasteboard.changeCount
         let result = InputAssistCopyFallbackLogic.judgeCopy(
             changeCountBefore: changeCountBeforeSnapshot,
-            changeCountNow: changeCountAfterCopy,
+            changeCountAtDetection: changeCountAtDetection,
+            changeCountAfterSettle: changeCountAfterSettle,
             pasteboardText: pasteboard.string(forType: .string)
         )
 
-        // 所有出口（成功、没复制到、超时、被取消）都还原：只要 changeCount 变过，剪贴板里就是别人写的新内容。
-        // 还原前再看一眼 changeCount——读完到这里之间又有人写了剪贴板的话，不去覆盖它。
-        if changeCountAfterCopy != changeCountBeforeSnapshot, pasteboard.changeCount == changeCountAfterCopy {
+        if result == .contended {
+            // 争用时剪贴板里是谁写的无从判断：不翻译，也不覆盖，保留别人的写入。
+            Bridge.log(.info, "复制取词：剪贴板在取词期间被多方写入，放弃这次触发")
+            return nil
+        }
+
+        // 其余出口都还原用户原来的剪贴板；还原前再看一眼 changeCount，
+        // 读完到这里之间又有人写了剪贴板的话，不去覆盖它。
+        if pasteboard.changeCount == changeCountAfterSettle {
             InputAssistPasteboardSnapshot.restore(savedItems, to: pasteboard)
         }
 
         guard case .copied(let text) = result else {
-            switch result {
-            case .clipboardUnchanged:
-                Bridge.log(.info, "复制取词：应用没有响应 ⌘C（可能没有选中文字）")
-            default:
-                Bridge.log(.info, "复制取词：剪贴板里没有可用的文字")
-            }
+            Bridge.log(.info, "复制取词：剪贴板里没有可用的文字")
             return nil
         }
         guard !Task.isCancelled, isTargetStillApproved(expectedProcessIdentifier) else {
@@ -96,6 +113,27 @@ enum InputAssistCopyCapture {
             selectedRangeAtCapture: nil,
             isCopyFallback: true
         )
+    }
+
+    /// ⌘C 已发出但没在期限内看到变化（超时或被取消）：再盯一会儿，
+    /// 迟到的写入落地并稳定后还原用户原来的剪贴板。独立的 Task，不随取词任务取消。
+    private static func scheduleLateWriteCleanup(baseline: Int, savedItems: [NSPasteboardItem]) {
+        Task { @MainActor in
+            let pasteboard = NSPasteboard.general
+            var waited: UInt64 = 0
+            while pasteboard.changeCount == baseline, waited < lateWriteWatchNanoseconds {
+                try? await Task.sleep(nanoseconds: pollNanoseconds)
+                waited += pollNanoseconds
+            }
+            guard pasteboard.changeCount != baseline else { return }
+            try? await Task.sleep(nanoseconds: settleNanoseconds)
+            let settled = pasteboard.changeCount
+            try? await Task.sleep(nanoseconds: settleNanoseconds)
+            // 还在变就是别的写入者，不碰；稳定了才还原。
+            if pasteboard.changeCount == settled {
+                InputAssistPasteboardSnapshot.restore(savedItems, to: pasteboard)
+            }
+        }
     }
 
     private static func isTargetStillApproved(_ expected: pid_t) -> Bool {

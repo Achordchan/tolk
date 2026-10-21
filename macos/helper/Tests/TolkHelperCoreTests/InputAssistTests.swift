@@ -501,6 +501,35 @@ final class InputAssistCopyFallbackTests: XCTestCase {
         )
     }
 
+    func testSecondWriterDuringSettleIsContended() {
+        // 检测到变化(6)后又变了(7)：多方写入，不能把里面的文字当选区。
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(
+                changeCountBefore: 5, changeCountAtDetection: 6, changeCountAfterSettle: 7, pasteboardText: "别人写的"
+            ),
+            .contended
+        )
+    }
+
+    func testStableChangeAfterSettleIsCopied() {
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(
+                changeCountBefore: 5, changeCountAtDetection: 6, changeCountAfterSettle: 6, pasteboardText: "选中的字"
+            ),
+            .copied("选中的字")
+        )
+    }
+
+    func testNoChangeAtDetectionStaysUnchangedEvenIfLaterWritten() {
+        // 超时没看到变化：由迟到写入的收尾任务处理，判定本身仍是未变化，旧内容不能当选区。
+        XCTAssertEqual(
+            InputAssistCopyFallbackLogic.judgeCopy(
+                changeCountBefore: 5, changeCountAtDetection: 5, changeCountAfterSettle: 6, pasteboardText: "旧内容"
+            ),
+            .clipboardUnchanged
+        )
+    }
+
     func testTargetValidationOnlyChecksProcessAndSecureInput() {
         XCTAssertEqual(
             InputAssistCopyFallbackLogic.validateTarget(

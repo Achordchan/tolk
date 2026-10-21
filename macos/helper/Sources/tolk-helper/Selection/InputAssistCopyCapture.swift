@@ -25,22 +25,15 @@ enum InputAssistCopyCapture {
         guard isTargetStillApproved(expectedProcessIdentifier) else { return nil }
 
         // 安全红线：在模拟任何按键之前检查。AX 取词在密码框上返回 nil 之后会走到这里，
-        // 所以焦点控件是不是密码框也要在这里重新看一遍。
-        if let focused = InputAssistAXTextCapture.focusedElement() {
-            let role = InputAssistAXTextCapture.stringAttribute(focused, kAXRoleAttribute as String)
-            let subrole = InputAssistAXTextCapture.stringAttribute(focused, kAXSubroleAttribute as String)
-            guard InputAssistSecureInputGuard.allowsAutomation(
-                role: role,
-                subrole: subrole,
-                isSecureEventInputEnabled: InputAssistSecureInputGuard.isSecureEventInputEnabled
-            ) else {
-                Bridge.log(.info, "复制取词：焦点是安全输入框，已跳过")
-                return nil
-            }
-        }
+        // 所以焦点控件是不是密码框也要在这里重新看一遍；等待松键期间焦点可能换了，发 ⌘C 前还要再看一次。
+        guard focusAllowsCopy() else { return nil }
 
-        await waitForModifiersReleased()
-        guard !Task.isCancelled, isTargetStillApproved(expectedProcessIdentifier) else { return nil }
+        // 修饰键一直没松开就放弃：带着 ⌥⇧ 发 ⌘C 会变成别的快捷键。
+        guard await waitForModifiersReleased() else {
+            Bridge.log(.info, "复制取词：触发快捷键的修饰键一直没松开，已跳过")
+            return nil
+        }
+        guard !Task.isCancelled, isTargetStillApproved(expectedProcessIdentifier), focusAllowsCopy() else { return nil }
 
         let pasteboard = NSPasteboard.general
         let changeCountBeforeSnapshot = pasteboard.changeCount
@@ -48,6 +41,8 @@ enum InputAssistCopyCapture {
         // 拍快照的瞬间剪贴板被别人改了：快照不可信，宁可不取词也不冒险还原出旧内容。
         guard pasteboard.changeCount == changeCountBeforeSnapshot else { return nil }
 
+        // 发键前最后一次确认：快照和前面的等待之间焦点可能已经挪进密码框。
+        guard focusAllowsCopy(), isTargetStillApproved(expectedProcessIdentifier) else { return nil }
         guard InputAssistKeyboardSynthesizer.pressCopy() else { return nil }
 
         // 轮询 changeCount，而不是读内容：剪贴板里本来就有旧文本，只有 changeCount 变了才说明这次复制生效。
@@ -112,6 +107,21 @@ enum InputAssistCopyCapture {
         )
     }
 
+    /// 焦点控件不是密码框（含系统级安全输入）才允许模拟 ⌘C。
+    private static func focusAllowsCopy() -> Bool {
+        let secure = InputAssistSecureInputGuard.isSecureEventInputEnabled
+        guard let focused = InputAssistAXTextCapture.focusedElement() else {
+            return InputAssistSecureInputGuard.allowsAutomation(role: nil, subrole: nil, isSecureEventInputEnabled: secure)
+        }
+        let role = InputAssistAXTextCapture.stringAttribute(focused, kAXRoleAttribute as String)
+        let subrole = InputAssistAXTextCapture.stringAttribute(focused, kAXSubroleAttribute as String)
+        guard InputAssistSecureInputGuard.allowsAutomation(role: role, subrole: subrole, isSecureEventInputEnabled: secure) else {
+            Bridge.log(.info, "复制取词：焦点是安全输入框，已跳过")
+            return false
+        }
+        return true
+    }
+
     private static func isTargetStillApproved(_ expected: pid_t) -> Bool {
         InputAssistCopyFallbackLogic.validateTarget(
             expectedProcessIdentifier: expected,
@@ -121,7 +131,7 @@ enum InputAssistCopyCapture {
     }
 
     /// 触发快捷键常带 ⌥⇧，用户还没松手时合成 ⌘C 会被系统合并成别的组合键。
-    private static func waitForModifiersReleased() async {
+    private static func waitForModifiersReleased() async -> Bool {
         let mask: CGEventFlags = [.maskCommand, .maskAlternate, .maskShift, .maskControl]
         var waited: UInt64 = 0
         while !CGEventSource.flagsState(.combinedSessionState).intersection(mask).isEmpty,
@@ -130,5 +140,6 @@ enum InputAssistCopyCapture {
             try? await Task.sleep(nanoseconds: pollNanoseconds)
             waited += pollNanoseconds
         }
+        return CGEventSource.flagsState(.combinedSessionState).intersection(mask).isEmpty
     }
 }

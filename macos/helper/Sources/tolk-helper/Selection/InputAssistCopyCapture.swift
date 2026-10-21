@@ -18,8 +18,6 @@ enum InputAssistCopyCapture {
     static let modifierReleaseTimeoutNanoseconds: UInt64 = 400_000_000
     /// 检测到剪贴板变化后的稳定等待：这段时间内再变就当作多方写入。
     static let settleNanoseconds: UInt64 = 80_000_000
-    /// 超时后继续盯着剪贴板的时间：迟到的复制落地后要把用户原来的内容还回去。
-    static let lateWriteWatchNanoseconds: UInt64 = 1_000_000_000
 
     /// 用模拟 ⌘C 取当前选中的文字。取不到（没选中、应用不响应、被取消、前台变了）返回 nil。
     /// 无论哪个出口，只要动过剪贴板就会还原。
@@ -63,9 +61,8 @@ enum InputAssistCopyCapture {
 
         let changeCountAtDetection = pasteboard.changeCount
         if changeCountAtDetection == changeCountBeforeSnapshot {
-            // 超时或被取消：⌘C 已经发出去了，忙碌的应用可能稍后才写剪贴板。
-            // 这一笔迟到的写入没人会清理，所以留一个不随取词任务取消的收尾任务。
-            scheduleLateWriteCleanup(baseline: changeCountBeforeSnapshot, savedItems: savedItems)
+            // 超时或被取消：没看到变化就不动剪贴板。之后如果有迟到的写入落地，无从判断是目标应用
+            // 迟到的复制还是用户或别的程序写的，宁可不去覆盖，也不拿旧快照盲目还原。
             Bridge.log(.info, "复制取词：应用没有响应 ⌘C（可能没有选中文字）")
             return nil
         }
@@ -113,27 +110,6 @@ enum InputAssistCopyCapture {
             selectedRangeAtCapture: nil,
             isCopyFallback: true
         )
-    }
-
-    /// ⌘C 已发出但没在期限内看到变化（超时或被取消）：再盯一会儿，
-    /// 迟到的写入落地并稳定后还原用户原来的剪贴板。独立的 Task，不随取词任务取消。
-    private static func scheduleLateWriteCleanup(baseline: Int, savedItems: [NSPasteboardItem]) {
-        Task { @MainActor in
-            let pasteboard = NSPasteboard.general
-            var waited: UInt64 = 0
-            while pasteboard.changeCount == baseline, waited < lateWriteWatchNanoseconds {
-                try? await Task.sleep(nanoseconds: pollNanoseconds)
-                waited += pollNanoseconds
-            }
-            guard pasteboard.changeCount != baseline else { return }
-            try? await Task.sleep(nanoseconds: settleNanoseconds)
-            let settled = pasteboard.changeCount
-            try? await Task.sleep(nanoseconds: settleNanoseconds)
-            // 还在变就是别的写入者，不碰；稳定了才还原。
-            if pasteboard.changeCount == settled {
-                InputAssistPasteboardSnapshot.restore(savedItems, to: pasteboard)
-            }
-        }
     }
 
     private static func isTargetStillApproved(_ expected: pid_t) -> Bool {

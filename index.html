@@ -71,62 +71,80 @@
           </div>
           <button type="button" class="tab" data-pane="service">翻译服务</button>
           <button type="button" class="tab" data-pane="general">通用</button>
+          <button type="button" class="tab" data-pane="keys">快捷键</button>
           <button type="button" class="tab" data-pane="look">外观</button>
           <button type="button" class="tab" data-pane="ia" id="tab-ia" hidden>输入助手</button>
-          <button type="button" class="tab" data-pane="mac" id="tab-mac" hidden>截图与权限</button>
-          <button type="button" class="tab" data-pane="console">控制台</button>
+          <button type="button" class="tab" data-pane="mac" id="tab-mac" hidden>系统权限</button>
           <button type="button" class="tab" data-pane="about">关于</button>
           <span class="spacer"></span>
+          <button type="button" class="tab minor" data-pane="console">运行日志</button>
           <span id="side-version" class="muted ver"></span>
         </nav>
 
         <div class="content">
           <section class="pane-body" data-pane="service">
             <h2>翻译服务</h2>
-            <p class="muted">与旧版大佐翻译官共用同一份设置，密钥只保存在本机。</p>
-            <label class="row">翻译服务
+            <p class="muted">选一个你能用的服务。密钥只保存在这台电脑上。</p>
+            <label class="row">使用的服务
               <select id="s-engine"></select>
             </label>
             <fieldset data-for="achord_builtin">
-              <legend>Achord 内置引擎</legend>
-              <p class="muted">不用填任何东西。免费线路偶尔会被限流，提示后稍等一分钟或换别的服务。</p>
+              <p class="muted">不用填任何东西。偶尔会被限流，提示后稍等一分钟或换别的服务。</p>
             </fieldset>
             <fieldset data-for="google">
-              <legend>Google 翻译</legend>
-              <p class="muted">不用填。需要能访问海外网站的网络。</p>
+              <p class="muted">不用填任何东西。需要能访问 Google 的网络。</p>
             </fieldset>
             <fieldset data-for="deepl">
-              <legend>DeepL</legend>
               <label class="row">API Key <input id="s-deepl-key" type="password" autocomplete="off" /></label>
+              <p class="muted">在 DeepL 官网的账户页面可以免费申请。</p>
             </fieldset>
             <fieldset data-for="microsoft">
-              <legend>微软翻译</legend>
-              <p class="muted">使用微软必应翻译的免费线路，不用填任何东西。需要能访问 bing.com 的网络。</p>
+              <p class="muted">不用填任何东西。需要能访问 bing.com 的网络。</p>
             </fieldset>
             <fieldset data-for="openai_compat">
-              <legend>AI 翻译</legend>
-              <label class="row">厂家 <select id="s-vendor"></select></label>
-              <label class="row">模型 URL <input id="s-base" placeholder="https://…/v1" /></label>
-              <label class="row">模型名 <input id="s-model" /></label>
+              <label class="row">服务商 <select id="s-vendor"></select></label>
               <label class="row">API Key <input id="s-ai-key" type="password" autocomplete="off" /></label>
+              <label class="row">模型 <input id="s-model" placeholder="按服务商文档填写，例如 gpt-4o-mini" /></label>
+              <details class="adv" id="ai-adv">
+                <summary>接口地址</summary>
+                <label class="row">地址 <input id="s-base" placeholder="https://…/v1" /></label>
+                <p class="muted">选好服务商后会自动填好，一般不用改；用中转或自建服务时才需要。</p>
+              </details>
             </fieldset>
             <fieldset data-for="apple" id="fs-apple" hidden>
-              <legend>Apple 本地翻译</legend>
-              <p class="muted">在这台 Mac 上离线翻译，不用 API Key。第一次用某个语言对时系统会提示下载语言包。</p>
+              <p class="muted">在这台 Mac 上离线翻译，不用联网也不用密钥。第一次用某个语言时，系统会提示下载语言包。</p>
             </fieldset>
           </section>
 
           <section class="pane-body" data-pane="general" hidden>
             <h2>通用</h2>
             <fieldset>
-              <legend>启动</legend>
               <label class="check"><input id="s-autostart" type="checkbox" /> 开机自动启动</label>
+              <label class="check"><input id="s-mini" type="checkbox" /><span>小窗显示译文<small class="muted">译文出现在鼠标旁边的小窗里，不打开主窗口</small></span></label>
             </fieldset>
+          </section>
+
+          <section class="pane-body" data-pane="keys" hidden>
+            <h2>快捷键</h2>
             <fieldset>
-              <legend>双击复制</legend>
-              <label class="check"><input id="s-dc" type="checkbox" /> 连按两次复制（Cmd/Ctrl+C+C）翻译所选文字</label>
-              <label class="row">时间窗口 <span class="inline"><input id="s-dc-ms" type="number" min="200" max="2000" step="50" /> 毫秒</span></label>
-              <label class="check"><input id="s-mini" type="checkbox" /> Mini 模式：译文显示在鼠标附近，不唤起主窗口</label>
+              <legend>复制翻译</legend>
+              <label class="check"><input id="s-dc" type="checkbox" /><span id="s-dc-text">选中文字后连按两次复制，立即翻译</span></label>
+              <div class="sub" id="dc-sub">
+                <label class="row">连按速度
+                  <select id="s-dc-ms"><option value="350">快</option><option value="550">标准</option><option value="800">慢</option></select>
+                </label>
+                <label class="check" id="dc-system-row" hidden><input id="s-hk-dc" type="checkbox" /><span>后台稳定监听<small class="muted">推荐打开。在任何应用里都更灵敏，需要「辅助功能」权限</small></span></label>
+              </div>
+            </fieldset>
+            <fieldset id="fs-shot" hidden>
+              <legend>截图翻译</legend>
+              <label class="check"><input id="s-hk-shot" type="checkbox" /><span>连按两次 ⌘X 框选屏幕上的文字翻译<small class="muted">需要「屏幕录制」权限</small></span></label>
+              <div class="actions left"><button type="button" id="p-shot" class="ghost">现在试一下</button></div>
+            </fieldset>
+            <fieldset id="fs-ia-key" hidden>
+              <legend>输入助手</legend>
+              <label class="row">唤起快捷键 <select id="ia-shortcut"></select></label>
+              <p class="muted">在「输入助手」里打开后生效。</p>
             </fieldset>
           </section>
 
@@ -146,47 +164,42 @@
 
           <section class="pane-body" data-pane="ia" hidden>
             <h2>输入助手</h2>
-            <label class="check"><input id="ia-enabled" type="checkbox" /> 启用选区翻译</label>
             <p class="muted" id="ia-intro"></p>
-            <div id="ia-body">
-              <label class="row">快捷键 <select id="ia-shortcut"></select></label>
-              <p class="muted">必须先选中文字。没有选区时不会猜测或修改光标附近的内容。</p>
-              <div class="row top"><span>目标语言</span><div id="ia-targets" class="langs" role="group" aria-label="目标语言"></div></div>
-              <p class="muted" id="ia-count"></p>
-              <label class="row">应用范围 <select id="ia-scope"><option value="global">全局启用</option><option value="allowlist">仅指定应用</option></select></label>
-              <label class="row top"><span id="ia-list-title">黑名单</span><textarea id="ia-block" class="list" rows="4" spellcheck="false"></textarea></label>
-              <label class="row top" id="ia-allow-row" hidden><span>仅在这些应用启用</span><textarea id="ia-allow" class="list" rows="4" spellcheck="false"></textarea></label>
-              <p class="muted" id="ia-list-hint"></p>
+            <fieldset>
+              <label class="check"><input id="ia-enabled" type="checkbox" /> 打开输入助手</label>
+              <div id="ia-body">
+                <div class="row top"><span>翻译成</span><div id="ia-targets" class="langs" role="group" aria-label="目标语言"></div></div>
+                <p class="muted" id="ia-count"></p>
+                <div class="actions left">
+                  <button type="button" id="ia-test" class="ghost">试一下</button>
+                  <span id="ia-status" class="muted ia-status"></span>
+                </div>
+              </div>
+            </fieldset>
+            <details class="adv">
+              <summary>更多选项</summary>
               <label class="check"><input id="ia-auto" type="checkbox" /><span id="ia-auto-text"></span></label>
-              <label class="check"><input id="ia-badge" type="checkbox" /> 缓存命中显示 ⚡</label>
-            </div>
-            <div class="actions left">
-              <button type="button" id="ia-test" class="ghost">测试</button>
-              <span id="ia-status" class="muted ia-status"></span>
-            </div>
+              <label class="check"><input id="ia-badge" type="checkbox" /> 用到之前翻译过的结果时显示 ⚡ 标记</label>
+              <label class="row">在哪些应用里用 <select id="ia-scope"><option value="global">所有应用</option><option value="allowlist">只在指定的应用</option></select></label>
+              <label class="row top" id="ia-allow-row" hidden><span>指定的应用</span><textarea id="ia-allow" class="list" rows="3" spellcheck="false"></textarea></label>
+              <label class="row top"><span id="ia-list-title">不使用的应用</span><textarea id="ia-block" class="list" rows="3" spellcheck="false"></textarea></label>
+              <p class="muted" id="ia-list-hint"></p>
+            </details>
           </section>
 
           <section class="pane-body" data-pane="mac" hidden>
-            <h2>截图与权限</h2>
+            <h2>系统权限</h2>
+            <p class="muted">macOS 要你手动允许，Tolk 才能用下面这些功能。点状态可以直接去系统设置里打开。</p>
             <fieldset>
-              <legend>快捷键</legend>
-              <label class="check"><input id="s-hk-dc" type="checkbox" /> 系统级 ⌘C⌘C 监听（需要辅助功能权限，比剪贴板检测更稳）</label>
-              <label class="check"><input id="s-hk-shot" type="checkbox" /> 连按两次 ⌘X 启动截图翻译</label>
-            </fieldset>
-            <fieldset>
-              <legend>系统权限</legend>
-              <div class="perm"><span>辅助功能</span><span id="p-ax" class="badge">—</span></div>
-              <div class="perm"><span>屏幕录制</span><span id="p-sr" class="badge">—</span></div>
-              <div class="actions left">
-                <button type="button" id="p-guide" class="ghost">授权引导</button>
-                <button type="button" id="p-shot" class="ghost">现在截图翻译</button>
-                <button type="button" id="p-migrate" class="ghost">导入旧版设置</button>
-              </div>
+              <div class="perm"><span>辅助功能<small class="muted">复制翻译的后台监听、输入助手</small></span><span id="p-ax" class="badge">—</span></div>
+              <div class="perm"><span>屏幕录制<small class="muted">截图翻译</small></span><span id="p-sr" class="badge">—</span></div>
+              <div class="actions left"><button type="button" id="p-guide" class="ghost">一步步教我打开</button></div>
             </fieldset>
           </section>
 
           <section class="pane-body console" data-pane="console" hidden>
-            <h2>控制台</h2>
+            <h2>运行日志</h2>
+            <p class="muted">遇到问题时，把这里的内容复制给开发者。</p>
             <div class="console-bar">
               <select id="c-level" aria-label="级别">
                 <option value="all">全部</option><option value="info">信息</option>
@@ -216,13 +229,19 @@
               <div class="bar" id="u-bar" hidden><i id="u-fill"></i></div>
               <pre id="u-notes" class="notes"></pre>
             </div>
-            <dl class="facts">
-              <dt>系统</dt><dd id="a-os"></dd>
-              <dt>设置文件</dt><dd id="a-config" class="mono"></dd>
-              <dt id="a-helper-t" hidden>原生助手</dt><dd id="a-helper" hidden></dd>
-            </dl>
             <p class="muted">Tolk 由大佐翻译官（Windows）与 bagayalu（macOS）合并而来，沿用同一份设置和更新渠道。</p>
             <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">问题反馈</a></p>
+            <details class="adv">
+              <summary>技术信息</summary>
+              <dl class="facts">
+                <dt>系统</dt><dd id="a-os"></dd>
+                <dt>设置文件</dt><dd id="a-config" class="mono"></dd>
+                <dt id="a-helper-t" hidden>原生助手</dt><dd id="a-helper" hidden></dd>
+              </dl>
+              <div class="actions left" id="migrate-row" hidden>
+                <button type="button" id="p-migrate" class="ghost">从旧版大佐翻译官导入设置</button>
+              </div>
+            </details>
           </section>
 
           <p id="settings-error" class="error" hidden></p>

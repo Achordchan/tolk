@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/egoist/mygo"
+
 	"tolk/internal/engine"
 	"tolk/internal/legacy"
 )
@@ -39,6 +41,19 @@ func defaultPrefs() Prefs {
 }
 
 func validTheme(t string) bool { return t == "system" || t == "light" || t == "dark" || t == "pink" }
+
+// applyNativeTheme makes the title bar and other native chrome match the page
+// theme: pink is a light theme, and only "system" follows the OS.
+func applyNativeTheme(theme string) {
+	switch theme {
+	case "dark":
+		mygo.Theme.SetSource(mygo.ThemeDark)
+	case "light", "pink":
+		mygo.Theme.SetSource(mygo.ThemeLight)
+	default:
+		mygo.Theme.SetSource(mygo.ThemeSystem)
+	}
+}
 
 func clampFont(n int) int {
 	if n < minFont {
@@ -201,6 +216,7 @@ func (Tolk) SetAppearance(theme string, sourceFont, targetFont int) error {
 		return err
 	}
 	loadPrefs()
+	applyNativeTheme(theme)
 	_ = PrefsChanged.Broadcast(currentPrefs())
 	go pushInputAssist() // the panel follows the theme
 	return nil

@@ -67,9 +67,9 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
 
   // Wording that differs by system.
   $("#ia-intro").textContent = win
-    ? "选中文字后按快捷键查看翻译候选，选一种就替换回输入框（用粘贴完成，用完会还原你的剪贴板）。微信这类不提供选区接口的应用，Tolk 会临时按一次 Ctrl+C 来读取选中的文字。"
-    : "选中文字后按快捷键查看翻译候选；支持精确写入的编辑器可原位替换，其它应用会复制译文。需要辅助功能权限。";
-  $("#ia-auto-text").textContent = win ? " 选区完成后自动显示候选（实验，只对提供选区接口的应用有效）" : " 选区完成后自动显示候选（实验）";
+    ? "在输入框里选中自己写的文字，按快捷键就能看到几种语言的译文，选一个直接替换原文。"
+    : "在输入框里选中自己写的文字，按快捷键就能看到几种语言的译文，选一个直接替换原文；替换不了的应用会把译文复制好。需要「辅助功能」权限。";
+  $("#ia-auto-text").textContent = win ? "选中文字后自动弹出译文（实验功能，部分应用无效）" : "选中文字后自动弹出译文（实验功能）";
 
   function drawTargets() {
     const full = targetList.length >= MAX_TARGETS;
@@ -91,18 +91,15 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
       }),
     );
     count.textContent =
-      `已选 ${targetList.length} 个，最多 ${MAX_TARGETS} 个，按勾选的先后顺序展示，默认高亮第一项。` +
-      (targetList.length > RECOMMENDED_TARGETS ? `候选语言较多可能降低选择效率，建议不超过 ${RECOMMENDED_TARGETS} 个。` : "");
+      `已选 ${targetList.length} 个（最多 ${MAX_TARGETS} 个），按勾选顺序排列。` +
+      (targetList.length > RECOMMENDED_TARGETS ? `建议不超过 ${RECOMMENDED_TARGETS} 个，挑起来更快。` : "");
   }
 
   function drawScope() {
     const list = scope.value === "allowlist";
-    $("#ia-list-title").textContent = "黑名单";
     $("#ia-allow-row").hidden = !list;
-    const names = win ? "可填应用名或程序文件名（如 WeChat.exe）" : "可填应用名或 Bundle ID";
-    $("#ia-list-hint").textContent = list
-      ? `每行一个，${names}。黑名单优先于「仅在这些应用启用」；密码框和安全输入状态永远跳过。`
-      : `每行一个，${names}。密码框和安全输入状态永远跳过。`;
+    const names = win ? "每行写一个应用名称或程序文件名，例如 WeChat.exe。" : "每行写一个应用名称，例如 微信。";
+    $("#ia-list-hint").textContent = `${names}密码输入框永远不会触发。`;
   }
 
   function drawShortcuts(key: number, mods: number) {
@@ -118,13 +115,13 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
     const running = win || (await Tolk.macStatus()).running;
     status.className = "muted ia-status";
     let text = "";
-    if (!running) text = "原生助手未运行";
+    if (!running) text = "后台组件没有运行，请重启 Tolk";
     else if (savedEnabled) {
       if (st.active) {
-        text = "输入助手已启动";
+        text = "已就绪";
         status.classList.add("ok");
       } else {
-        text = st.error || "输入助手未启动";
+        text = st.error || "没能启动";
         status.classList.add("no");
       }
     }

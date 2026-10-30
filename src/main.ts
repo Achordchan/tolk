@@ -61,13 +61,31 @@ fill(engineSel, engineList(about.os));
 let prefs = await initLook();
 source.value = prefs.sourceLang;
 target.value = prefs.targetLang;
-$("#theme").addEventListener("click", async () => {
+
+// The toolbar button shows the theme in use: monitor, sun, moon or heart.
+const THEME_ICONS: Record<string, string> = {
+  system: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  light: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  dark: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  pink: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+};
+const themeBtn = $("#theme");
+function showTheme(theme: string) {
+  const id = THEME_ICONS[theme] ? theme : "system";
+  const name = THEMES.find(([t]) => t === id)![1];
+  themeBtn.querySelector("svg")!.innerHTML = THEME_ICONS[id]!;
+  themeBtn.title = `主题：${name}（点击切换）`;
+}
+showTheme(prefs.theme);
+events.prefsChanged.on((p) => showTheme(p.theme));
+themeBtn.addEventListener("click", async () => {
   const order = THEMES.map(([id]) => id);
   const next = order[(order.indexOf(prefs.theme) + 1) % order.length]!;
   try {
     await Tolk.setAppearance(next, prefs.sourceFont, prefs.targetFont);
     prefs = await Tolk.getPrefs();
     applyLook(prefs);
+    showTheme(prefs.theme);
     toast(`主题：${THEMES.find(([id]) => id === next)![1]}`);
   } catch (e) {
     toast(String(e instanceof Error ? e.message : e));
@@ -193,7 +211,7 @@ events.copied.on((text) => {
 
 events.macNotice.on((m) => toast(m));
 
-for (const id of ["#s-engine", "#s-vendor", "#ia-shortcut", "#ia-scope", "#c-level"]) enhanceSelect($<HTMLSelectElement>(id));
+for (const id of ["#s-engine", "#s-vendor", "#s-dc-ms", "#ia-shortcut", "#ia-scope", "#c-level"]) enhanceSelect($<HTMLSelectElement>(id));
 initSettings({
   os: about.os,
   toast,
@@ -202,6 +220,7 @@ initSettings({
   saved: async (next) => {
     prefs = next;
     showMini();
+    showTheme(next.theme);
     await refreshSettings();
     schedule(0);
   },

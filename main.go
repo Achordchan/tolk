@@ -18,7 +18,7 @@ func main() {
 	mygo.Bind(Tolk{})
 
 	mygo.App.WhenReady(func() {
-		loadPrefs()
+		applyNativeTheme(loadPrefs().Theme)
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:           "Tolk",
 			Width:           960,

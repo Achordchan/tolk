@@ -34,6 +34,9 @@ var (
 	miniWin *mygo.Window
 	miniSeq int
 	miniH   = miniMinHeight
+	// miniAt is the cursor when the copy happened; the bubble stays there
+	// while it grows, even if the mouse has moved on.
+	miniAt mygo.Point
 )
 
 func createMini() {
@@ -51,9 +54,11 @@ func createMini() {
 	})
 }
 
-// placeMini puts the bubble next to the cursor, kept inside the work area.
+// placeMini puts the bubble next to where the copy happened, kept inside the work area.
 func placeMini(h int) {
-	pt := mygo.Screen.CursorScreenPoint()
+	miniMu.Lock()
+	pt := miniAt
+	miniMu.Unlock()
 	wa := mygo.Screen.DisplayNearestPoint(pt).WorkArea
 	x, y := int(pt.X)+14, int(pt.Y)+18
 	if x+miniWidth > int(wa.X+wa.Width) {
@@ -85,6 +90,7 @@ func showMini(text string) {
 	miniSeq++
 	mine := miniSeq
 	miniH = miniMinHeight
+	miniAt = mygo.Screen.CursorScreenPoint()
 	miniMu.Unlock()
 
 	miniWin.SetSize(miniWidth, miniMinHeight)

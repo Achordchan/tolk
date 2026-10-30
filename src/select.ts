@@ -21,8 +21,12 @@ export function enhanceSelect(sel: HTMLSelectElement) {
   menu.setAttribute("role", "listbox");
   menu.hidden = true;
   sel.before(wrap);
-  wrap.append(btn, menu, sel);
+  wrap.append(btn, sel);
   sel.hidden = true;
+  // The list lives outside the <label> it may sit in (a click on it would be
+  // forwarded to the button and reopen it) and is measured against the whole
+  // pill, not just the text button inside it.
+  const anchor = () => (wrap.closest(".pill") as HTMLElement | null) ?? btn;
 
   let open = false;
   let active = -1;
@@ -62,14 +66,14 @@ export function enhanceSelect(sel: HTMLSelectElement) {
   }
 
   function place() {
-    const r = btn.getBoundingClientRect();
+    const r = anchor().getBoundingClientRect();
     const room = window.innerHeight - r.bottom - 12;
     const above = r.top - 12;
     const flip = room < 160 && above > room;
     const h = Math.min(MAX_MENU, flip ? above : room);
     menu.style.maxHeight = `${Math.max(120, h)}px`;
     menu.style.minWidth = `${r.width}px`;
-    menu.style.left = `${Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)}px`;
+    menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8))}px`;
     menu.style.top = flip ? "" : `${r.bottom + 6}px`;
     menu.style.bottom = flip ? `${window.innerHeight - r.top + 6}px` : "";
   }
@@ -77,6 +81,8 @@ export function enhanceSelect(sel: HTMLSelectElement) {
   function show() {
     if (open || sel.disabled || !sel.options.length) return;
     open = true;
+    // A modal <dialog> sits in the top layer, so the list must live inside it.
+    (wrap.closest("dialog") ?? document.body).append(menu);
     menu.hidden = false;
     btn.classList.add("open");
     place();
@@ -84,7 +90,10 @@ export function enhanceSelect(sel: HTMLSelectElement) {
     highlight(i, true);
     document.addEventListener("mousedown", away, true);
     addEventListener("resize", hide);
-    document.addEventListener("scroll", hide, true);
+    document.addEventListener("scroll", onScroll, true);
+  }
+  function onScroll(e: Event) {
+    if (e.target !== menu) hide(); // scrolling the list itself keeps it open
   }
   function hide() {
     if (!open) return;
@@ -93,10 +102,11 @@ export function enhanceSelect(sel: HTMLSelectElement) {
     btn.classList.remove("open");
     document.removeEventListener("mousedown", away, true);
     removeEventListener("resize", hide);
-    document.removeEventListener("scroll", hide, true);
+    document.removeEventListener("scroll", onScroll, true);
   }
   function away(e: Event) {
-    if (!wrap.contains(e.target as Node)) hide();
+    const t = e.target as Node;
+    if (!wrap.contains(t) && !menu.contains(t)) hide();
   }
   function pick(i: number) {
     const changed = sel.selectedIndex !== i;

@@ -1,14 +1,17 @@
 body.mini { height: auto; min-height: 0; overflow: hidden; background: var(--card); }
 
-.bubble { padding: 6px 8px 10px; }
+.bubble { padding: 4px 6px 10px; }
 
 /* The window is frameless: the top bar drags it. */
-.bar { display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 2px 0 8px; --app-region: drag; }
+.bar { display: flex; align-items: center; gap: 4px; min-height: 22px; padding: 0 0 0 10px; background: transparent; --app-region: drag; }
 .bar button { --app-region: no-drag; }
-.bar .muted { font-size: 12px; }
+.bar .muted { font-size: 11px; opacity: .8; }
+.bar button.icon.small { width: 22px; height: 22px; border-radius: 6px; opacity: .55; }
+.bar button.icon.small:hover { opacity: 1; }
+.bar button.icon.small svg { width: 13px; height: 13px; }
 
 .mini-body {
-  padding: 4px 10px 6px; font-size: 16px; line-height: 1.5; max-height: 340px; overflow: auto;
+  padding: 0 10px 2px; font-size: 16px; line-height: 1.5; max-height: 340px; overflow: auto;
   white-space: pre-wrap; word-break: break-word;
 }
 .mini-body.error { color: var(--err); font-size: 13px; }

@@ -39,7 +39,6 @@ document.body.addEventListener("mouseleave", () => {
   if (remaining > 0) scheduleDismiss(remaining);
 });
 
-$("#close").addEventListener("click", () => void Tolk.hideMini());
 addEventListener("keydown", (e) => {
   if (e.key === "Escape") void Tolk.hideMini();
 });
@@ -65,7 +64,7 @@ events.mini.on((s) => {
   if (s.state === "translating") {
     body.classList.add("wait");
     body.textContent = "翻译中…";
-    meta.textContent = s.smart ? "已按文字自动调整方向" : "";
+    meta.textContent = "";
     stopDismiss();
   } else if (s.state === "error") {
     body.classList.add("error");
@@ -74,9 +73,8 @@ events.mini.on((s) => {
     scheduleDismiss(8000);
   } else {
     body.textContent = s.text;
-    const from = s.detected ? `检测到 ${s.detected}` : s.source === "自动检测" ? "" : shown(s.source);
+    const from = s.detected || (s.source === "自动检测" ? "" : shown(s.source));
     meta.textContent = [from, `→ ${shown(s.target)}`].filter(Boolean).join(" ");
-    foot.textContent = s.smart ? "已按文字自动调整翻译方向" : "";
     scheduleDismiss(8000);
   }
   fit();

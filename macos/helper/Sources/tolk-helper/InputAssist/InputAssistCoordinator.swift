@@ -461,10 +461,12 @@ final class InputAssistCoordinator {
             panelController.dismiss(reason: .replacedByNewSession)
         }
 
-        // 复制兜底没有 AX 元素，拿不到选区矩形，改用鼠标位置。
+        // 复制兜底没有选区元素：按焦点控件、前台窗口再到鼠标逐级找位置。
         let anchorRect = capture.element.map {
             InputAssistAnchor.rect(element: $0, range: capture.sourceRange)
-        } ?? InputAssistScreen.mouseAnchor()
+        } ?? InputAssistAnchor.fallbackRect(
+            processIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier
+        )
 
         let detectedSourceLanguage = detectSourceLanguage(of: capture.sourceText)
         let visibleTargets = InputAssistLanguagePolicy.visibleTargets(

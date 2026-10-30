@@ -34,6 +34,9 @@ func NewDeepL(apiKey string) (*DeepL, error) {
 	return &DeepL{Client: defaultClient(), BaseURL: base, APIKey: apiKey}, nil
 }
 
+// Warm connects to the API host.
+func (d *DeepL) Warm(ctx context.Context) error { return warmHost(ctx, d.Client, d.BaseURL) }
+
 func (d *DeepL) Translate(ctx context.Context, text, source, target string) (Result, error) {
 	if strings.TrimSpace(text) == "" {
 		return Result{}, ErrEmpty

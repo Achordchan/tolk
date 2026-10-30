@@ -30,6 +30,7 @@ func main() {
 			URL:             "/",
 		})
 		createMini()
+		go keepEngineWarm()
 		createInputAssistPanel()
 
 		showMain := func() { win.Show(); win.Focus() }

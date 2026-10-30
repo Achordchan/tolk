@@ -117,6 +117,7 @@ func (Tolk) SaveSettings(u SettingsUpdate) error {
 	if err != nil {
 		return err
 	}
+	defer func() { go warmEngine() }()
 	return legacy.Update(p, func(m map[string]any) {
 		legacy.Sub(m, "translation")["api"] = u.Engine
 		if k := strings.TrimSpace(u.DeepLKey); k != "" {
@@ -153,5 +154,9 @@ func (Tolk) SetEngine(engine string) error {
 	if err != nil {
 		return err
 	}
-	return legacy.Update(p, func(m map[string]any) { legacy.Sub(m, "translation")["api"] = engine })
+	if err := legacy.Update(p, func(m map[string]any) { legacy.Sub(m, "translation")["api"] = engine }); err != nil {
+		return err
+	}
+	go warmEngine()
+	return nil
 }

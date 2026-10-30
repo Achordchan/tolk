@@ -56,6 +56,20 @@ func NewMicrosoft() *Microsoft {
 	}
 }
 
+// Warm fetches the web token if it is missing or old and keeps the connection open.
+func (m *Microsoft) Warm(ctx context.Context) error {
+	if err := m.refresh(ctx, false); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	host := m.host
+	m.mu.Unlock()
+	if strings.HasPrefix(m.EntryURL, "http://") {
+		return nil // tests
+	}
+	return warmHost(ctx, m.Client, "https://"+host+"/translator")
+}
+
 func (m *Microsoft) Translate(ctx context.Context, text, source, target string) (Result, error) {
 	if strings.TrimSpace(text) == "" {
 		return Result{}, ErrEmpty

@@ -34,6 +34,9 @@ func NewOpenAICompat(baseURL, model, apiKey string) (*OpenAICompat, error) {
 	return &OpenAICompat{Client: defaultClient(), BaseURL: strings.TrimRight(baseURL, "/"), Model: model, APIKey: apiKey}, nil
 }
 
+// Warm connects to the API host.
+func (o *OpenAICompat) Warm(ctx context.Context) error { return warmHost(ctx, o.Client, o.BaseURL) }
+
 func (o *OpenAICompat) Translate(ctx context.Context, text, source, target string) (Result, error) {
 	if strings.TrimSpace(text) == "" {
 		return Result{}, ErrEmpty

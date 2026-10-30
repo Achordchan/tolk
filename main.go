@@ -16,9 +16,12 @@ var Copied = mygo.NewEvent[string]("copied")
 
 func main() {
 	mygo.Bind(Tolk{})
+	// The pages are written in Chinese; without this MyGo's own menus (Edit,
+	// Window…) and dialogs stay English, as for an app written in English.
+	mygo.App.SetLanguages("zh-Hans", "zh-Hant", "en")
 
 	mygo.App.WhenReady(func() {
-		loadPrefs()
+		applyNativeTheme(loadPrefs().Theme)
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:           "Tolk",
 			Width:           960,
@@ -30,6 +33,7 @@ func main() {
 			URL:             "/",
 		})
 		createMini()
+		go keepEngineWarm()
 		createInputAssistPanel()
 
 		showMain := func() { win.Show(); win.Focus() }

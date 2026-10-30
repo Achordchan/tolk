@@ -20,6 +20,20 @@ export function applyLook(p: Pick<Prefs, "theme" | "sourceFont" | "targetFont">)
 
 /** Apply the saved look now and whenever another window changes it. */
 export async function initLook(): Promise<Prefs> {
+  // The webview's own menu only offers Reload, which empties the page; text
+  // fields keep theirs for paste.
+  document.addEventListener("contextmenu", (e) => {
+    const t = e.target as HTMLElement;
+    if (!t.closest("textarea, input")) e.preventDefault();
+  });
+  // No reload either, nor the rest of the browser keys WebView2 (Windows)
+  // answers: print, find, zoom, caret browsing.
+  document.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && ["r", "p", "f", "g", "=", "+", "-", "0"].includes(k)) e.preventDefault();
+    else if (["f3", "f5", "f7"].includes(k)) e.preventDefault();
+  });
+  document.addEventListener("wheel", (e) => e.ctrlKey && e.preventDefault(), { passive: false });
   const p = await Tolk.getPrefs();
   applyLook(p);
   events.prefsChanged.on((next) => applyLook(next));

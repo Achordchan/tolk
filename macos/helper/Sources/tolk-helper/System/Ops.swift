@@ -12,6 +12,7 @@ enum Ops {
     private static let guide = PermissionGuideWindowController()
     private static let hotkeys = GlobalHotkeyMonitor()
     private static var hotkeysWired = false
+    private static var mouseMonitor: Any?
     private static let inputAssist = InputAssistCoordinator()
 
     @available(macOS 14.0, *)
@@ -33,6 +34,7 @@ enum Ops {
     static func closeAuxiliaryWindows() {
         guide.close()
         hotkeys.stop()
+        setMouseWatch(false)
         inputAssist.shutdown()
         if #available(macOS 15.0, *) {
             apple.shutdown()
@@ -124,6 +126,10 @@ enum Ops {
         case "hotkeys.configure":
             return await configureHotkeys(params)
 
+        case "mouse.watch":
+            setMouseWatch(params["on"]?.boolValue ?? false)
+            return [:]
+
         case "inputassist.configure":
             return configureInputAssist(params)
 
@@ -147,6 +153,23 @@ enum Ops {
     }
 
     // MARK: - 各操作
+
+    /// Mini 气泡显示期间监听任意鼠标按下，坐标换成以主屏左上角为原点（和 Go 端窗口坐标一致）。
+    /// 全局监听只收其他进程的点击，气泡窗口属于 Tolk 主进程，所以点在气泡上也会收到，由 Go 判断落点。
+    private static func setMouseWatch(_ on: Bool) {
+        if let existing = mouseMonitor {
+            NSEvent.removeMonitor(existing)
+            mouseMonitor = nil
+        }
+        guard on else { return }
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { _ in
+            let p = NSEvent.mouseLocation
+            let top = NSScreen.screens.first?.frame.height ?? 0
+            Bridge.emit("mouse.down", ["x": .int(Int64(p.x.rounded())), "y": .int(Int64((top - p.y).rounded()))])
+        }
+    }
 
     private static func hello() -> [String: JSONValue] {
         let v = ProcessInfo.processInfo.operatingSystemVersion

@@ -34,11 +34,38 @@ var (
 	miniWin *mygo.Window
 	miniSeq int
 	miniH   = miniMinHeight
+	// miniAt is the cursor when the copy happened; the bubble stays there
+	// while it grows, even if the mouse has moved on.
+	miniAt mygo.Point
+	// miniShown is whether the bubble should be up (guarded by miniMu);
+	// syncMiniWatch makes the mouse watch follow it.
+	miniShown bool
+
+	miniWatchMu sync.Mutex
+	miniWatched bool
 )
+
+// syncMiniWatch watches outside clicks exactly while the bubble is up. Show
+// and hide call it from goroutines that may run in either order, so it reads
+// the current state instead of being told one: a stale call changes nothing.
+func syncMiniWatch() {
+	miniWatchMu.Lock()
+	defer miniWatchMu.Unlock()
+	miniMu.Lock()
+	want := miniShown
+	miniMu.Unlock()
+	if want != miniWatched {
+		watchMiniClicks(want)
+		miniWatched = want
+	}
+}
+
+// miniTitle names the bubble's window, which Windows finds it by.
+const miniTitle = "Tolk Mini"
 
 func createMini() {
 	miniWin = mygo.NewWindow(mygo.WindowOptions{
-		Title:           "Tolk Mini",
+		Title:           miniTitle,
 		URL:             "/mini.html",
 		Width:           miniWidth,
 		Height:          miniMinHeight,
@@ -51,9 +78,11 @@ func createMini() {
 	})
 }
 
-// placeMini puts the bubble next to the cursor, kept inside the work area.
+// placeMini puts the bubble next to where the copy happened, kept inside the work area.
 func placeMini(h int) {
-	pt := mygo.Screen.CursorScreenPoint()
+	miniMu.Lock()
+	pt := miniAt
+	miniMu.Unlock()
 	wa := mygo.Screen.DisplayNearestPoint(pt).WorkArea
 	x, y := int(pt.X)+14, int(pt.Y)+18
 	if x+miniWidth > int(wa.X+wa.Width) {
@@ -85,12 +114,15 @@ func showMini(text string) {
 	miniSeq++
 	mine := miniSeq
 	miniH = miniMinHeight
+	miniAt = mygo.Screen.CursorScreenPoint()
+	miniShown = true
 	miniMu.Unlock()
 
 	miniWin.SetSize(miniWidth, miniMinHeight)
 	placeMini(miniMinHeight)
 	_ = MiniUpdate.Emit(miniWin, MiniState{State: "translating", Smart: smart, Source: pair.Source, Target: pair.Target})
 	miniWin.ShowInactive()
+	go syncMiniWatch() // an outside click closes the bubble
 
 	go func() {
 		res, err := translate(text, pair.Source, pair.Target)
@@ -140,6 +172,20 @@ func (Tolk) HideMini() {
 	}
 	miniMu.Lock()
 	miniSeq++
+	miniShown = false
 	miniMu.Unlock()
 	miniWin.Hide()
+	go syncMiniWatch()
+}
+
+// miniOutsideClick closes the bubble when the click landed outside its window.
+func miniOutsideClick(x, y int) {
+	if miniWin == nil || !miniWin.IsVisible() {
+		return
+	}
+	b := miniWin.Bounds()
+	if x >= b.X && x < b.X+b.Width && y >= b.Y && y < b.Y+b.Height {
+		return
+	}
+	Tolk{}.HideMini()
 }

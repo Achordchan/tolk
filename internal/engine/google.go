@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 )
 
 var googleCodes = func() map[string]string {
@@ -22,7 +24,15 @@ type Google struct {
 	Client      *http.Client
 	PrimaryURL  string
 	FallbackURL string
+
+	mu sync.Mutex
+	// backoff: after the primary endpoint refused (often HTTP 429), leave it
+	// alone for a while and go to the fallback first instead of paying a
+	// failed round trip on every translation.
+	primaryOffUntil time.Time
 }
+
+const primaryBackoff = 10 * time.Minute
 
 // NewGoogle returns a Google engine with the public endpoints.
 func NewGoogle() *Google {
@@ -31,6 +41,17 @@ func NewGoogle() *Google {
 		PrimaryURL:  "https://translate.googleapis.com/translate_a/single",
 		FallbackURL: "https://clients5.google.com/translate_a/t",
 	}
+}
+
+// Warm connects to the endpoint the next translation will use.
+func (g *Google) Warm(ctx context.Context) error {
+	g.mu.Lock()
+	u := g.PrimaryURL
+	if time.Now().Before(g.primaryOffUntil) {
+		u = g.FallbackURL
+	}
+	g.mu.Unlock()
+	return warmHost(ctx, g.Client, u)
 }
 
 func (g *Google) Translate(ctx context.Context, text, source, target string) (Result, error) {
@@ -45,9 +66,28 @@ func (g *Google) Translate(ctx context.Context, text, source, target string) (Re
 	if !ok || tl == "auto" {
 		return Result{}, unsupported("Google 翻译", "目标", target)
 	}
+	g.mu.Lock()
+	skipPrimary := time.Now().Before(g.primaryOffUntil)
+	g.mu.Unlock()
+	if skipPrimary {
+		if res, err := g.fallback(ctx, text, sl, tl); err == nil {
+			return res, nil
+		}
+	}
 	res, err := g.primary(ctx, text, sl, tl)
 	if err == nil {
+		g.mu.Lock()
+		g.primaryOffUntil = time.Time{}
+		g.mu.Unlock()
 		return res, nil
+	}
+	if ctx.Err() == nil {
+		g.mu.Lock()
+		g.primaryOffUntil = time.Now().Add(primaryBackoff)
+		g.mu.Unlock()
+	}
+	if skipPrimary {
+		return Result{}, fmt.Errorf("Google 翻译失败（需要能访问海外网站的网络）: %w", err)
 	}
 	res2, err2 := g.fallback(ctx, text, sl, tl)
 	if err2 == nil {

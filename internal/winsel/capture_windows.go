@@ -76,22 +76,39 @@ func Capture(fg Foreground, allowCopy bool) (Selection, error) {
 		sel.Text, sel.Via = res.text, "uia"
 		sel.Rect = res.rect
 		if !res.haveRect {
-			sel.Rect = anchorFallback(fg.Window)
+			sel.Rect = anchorFallback(fg.Window, res)
 		}
 		return sel, nil
 	}
 	if !allowCopy {
 		return sel, ErrUnreadable
 	}
-	return copyCapture(fg, sel)
+	return copyCapture(fg, sel, res)
 }
 
-// anchorFallback is the caret of a classic control, or else the mouse.
-func anchorFallback(w Window) inputassist.Rect {
+// anchorFallback is where the panel goes when the selection's own rectangle
+// is unknown, as in WeChat, which exposes nothing. The shortcut is pressed on
+// the keyboard, so the mouse is often far from the text; in order: the caret
+// of a classic control, the focused control when it looks like a text box
+// (one about as tall as the window is the window itself), the mouse when it is
+// over the window, and else the bottom of the window, where chat apps keep
+// their input box (the panel goes above it).
+func anchorFallback(w Window, res uiaResult) inputassist.Rect {
 	if r, ok := CaretRect(w); ok {
 		return r
 	}
-	return CursorRect()
+	win, haveWin := windowRect(uintptr(w))
+	if e := res.elem; res.haveElem && e.W > 20 && e.H > 10 && (!haveWin || e.H*10 < win.H*6) {
+		return e
+	}
+	if !haveWin {
+		return CursorRect()
+	}
+	if x, y := CursorPoint(); x >= win.X && x < win.Right() && y >= win.Y && y < win.Bottom() {
+		return CursorRect()
+	}
+	h := min(140, win.H/3)
+	return inputassist.Rect{X: win.X + 24, Y: win.Bottom() - 12 - h, W: max(1, win.W-48), H: h}
 }
 
 // stillIn reports whether the app in front is still the one that was approved.
@@ -100,7 +117,7 @@ func stillIn(fg Foreground) bool {
 	return ok && cur.Window == fg.Window && cur.App.PID == fg.App.PID
 }
 
-func copyCapture(fg Foreground, sel Selection) (Selection, error) {
+func copyCapture(fg Foreground, sel Selection, res uiaResult) (Selection, error) {
 	clipMu.Lock()
 	defer clipMu.Unlock()
 	defer txns.Add(1)
@@ -138,7 +155,7 @@ func copyCapture(fg Foreground, sel Selection) (Selection, error) {
 	// Text, VS Code) hand back a whole line, ending in its line break; a
 	// selection made with the mouse or the keyboard hardly ever does.
 	sel.Unverified = strings.HasSuffix(text, "\n") || strings.HasSuffix(text, "\r")
-	sel.Rect = anchorFallback(fg.Window)
+	sel.Rect = anchorFallback(fg.Window, res)
 	return sel, nil
 }
 

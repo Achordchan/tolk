@@ -34,10 +34,8 @@ export function initSettings(h: Hooks) {
   const sModel = $<HTMLInputElement>("#s-model");
   const sAiKey = $<HTMLInputElement>("#s-ai-key");
   const sDeeplKey = $<HTMLInputElement>("#s-deepl-key");
-  const sMsKey = $<HTMLInputElement>("#s-ms-key");
-  const sMsRegion = $<HTMLInputElement>("#s-ms-region");
   const sDc = $<HTMLInputElement>("#s-dc");
-  const sDcMs = $<HTMLInputElement>("#s-dc-ms");
+  const sDcMs = $<HTMLSelectElement>("#s-dc-ms");
   const sMini = $<HTMLInputElement>("#s-mini");
   const sAuto = $<HTMLInputElement>("#s-autostart");
   const sSrcFont = $<HTMLInputElement>("#s-src-font");
@@ -65,8 +63,22 @@ export function initSettings(h: Hooks) {
     sModel.value = p?.model || preset?.model || "";
     sAiKey.value = "";
     sAiKey.placeholder = p?.hasKey ? "已保存，留空则不修改" : "";
+    $<HTMLDetailsElement>("#ai-adv").open = sVendor.value === "自定义" || !sBase.value;
   }
   sEngine.addEventListener("change", syncSections);
+
+  // ---- shortcuts ----
+  const SPEEDS = ["350", "550", "800"];
+  const sDcText = $("#s-dc-text");
+  sDcText.textContent = h.os === "darwin" ? "选中文字后连按两次 ⌘C，立即翻译" : "选中文字后连按两次 Ctrl+C，立即翻译";
+  const syncDc = () => $("#dc-sub").classList.toggle("off", !sDc.checked);
+  sDc.addEventListener("change", syncDc);
+  function showSpeed(ms: number) {
+    // A window set by hand in the old app stays selectable.
+    [...sDcMs.options].filter((o) => !SPEEDS.includes(o.value)).forEach((o) => o.remove());
+    if (!SPEEDS.includes(String(ms))) sDcMs.append(new Option(`自定义（${ms} 毫秒）`, String(ms)));
+    sDcMs.value = String(ms);
+  }
   sVendor.addEventListener("change", fillVendor);
 
   // ---- tabs ----
@@ -239,11 +251,9 @@ export function initSettings(h: Hooks) {
       fillVendor();
       sDeeplKey.value = "";
       sDeeplKey.placeholder = cfg.deeplHasKey ? "已保存，留空则不修改" : "";
-      sMsKey.value = "";
-      sMsKey.placeholder = cfg.microsoftHasKey ? "已保存，留空则不修改" : "";
-      sMsRegion.value = cfg.microsoftRegion;
       sDc.checked = cfg.prefs.doubleCopy;
-      sDcMs.value = String(cfg.prefs.doubleCopyMs);
+      showSpeed(cfg.prefs.doubleCopyMs);
+      syncDc();
       sMini.checked = cfg.prefs.miniMode;
       autostartWas = await Tolk.autostart();
       sAuto.checked = autostartWas;
@@ -253,8 +263,13 @@ export function initSettings(h: Hooks) {
       drawThemes();
       preview();
       $("#fs-apple").hidden = h.os !== "darwin";
-      $("#tab-mac").hidden = h.os !== "darwin";
+      const mac = h.os === "darwin";
+      $("#tab-mac").hidden = !mac;
+      $("#fs-shot").hidden = !mac;
+      $("#dc-system-row").hidden = !mac;
+      $("#migrate-row").hidden = !mac;
       $("#tab-ia").hidden = !h.ia;
+      $("#fs-ia-key").hidden = !h.ia;
       $("#side-version").textContent = `版本 ${about.version}`;
       $("#a-version").textContent = `版本 ${about.version}`;
       $("#a-os").textContent = `${about.os} / ${about.arch}`;
@@ -295,8 +310,6 @@ export function initSettings(h: Hooks) {
         model: sModel.value,
         aiKey: sAiKey.value,
         deeplKey: sDeeplKey.value,
-        microsoftKey: sMsKey.value,
-        microsoftRegion: sMsRegion.value,
       });
       await Tolk.setDoubleCopy(sDc.checked, Number(sDcMs.value));
       await Tolk.setMini(sMini.checked);

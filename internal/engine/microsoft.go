@@ -30,19 +30,14 @@ var (
 )
 
 const (
-	webChunkLimit   = 1000
-	azureChunkLimit = 5000
-	edgeUA          = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
+	webChunkLimit = 1000
+	edgeUA        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
 )
 
-// Microsoft uses the free Bing translator web endpoint, or the official
-// Azure endpoint when an API key is set.
+// Microsoft uses the free Bing translator web endpoint. There is no key mode.
 type Microsoft struct {
 	Client   *http.Client
-	APIKey   string
-	Region   string
 	EntryURL string
-	AzureURL string
 
 	mu      sync.Mutex
 	host    string
@@ -52,16 +47,27 @@ type Microsoft struct {
 	expires time.Time
 }
 
-// NewMicrosoft returns the engine; an empty key selects the free web mode.
-func NewMicrosoft(apiKey, region string) *Microsoft {
+// NewMicrosoft returns the free web-mode engine.
+func NewMicrosoft() *Microsoft {
 	jar, _ := cookiejar.New(nil)
 	return &Microsoft{
 		Client:   &http.Client{Timeout: 20 * time.Second, Jar: jar},
-		APIKey:   strings.TrimSpace(apiKey),
-		Region:   strings.TrimSpace(region),
 		EntryURL: "https://www.bing.com/translator",
-		AzureURL: "https://api.cognitive.microsofttranslator.com/translate",
 	}
+}
+
+// Warm fetches the web token if it is missing or old and keeps the connection open.
+func (m *Microsoft) Warm(ctx context.Context) error {
+	if err := m.refresh(ctx, false); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	host := m.host
+	m.mu.Unlock()
+	if strings.HasPrefix(m.EntryURL, "http://") {
+		return nil // tests
+	}
+	return warmHost(ctx, m.Client, "https://"+host+"/translator")
 }
 
 func (m *Microsoft) Translate(ctx context.Context, text, source, target string) (Result, error) {
@@ -77,9 +83,6 @@ func (m *Microsoft) Translate(ctx context.Context, text, source, target string) 
 		return Result{}, unsupported("微软翻译", "源", source)
 	}
 	limit, one := webChunkLimit, m.webChunk
-	if m.APIKey != "" {
-		limit, one = azureChunkLimit, m.azureChunk
-	}
 	var parts []chunkPart
 	var detected string
 	for _, chunk := range splitText(text, limit) {
@@ -219,37 +222,7 @@ func (m *Microsoft) webChunk(ctx context.Context, text, sl, tl string) (Result, 
 	return Result{}, fmt.Errorf("微软翻译请求失败，请稍后重试")
 }
 
-// ---- azure mode ----
-
-func (m *Microsoft) azureChunk(ctx context.Context, text, sl, tl string) (Result, error) {
-	q := url.Values{"api-version": {"3.0"}, "to": {tl}}
-	if sl != "auto-detect" {
-		q.Set("from", sl)
-	}
-	body, _ := json.Marshal([]map[string]string{{"Text": text}})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.AzureURL+"?"+q.Encode(), bytes.NewReader(body))
-	if err != nil {
-		return Result{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Ocp-Apim-Subscription-Key", m.APIKey)
-	if m.Region != "" {
-		req.Header.Set("Ocp-Apim-Subscription-Region", m.Region)
-	}
-	resp, err := m.Client.Do(req)
-	if err != nil {
-		return Result{}, fmt.Errorf("无法连接到微软翻译，请检查网络连接或代理设置")
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if resp.StatusCode != http.StatusOK {
-		return Result{}, statusError("微软翻译", resp.StatusCode)
-	}
-	res, _, err := parseMicrosoft(raw)
-	return res, err
-}
-
-// parseMicrosoft reads the response shared by the web and Azure endpoints.
+// parseMicrosoft reads the response of the web endpoint.
 // expired is true when the web token was rejected (statusCode 205).
 func parseMicrosoft(b []byte) (res Result, expired bool, err error) {
 	var obj map[string]any

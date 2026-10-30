@@ -7,7 +7,7 @@ type Status = Awaited<ReturnType<typeof Tolk.macStatus>>;
 
 function badge(el: HTMLElement, on: boolean, running: boolean) {
   el.className = "badge " + (!running ? "" : on ? "ok" : "no");
-  el.textContent = !running ? "助手未运行" : on ? "已授权" : "未授权";
+  el.textContent = !running ? "检测不到" : on ? "已允许" : "去允许";
 }
 
 /** The macOS-only part of the settings sheet: hotkeys, permissions, screenshot, import. */
@@ -27,7 +27,8 @@ export function macPane(toast: (m: string) => void, close: () => void): MacPane 
     $("#p-shot").toggleAttribute("disabled", !st.running);
     $("#p-migrate").toggleAttribute("disabled", !st.running);
     if (hkNote) {
-      hkNote.textContent = st.hotkeyError ? `系统级快捷键未启动：${st.hotkeyError}` : st.hotkeyRunning ? "系统级快捷键正在运行" : "";
+      hkNote.textContent = st.hotkeyError ? `快捷键没能启动：${st.hotkeyError}` : "";
+      hkNote.hidden = !hkNote.textContent;
     }
   }
 
@@ -63,7 +64,7 @@ export function macPane(toast: (m: string) => void, close: () => void): MacPane 
         hkNote = document.createElement("p");
         hkNote.className = "muted";
         hkNote.id = "p-note";
-        shot.closest("fieldset")!.append(hkNote);
+        system.closest("fieldset")!.append(hkNote);
       }
       await refresh();
       window.clearInterval(timer);

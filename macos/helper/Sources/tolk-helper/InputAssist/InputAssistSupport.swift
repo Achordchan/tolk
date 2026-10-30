@@ -87,6 +87,41 @@ enum InputAssistAnchor {
         return InputAssistScreen.mouseAnchor()
     }
 
+    /// 复制兜底（微信这类不给选区接口的应用）没有选区元素。鼠标常常不在文字旁边
+    /// （快捷键是键盘按的），所以依次试：焦点控件的插入点/控件位置 → 前台窗口
+    /// （鼠标在窗口里就跟鼠标，否则贴着窗口底部的输入区）→ 鼠标。
+    static func fallbackRect(processIdentifier: pid_t?) -> CGRect {
+        let primaryMaxY = InputAssistScreen.primaryScreenMaxY()
+        let window = processIdentifier.flatMap(focusedWindowFrame)
+        if let element = InputAssistAXTextCapture.focusedElement() {
+            if let range = InputAssistAXTextCapture.selectedRange(element),
+               let bounds = boundsForRange(element: element, range: range) {
+                return CandidatePanelGeometry.cocoaRect(fromAXRect: bounds, primaryScreenMaxY: primaryMaxY)
+            }
+            // 只认像输入框的控件：和整个窗口差不多大的（只暴露了窗口）没有意义。
+            if let frame = elementFrame(element), frame.width > 20, frame.height > 10,
+               window.map({ frame.height < $0.height * 0.6 }) ?? true {
+                return CandidatePanelGeometry.cocoaRect(fromAXRect: frame, primaryScreenMaxY: primaryMaxY)
+            }
+        }
+        if let window {
+            let cocoa = CandidatePanelGeometry.cocoaRect(fromAXRect: window, primaryScreenMaxY: primaryMaxY)
+            if cocoa.contains(NSEvent.mouseLocation) { return InputAssistScreen.mouseAnchor() }
+            // 聊天类应用的输入框在窗口底部：锚在那一条，面板会翻到它上方。
+            let h = min(140, cocoa.height / 3)
+            return CGRect(x: cocoa.minX + 24, y: cocoa.minY + 12, width: max(1, cocoa.width - 48), height: h)
+        }
+        return InputAssistScreen.mouseAnchor()
+    }
+
+    private static func focusedWindowFrame(_ pid: pid_t) -> CGRect? {
+        let app = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+        return elementFrame(value as! AXUIElement)
+    }
+
     private static func boundsForRange(element: AXUIElement, range: InputAssistTextRange) -> CGRect? {
         var cfRange = CFRange(location: range.location, length: max(range.length, 1))
         guard let rangeValue = AXValueCreate(.cfRange, &cfRange) else { return nil }

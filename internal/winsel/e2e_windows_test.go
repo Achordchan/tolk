@@ -197,7 +197,7 @@ func TestEdit_CaptureByCopyRestoresClipboard(t *testing.T) {
 	if err := SetClipboardText("user's own clipboard"); err != nil {
 		t.Fatal(err)
 	}
-	sel, err := copyCapture(fg, Selection{Window: fg.Window, PID: fg.App.PID, Focus: FocusWindow(fg.Window)})
+	sel, err := copyCapture(fg, Selection{Window: fg.Window, PID: fg.App.PID, Focus: FocusWindow(fg.Window)}, uiaResult{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestEdit_CaptureByCopyRestoresClipboard(t *testing.T) {
 	}
 	// No selection: nothing is copied and that is reported as such.
 	w.selectRange(3, 3)
-	_, err = copyCapture(fg, Selection{Window: fg.Window, PID: fg.App.PID})
+	_, err = copyCapture(fg, Selection{Window: fg.Window, PID: fg.App.PID}, uiaResult{})
 	if err != ErrNoSelection {
 		t.Fatalf("no selection gave %v", err)
 	}

@@ -143,27 +143,11 @@ func TestMicrosoftWebMode(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	m := NewMicrosoft("", "")
+	m := NewMicrosoft()
 	m.EntryURL = srv.URL + "/translator"
 	res, err := m.Translate(context.Background(), "hello", Auto, "简体中文")
 	if err != nil || res.Text != "你好" || res.Detected != "en" || calls != 1 {
 		t.Fatalf("got %+v, %v, calls %d", res, err, calls)
-	}
-}
-
-func TestMicrosoftAzureMode(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Ocp-Apim-Subscription-Key") != "k" || r.Header.Get("Ocp-Apim-Subscription-Region") != "eastasia" {
-			t.Errorf("headers %v", r.Header)
-		}
-		w.Write([]byte(`[{"translations":[{"text":"你好"}]}]`))
-	}))
-	defer srv.Close()
-	m := NewMicrosoft("k", "eastasia")
-	m.AzureURL = srv.URL
-	res, err := m.Translate(context.Background(), "hello", "英语", "简体中文")
-	if err != nil || res.Text != "你好" {
-		t.Fatalf("got %+v, %v", res, err)
 	}
 }
 

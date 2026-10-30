@@ -29,6 +29,11 @@ export default defineConfig({
     infoPlist: {
       CFBundleVersion: build,
       CFBundleDisplayName: "Tolk",
+      // Without these the system's own menus (text field right-click, the
+      // app menu) stay English even on a Chinese Mac.
+      CFBundleDevelopmentRegion: "zh_CN",
+      CFBundleLocalizations: ["zh-Hans", "zh-Hant", "en"],
+      CFBundleAllowMixedLocalizations: true,
       NSScreenCaptureUsageDescription: "Tolk 需要屏幕录制权限，才能截取你框选的区域并识别其中的文字。",
       NSAppleEventsUsageDescription: "Tolk 需要控制其他应用，才能把译文替换回你选中的文字。",
     },

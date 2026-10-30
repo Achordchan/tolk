@@ -35,6 +35,7 @@ var hs struct {
 	hello     helloInfo
 	hkRunning bool
 	hkError   string
+	hkRetried time.Time
 	iaActive  bool // 输入助手 is running in the helper
 	iaError   string
 	fire      func(string)
@@ -226,6 +227,8 @@ func helperEvent(name string, raw json.RawMessage) {
 		Text   string `json:"text"`
 		Transl string `json:"translated"`
 		Active bool   `json:"active"`
+		X      int    `json:"x"`
+		Y      int    `json:"y"`
 	}
 	_ = json.Unmarshal(raw, &e)
 	switch name {
@@ -269,6 +272,8 @@ func helperEvent(name string, raw json.RawMessage) {
 				}
 			}()
 		}
+	case "mouse.down":
+		miniOutsideClick(e.X, e.Y)
 	case "inputassist.status":
 		hs.mu.Lock()
 		hs.iaActive, hs.iaError = e.Active, e.Error
@@ -384,6 +389,17 @@ func macStatus() MacStatus {
 	if err := c.Call(ctx, "permissions", nil, &perms); err == nil {
 		st.Accessibility, st.ScreenRecording = perms.Accessibility, perms.ScreenRecording
 	}
+	// The shortcuts failed for lack of a grant the user has since given: start
+	// them again instead of showing a stale error next to "已允许".
+	hs.mu.Lock()
+	retry := st.Accessibility && !hs.hkRunning && hs.hkError != "" && time.Since(hs.hkRetried) > 10*time.Second
+	if retry {
+		hs.hkRetried = time.Now()
+	}
+	hs.mu.Unlock()
+	if retry {
+		macApplyHotkeys()
+	}
 	hs.mu.Lock()
 	st.HotkeyRunning, st.HotkeyError = hs.hkRunning, hs.hkError
 	st.InputAssistActive, st.InputAssistError = hs.iaActive, hs.iaError
@@ -421,6 +437,40 @@ func appleCall(ctx context.Context, texts []string, source, target string) ([]st
 		return nil, err
 	}
 	return out.Texts, nil
+}
+
+func macApplePacks(targets []string) (map[string]string, error) {
+	c, h := current()
+	if c == nil || !has(h, "apple") {
+		return map[string]string{}, nil // nothing to download without the helper
+	}
+	out := make(map[string]string, len(targets))
+	for _, t := range targets {
+		ctx, cancel := macCtx()
+		var res struct {
+			State string `json:"state"`
+		}
+		err := c.Call(ctx, "apple.status", map[string]any{"source": applePackSource(t), "target": t}, &res)
+		cancel()
+		if err == nil {
+			out[t] = res.State
+		}
+	}
+	return out, nil
+}
+
+// macAppleDownload translates a word into target: when the pack is missing,
+// the helper shows the system's download prompt and waits for it.
+func macAppleDownload(target string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	source := applePackSource(target)
+	sample := "Hello"
+	if strings.HasPrefix(source, "简体") || strings.HasPrefix(source, "繁体") {
+		sample = "你好"
+	}
+	_, err := appleCall(ctx, []string{sample}, source, target)
+	return err
 }
 
 // macImport reads the old app's data through the helper and merges it into
@@ -529,5 +579,19 @@ func importInputAssist() {
 		Logs.Infof("已导入旧版输入助手设置")
 		loadPrefs()
 		macPushInputAssist()
+	}
+}
+
+// macWatchMouse turns the helper's system-wide mouse-down events on or off;
+// the Mini bubble listens while it is on screen to close on an outside click.
+func macWatchMouse(on bool) {
+	c, _ := current()
+	if c == nil {
+		return
+	}
+	ctx, cancel := macCtx()
+	defer cancel()
+	if err := c.Call(ctx, "mouse.watch", map[string]any{"on": on}, nil); err != nil {
+		Logs.Warnf("Mini 点击窗外关闭：%v", err)
 	}
 }

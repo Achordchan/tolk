@@ -48,8 +48,7 @@ func BuildEngine(m map[string]any, api string) (engine.Engine, error) {
 		base, model, key := OpenAICompat(m)
 		return engine.NewOpenAICompat(base, model, key)
 	case "microsoft":
-		ms, _ := m["microsoft"].(map[string]any)
-		return engine.NewMicrosoft(str(ms, "api_key"), str(ms, "region")), nil
+		return engine.NewMicrosoft(), nil
 	case "achord_builtin":
 		return engine.NewBuiltin(), nil
 	}

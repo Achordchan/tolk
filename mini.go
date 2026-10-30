@@ -37,7 +37,28 @@ var (
 	// miniAt is the cursor when the copy happened; the bubble stays there
 	// while it grows, even if the mouse has moved on.
 	miniAt mygo.Point
+	// miniShown is whether the bubble should be up (guarded by miniMu);
+	// syncMiniWatch makes the mouse watch follow it.
+	miniShown bool
+
+	miniWatchMu sync.Mutex
+	miniWatched bool
 )
+
+// syncMiniWatch watches outside clicks exactly while the bubble is up. Show
+// and hide call it from goroutines that may run in either order, so it reads
+// the current state instead of being told one: a stale call changes nothing.
+func syncMiniWatch() {
+	miniWatchMu.Lock()
+	defer miniWatchMu.Unlock()
+	miniMu.Lock()
+	want := miniShown
+	miniMu.Unlock()
+	if want != miniWatched {
+		watchMiniClicks(want)
+		miniWatched = want
+	}
+}
 
 // miniTitle names the bubble's window, which Windows finds it by.
 const miniTitle = "Tolk Mini"
@@ -94,13 +115,14 @@ func showMini(text string) {
 	mine := miniSeq
 	miniH = miniMinHeight
 	miniAt = mygo.Screen.CursorScreenPoint()
+	miniShown = true
 	miniMu.Unlock()
 
 	miniWin.SetSize(miniWidth, miniMinHeight)
 	placeMini(miniMinHeight)
 	_ = MiniUpdate.Emit(miniWin, MiniState{State: "translating", Smart: smart, Source: pair.Source, Target: pair.Target})
 	miniWin.ShowInactive()
-	go watchMiniClicks(true) // an outside click closes the bubble
+	go syncMiniWatch() // an outside click closes the bubble
 
 	go func() {
 		res, err := translate(text, pair.Source, pair.Target)
@@ -150,9 +172,10 @@ func (Tolk) HideMini() {
 	}
 	miniMu.Lock()
 	miniSeq++
+	miniShown = false
 	miniMu.Unlock()
 	miniWin.Hide()
-	go watchMiniClicks(false)
+	go syncMiniWatch()
 }
 
 // miniOutsideClick closes the bubble when the click landed outside its window.

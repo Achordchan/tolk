@@ -1,5 +1,6 @@
 import { Tolk, events } from "./mygo";
 import { initLook } from "./look";
+import { langName } from "./langname";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const body = $("#body");
@@ -73,7 +74,7 @@ events.mini.on((s) => {
     scheduleDismiss(8000);
   } else {
     body.textContent = s.text;
-    const from = s.detected || (s.source === "自动检测" ? "" : shown(s.source));
+    const from = langName(s.detected) || (s.source === "自动检测" ? "" : shown(s.source));
     meta.textContent = [from, `→ ${shown(s.target)}`].filter(Boolean).join(" ");
     scheduleDismiss(8000);
   }

@@ -5,6 +5,7 @@ import { engineList } from "./engines";
 import { initSettings } from "./settings";
 import { macPane } from "./mac";
 import { inputAssistPane } from "./inputassist";
+import { langName } from "./langname";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -15,6 +16,8 @@ const input = $<HTMLTextAreaElement>("#input");
 const output = $<HTMLDivElement>("#output");
 const empty = $("#empty");
 const status = $("#status");
+const emptyTitle = $("#empty strong");
+const emptyHint = $("#empty span");
 const dot = $("#dot");
 
 const AUTO = "自动检测";
@@ -126,8 +129,11 @@ await refreshSettings();
 let seq = 0;
 let timer: number | undefined;
 
-function showEmpty(on: boolean) {
+function showEmpty(on: boolean, busy = false) {
   empty.hidden = !on;
+  empty.classList.toggle("busy", busy);
+  emptyTitle.textContent = busy ? "翻译中…" : "等待翻译";
+  emptyHint.textContent = busy ? "" : "在左侧输入文字，结果会显示在这里";
 }
 
 async function run() {
@@ -136,20 +142,30 @@ async function run() {
   output.classList.remove("error");
   if (!text.trim()) {
     output.textContent = "";
+    output.classList.remove("busy");
     status.textContent = "";
     showEmpty(true);
     return;
   }
-  showEmpty(false);
-  status.textContent = "翻译中…";
+  // First translation: the placeholder says so. Later ones: the old text fades.
+  const first = !output.textContent || output.classList.contains("error");
+  if (first) output.textContent = "";
+  showEmpty(first, first);
+  output.classList.add("busy");
+  status.textContent = "";
   try {
     const res = await Tolk.translate(text, source.value, target.value);
     if (mine !== seq) return; // a newer request replaced this one
+    showEmpty(false);
+    output.classList.remove("busy");
     output.textContent = res.text;
     dot.classList.remove("err");
-    status.textContent = `${(res.durationMs / 1000).toFixed(1)} 秒` + (res.detected ? ` · 检测到 ${res.detected}` : "");
+    const from = langName(res.detected);
+    status.textContent = (from ? `${from} · ` : "") + `${(res.durationMs / 1000).toFixed(1)} 秒`;
   } catch (e) {
     if (mine !== seq) return;
+    showEmpty(false);
+    output.classList.remove("busy");
     output.classList.add("error");
     output.textContent = String(e instanceof Error ? e.message : e);
     dot.classList.add("err");

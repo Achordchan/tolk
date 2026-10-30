@@ -39,6 +39,7 @@ const (
 	vtGetCurrentPropertyValue = 10
 	vtGetCurrentPattern       = 16
 	vtCurrentProcessID        = 20
+	vtCurrentBoundingRect     = 43
 	// IUIAutomationTextPattern
 	vtGetSelection = 5
 	// IUIAutomationTextRangeArray
@@ -78,7 +79,11 @@ type uiaResult struct {
 	// truncated: the text is longer than GetText was asked for, so only the
 	// start of it was read.
 	truncated bool
-	why       string // when not supported or empty: where it stopped (for tests and the log)
+	// elem is the focused control's own rectangle, a hint of where the text
+	// is when the selection has none.
+	elem     inputassist.Rect
+	haveElem bool
+	why      string // when not supported or empty: where it stopped (for tests and the log)
 }
 
 // readUIA reads the selection of the focused control, which must belong to
@@ -131,6 +136,11 @@ func readUIAOnThread(pid int) (res uiaResult, err error) {
 	if hr := com(elem, vtCurrentProcessID, ptr(&owner)); failed(hr) || int(owner) != pid {
 		res.why = fmt.Sprintf("焦点元素属于进程 %d（hr=0x%x），要的是 %d", owner, uint32(hr), pid)
 		return res, nil
+	}
+	var box rect
+	if hr := com(elem, vtCurrentBoundingRect, ptr(&box)); !failed(hr) && box.Right > box.Left && box.Bottom > box.Top {
+		res.elem = inputassist.Rect{X: int(box.Left), Y: int(box.Top), W: int(box.Right - box.Left), H: int(box.Bottom - box.Top)}
+		res.haveElem = true
 	}
 
 	var v [4]uint64 // VARIANT (24 bytes on 64-bit), with room to spare

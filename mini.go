@@ -39,9 +39,12 @@ var (
 	miniAt mygo.Point
 )
 
+// miniTitle names the bubble's window, which Windows finds it by.
+const miniTitle = "Tolk Mini"
+
 func createMini() {
 	miniWin = mygo.NewWindow(mygo.WindowOptions{
-		Title:           "Tolk Mini",
+		Title:           miniTitle,
 		URL:             "/mini.html",
 		Width:           miniWidth,
 		Height:          miniMinHeight,
@@ -97,7 +100,7 @@ func showMini(text string) {
 	placeMini(miniMinHeight)
 	_ = MiniUpdate.Emit(miniWin, MiniState{State: "translating", Smart: smart, Source: pair.Source, Target: pair.Target})
 	miniWin.ShowInactive()
-	go macWatchMouse(true) // an outside click closes the bubble
+	go watchMiniClicks(true) // an outside click closes the bubble
 
 	go func() {
 		res, err := translate(text, pair.Source, pair.Target)
@@ -149,7 +152,7 @@ func (Tolk) HideMini() {
 	miniSeq++
 	miniMu.Unlock()
 	miniWin.Hide()
-	go macWatchMouse(false)
+	go watchMiniClicks(false)
 }
 
 // miniOutsideClick closes the bubble when the click landed outside its window.

@@ -22,8 +22,6 @@ func macApplyHotkeys() {}
 
 func macImport(bool) ([]string, error) { return nil, errNoHelper }
 
-func macWatchMouse(bool) {}
-
 func macApplePacks([]string) (map[string]string, error) { return nil, errNoHelper }
 
 func macAppleDownload(string) error { return errNoHelper }

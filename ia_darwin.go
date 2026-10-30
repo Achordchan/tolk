@@ -19,3 +19,7 @@ func panelSnapshot() PanelView { return PanelView{Mode: "none"} }
 
 func inputAssistClipboardBusy() bool           { return false }
 func inputAssistClipboardTransactions() uint64 { return 0 }
+
+// watchMiniClicks has the helper report mouse presses while the Mini bubble
+// is up, so a click outside closes it.
+func watchMiniClicks(on bool) { macWatchMouse(on) }

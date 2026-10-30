@@ -26,9 +26,14 @@ export async function initLook(): Promise<Prefs> {
     const t = e.target as HTMLElement;
     if (!t.closest("textarea, input")) e.preventDefault();
   });
+  // No reload either, nor the rest of the browser keys WebView2 (Windows)
+  // answers: print, find, zoom, caret browsing.
   document.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") e.preventDefault(); // no reload either
+    const k = e.key.toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && ["r", "p", "f", "g", "=", "+", "-", "0"].includes(k)) e.preventDefault();
+    else if (["f3", "f5", "f7"].includes(k)) e.preventDefault();
   });
+  document.addEventListener("wheel", (e) => e.ctrlKey && e.preventDefault(), { passive: false });
   const p = await Tolk.getPrefs();
   applyLook(p);
   events.prefsChanged.on((next) => applyLook(next));

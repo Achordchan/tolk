@@ -39,6 +39,29 @@ func FindPanel(title string) (*Panel, error) {
 	return &Panel{hwnd: h}, nil
 }
 
+// WindowRect is the rectangle, in screen pixels, of the top-level window with
+// the given title, and whether it is on screen.
+func WindowRect(title string) (inputassist.Rect, bool) {
+	h, _, _ := pFindWindow.Call(0, ptr(u16(title)))
+	if h == 0 {
+		return inputassist.Rect{}, false
+	}
+	if v, _, _ := pIsWindowVisible.Call(h); v == 0 {
+		return inputassist.Rect{}, false
+	}
+	r, _ := windowRect(h)
+	return r, true
+}
+
+// windowRect is a window's rectangle in screen pixels.
+func windowRect(h uintptr) (inputassist.Rect, bool) {
+	var r rect
+	if ok, _, _ := pGetWindowRect.Call(h, ptr(&r)); ok == 0 || r.Right <= r.Left || r.Bottom <= r.Top {
+		return inputassist.Rect{}, false
+	}
+	return inputassist.Rect{X: int(r.Left), Y: int(r.Top), W: int(r.Right - r.Left), H: int(r.Bottom - r.Top)}, true
+}
+
 // Visible reports whether the panel is on screen.
 func (p *Panel) Visible() bool {
 	r, _, _ := pIsWindowVisible.Call(p.hwnd)

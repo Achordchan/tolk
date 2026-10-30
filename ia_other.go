@@ -18,3 +18,5 @@ func panelSnapshot() PanelView { return PanelView{Mode: "none"} }
 
 func inputAssistClipboardBusy() bool           { return false }
 func inputAssistClipboardTransactions() uint64 { return 0 }
+
+func watchMiniClicks(bool) {}

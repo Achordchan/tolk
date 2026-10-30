@@ -72,6 +72,10 @@ type iaState struct {
 	cur  atomic.Pointer[iaSession]
 	busy atomic.Bool // a trigger is reading the selection, or a commit is running
 
+	// miniWatch: the Mini bubble is up and a click outside it closes it. The
+	// mouse hook is one per process, so it shares this one.
+	miniWatch atomic.Bool
+
 	// Automatic display (the 实验 switch): the selection already handled, and
 	// how the last mouse press went.
 	lastFp    string
@@ -207,12 +211,12 @@ func pushInputAssist() {
 // ---- hooks ----
 
 // syncMouseHook keeps the mouse hook installed exactly while it is needed: for
-// the automatic display, or while a panel is open.
+// the automatic display, while a panel is open, or while the Mini bubble is up.
 func (st *iaState) syncMouseHook() {
 	st.hookMu.Lock()
 	defer st.hookMu.Unlock()
 	st.mu.Lock()
-	need := (st.cfg.Enabled && st.cfg.AutoShow) || st.cur.Load() != nil
+	need := (st.cfg.Enabled && st.cfg.AutoShow) || st.cur.Load() != nil || st.miniWatch.Load()
 	have := st.mouse != nil
 	var drop *winsel.Hook
 	if !need && have {
@@ -523,9 +527,29 @@ func (st *iaState) act(s *iaSession, d inputassist.Decision) {
 	}
 }
 
+// watchMiniClicks watches the mouse while the Mini bubble is up, so a click
+// outside closes it.
+func watchMiniClicks(on bool) {
+	ia.miniWatch.Store(on)
+	ia.syncMouseHook()
+}
+
+// miniClickAt closes the Mini bubble when the press at x, y (screen pixels)
+// was outside it.
+func miniClickAt(x, y int) {
+	r, visible := winsel.WindowRect(miniTitle)
+	if !visible || (x >= r.X && x < r.Right() && y >= r.Y && y < r.Bottom()) {
+		return
+	}
+	Tolk{}.HideMini()
+}
+
 // onMouse runs inside the mouse hook.
 func iaMouse(button int, down bool, x, y int) bool {
 	st := &ia
+	if down && st.miniWatch.Load() {
+		go miniClickAt(x, y)
+	}
 	s := st.cur.Load()
 	if s != nil && !s.closing.Load() {
 		if !down {

@@ -450,13 +450,23 @@ func macApplePacks(targets []string) (map[string]string, error) {
 		var res struct {
 			State string `json:"state"`
 		}
-		err := c.Call(ctx, "apple.status", map[string]any{"source": applePackSource(t), "target": t}, &res)
+		err := c.Call(ctx, "apple.status", map[string]any{"source": helperLang(applePackSource(t)), "target": helperLang(t)}, &res)
 		cancel()
 		if err == nil {
 			out[t] = res.State
 		}
 	}
 	return out, nil
+}
+
+// helperLang is the language code of a Tolk label, as the helper's Apple
+// translator names languages. The helper also accepts the label itself
+// (Ops.languages converts either), so an unknown one is passed through.
+func helperLang(label string) string {
+	if code, ok := inputassist.CodeOf(label); ok {
+		return code
+	}
+	return label
 }
 
 // macAppleDownload translates a word into target: when the pack is missing,

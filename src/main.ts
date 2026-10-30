@@ -1,5 +1,6 @@
 import { Tolk, events } from "./mygo";
-import { THEMES, initLook } from "./look";
+import { THEMES, applyLook, initLook } from "./look";
+import { enhanceSelect } from "./select";
 import { engineList } from "./engines";
 import { initSettings } from "./settings";
 import { macPane } from "./mac";
@@ -49,6 +50,9 @@ function fill(sel: HTMLSelectElement, items: [string, string][]) {
   sel.replaceChildren(...items.map(([value, label]) => new Option(label, value)));
 }
 
+enhanceSelect(source);
+enhanceSelect(target);
+enhanceSelect(engineSel);
 const langs = await Tolk.languages();
 fill(source, [AUTO, ...langs].map((n) => [n, shown(n)]));
 fill(target, langs.map((n) => [n, shown(n)]));
@@ -63,6 +67,7 @@ $("#theme").addEventListener("click", async () => {
   try {
     await Tolk.setAppearance(next, prefs.sourceFont, prefs.targetFont);
     prefs = await Tolk.getPrefs();
+    applyLook(prefs);
     toast(`主题：${THEMES.find(([id]) => id === next)![1]}`);
   } catch (e) {
     toast(String(e instanceof Error ? e.message : e));
@@ -188,6 +193,7 @@ events.copied.on((text) => {
 
 events.macNotice.on((m) => toast(m));
 
+for (const id of ["#s-engine", "#s-vendor", "#ia-shortcut", "#ia-scope", "#c-level"]) enhanceSelect($<HTMLSelectElement>(id));
 initSettings({
   os: about.os,
   toast,

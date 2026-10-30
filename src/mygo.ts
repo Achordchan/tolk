@@ -147,8 +147,6 @@ export interface Settings {
   vendor: string;
   profiles: Record<string, Profile>;
   deeplHasKey: boolean;
-  microsoftHasKey: boolean;
-  microsoftRegion: string;
   vendors: Vendor[];
   prefs: Prefs;
 }
@@ -161,8 +159,6 @@ export interface SettingsUpdate {
   model: string;
   aiKey: string;
   deeplKey: string;
-  microsoftKey: string;
-  microsoftRegion: string;
 }
 
 export interface Summary {

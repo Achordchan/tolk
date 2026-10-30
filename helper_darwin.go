@@ -226,6 +226,8 @@ func helperEvent(name string, raw json.RawMessage) {
 		Text   string `json:"text"`
 		Transl string `json:"translated"`
 		Active bool   `json:"active"`
+		X      int    `json:"x"`
+		Y      int    `json:"y"`
 	}
 	_ = json.Unmarshal(raw, &e)
 	switch name {
@@ -269,6 +271,8 @@ func helperEvent(name string, raw json.RawMessage) {
 				}
 			}()
 		}
+	case "mouse.down":
+		miniOutsideClick(e.X, e.Y)
 	case "inputassist.status":
 		hs.mu.Lock()
 		hs.iaActive, hs.iaError = e.Active, e.Error
@@ -529,5 +533,19 @@ func importInputAssist() {
 		Logs.Infof("已导入旧版输入助手设置")
 		loadPrefs()
 		macPushInputAssist()
+	}
+}
+
+// macWatchMouse turns the helper's system-wide mouse-down events on or off;
+// the Mini bubble listens while it is on screen to close on an outside click.
+func macWatchMouse(on bool) {
+	c, _ := current()
+	if c == nil {
+		return
+	}
+	ctx, cancel := macCtx()
+	defer cancel()
+	if err := c.Call(ctx, "mouse.watch", map[string]any{"on": on}, nil); err != nil {
+		Logs.Warnf("Mini 点击窗外关闭：%v", err)
 	}
 }

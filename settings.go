@@ -33,26 +33,22 @@ type Profile struct {
 
 // Settings is what the settings sheet shows.
 type Settings struct {
-	Engine          string             `json:"engine"`
-	Vendor          string             `json:"vendor"`
-	Profiles        map[string]Profile `json:"profiles"`
-	DeepLHasKey     bool               `json:"deeplHasKey"`
-	MicrosoftHasKey bool               `json:"microsoftHasKey"`
-	MicrosoftRegion string             `json:"microsoftRegion"`
-	Vendors         []Vendor           `json:"vendors"`
-	Prefs           Prefs              `json:"prefs"`
+	Engine      string             `json:"engine"`
+	Vendor      string             `json:"vendor"`
+	Profiles    map[string]Profile `json:"profiles"`
+	DeepLHasKey bool               `json:"deeplHasKey"`
+	Vendors     []Vendor           `json:"vendors"`
+	Prefs       Prefs              `json:"prefs"`
 }
 
 // SettingsUpdate is what the sheet sends back. An empty key keeps the saved one.
 type SettingsUpdate struct {
-	Engine          string `json:"engine"`
-	Vendor          string `json:"vendor"`
-	BaseURL         string `json:"baseUrl"`
-	Model           string `json:"model"`
-	AIKey           string `json:"aiKey"`
-	DeepLKey        string `json:"deeplKey"`
-	MicrosoftKey    string `json:"microsoftKey"`
-	MicrosoftRegion string `json:"microsoftRegion"`
+	Engine   string `json:"engine"`
+	Vendor   string `json:"vendor"`
+	BaseURL  string `json:"baseUrl"`
+	Model    string `json:"model"`
+	AIKey    string `json:"aiKey"`
+	DeepLKey string `json:"deeplKey"`
 }
 
 func cfgPath() (string, error) { return legacy.DefaultPath() }
@@ -74,16 +70,13 @@ func (Tolk) GetSettings() (Settings, error) {
 	}
 	oc, _ := m["openai_compat"].(map[string]any)
 	dl, _ := m["deepl"].(map[string]any)
-	ms, _ := m["microsoft"].(map[string]any)
 	s := Settings{
-		Engine:          legacy.APIName(m),
-		Vendor:          "智谱",
-		Profiles:        map[string]Profile{},
-		DeepLHasKey:     hasKey(dl, "api_key"),
-		MicrosoftHasKey: hasKey(ms, "api_key"),
-		MicrosoftRegion: strings.TrimSpace(fmt.Sprint(valOr(ms, "region"))),
-		Vendors:         vendors,
-		Prefs:           loadPrefs(),
+		Engine:      legacy.APIName(m),
+		Vendor:      "智谱",
+		Profiles:    map[string]Profile{},
+		DeepLHasKey: hasKey(dl, "api_key"),
+		Vendors:     vendors,
+		Prefs:       loadPrefs(),
 	}
 	if v, _ := oc["vendor"].(string); v != "" {
 		s.Vendor = v
@@ -128,11 +121,6 @@ func (Tolk) SaveSettings(u SettingsUpdate) error {
 		legacy.Sub(m, "translation")["api"] = u.Engine
 		if k := strings.TrimSpace(u.DeepLKey); k != "" {
 			legacy.Sub(m, "deepl")["api_key"] = k
-		}
-		ms := legacy.Sub(m, "microsoft")
-		ms["region"] = strings.TrimSpace(u.MicrosoftRegion)
-		if k := strings.TrimSpace(u.MicrosoftKey); k != "" {
-			ms["api_key"] = k
 		}
 		if strings.TrimSpace(u.Vendor) == "" {
 			return

@@ -21,3 +21,5 @@ func macScreenshot(string) error { return errNoHelper }
 func macApplyHotkeys() {}
 
 func macImport(bool) ([]string, error) { return nil, errNoHelper }
+
+func macWatchMouse(bool) {}

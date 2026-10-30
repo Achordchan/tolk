@@ -226,3 +226,91 @@ textarea.list { min-width: 0; min-height: 78px; padding: 6px 10px; resize: verti
 .mono { font: 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 a { color: var(--accent); text-decoration: none; }
 button.icon.active { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }
+
+/* ---- themed dropdown (select.ts) ---- */
+.dd { position: relative; display: inline-flex; min-width: 0; }
+.dd-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; border: 0; padding: 0;
+  background: transparent; cursor: pointer; outline: none; text-align: left; font: inherit; color: inherit;
+}
+.dd-btn::after {
+  content: ""; flex: none; width: 6px; height: 6px; margin: -3px 2px 0 auto;
+  border-right: 1.6px solid var(--muted); border-bottom: 1.6px solid var(--muted); transform: rotate(45deg);
+  transition: transform .15s;
+}
+.dd-btn.open::after { transform: rotate(225deg); margin-top: 3px; }
+.dd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill .dd-btn { font-size: 17px; font-weight: 600; padding-right: 2px; }
+.pill .dd-btn:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 6px; }
+.row .dd, .console-bar .dd { display: flex; }
+.row .dd { width: 100%; }
+.row .dd-btn, .console-bar .dd-btn {
+  height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--control-stroke); background: var(--control);
+}
+.console-bar .dd-btn { height: 32px; min-width: 76px; gap: 12px; }
+.row .dd-btn:focus-visible, .row .dd-btn.open, .console-bar .dd-btn.open { border-color: var(--accent); }
+.dd-menu {
+  position: fixed; z-index: 1000; overflow-y: auto; overscroll-behavior: contain; padding: 5px;
+  border-radius: 12px; border: 1px solid var(--stroke); background: var(--card);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .22), 0 2px 6px rgba(0, 0, 0, .12);
+}
+.dd-menu[hidden] { display: none; }
+.dd-item {
+  padding: 7px 12px 7px 28px; border-radius: 8px; font-size: 14px; font-weight: 400; white-space: nowrap;
+  cursor: default; position: relative; color: var(--fg);
+}
+.dd-item.hot { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.dd-item.on { color: var(--accent); font-weight: 600; }
+.dd-item.on::before {
+  content: ""; position: absolute; left: 11px; top: 50%; width: 5px; height: 9px; margin-top: -6px;
+  border-right: 1.8px solid currentColor; border-bottom: 1.8px solid currentColor; transform: rotate(40deg);
+}
+.dd-menu::-webkit-scrollbar { width: 8px; }
+.dd-menu::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--fg) 22%, transparent); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+
+/* ---- settings polish ---- */
+dialog { box-shadow: 0 24px 60px rgba(0, 0, 0, .28); }
+.sheet { grid-template-columns: 196px 1fr; }
+.side { padding: 18px 12px 14px; gap: 3px; }
+.side-head { padding: 0 8px 16px; }
+.side-head strong { font-size: 15px; }
+.tab { height: 36px; padding: 0 12px; font-size: 14px; color: color-mix(in srgb, var(--fg) 82%, transparent); transition: background .12s; }
+.tab.on { font-weight: 600; }
+.content { padding: 22px 26px 16px; }
+.pane-body { padding-right: 8px; }
+.pane-body > h2 { font-size: 20px; letter-spacing: .2px; margin-bottom: 2px; }
+.pane-body > h2 + .muted { margin-bottom: 14px; }
+fieldset { margin: 16px 0 0; padding: 4px 16px 10px; border: 1px solid var(--stroke); border-radius: 12px; background: color-mix(in srgb, var(--fg) 2.5%, transparent); }
+legend { padding: 0 8px; margin-left: -8px; font-size: 12px; font-weight: 600; letter-spacing: .5px; color: var(--muted); }
+fieldset .muted { line-height: 1.55; }
+.row { grid-template-columns: 96px 1fr; margin: 10px 0; }
+.row > :first-child:not(input):not(select):not(span.dd) { color: color-mix(in srgb, var(--fg) 78%, transparent); }
+.row input, .row select { height: 36px; transition: border-color .12s, box-shadow .12s; }
+.row input:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.row .dd-btn { height: 36px; }
+.actions { margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--stroke); }
+.actions.left { border-top: 0; }
+button.ghost, button.primary { height: 36px; padding: 0 18px; font-size: 14px; transition: filter .12s, background .12s; }
+button.ghost:hover { background: color-mix(in srgb, var(--fg) 8%, var(--control)); }
+button.primary:hover { filter: brightness(1.08); }
+button.ghost:active, button.primary:active { transform: translateY(.5px); }
+
+/* checkboxes in settings read as switches */
+.check { gap: 10px; margin: 12px 0; line-height: 1.45; }
+.check input[type="checkbox"] {
+  appearance: none; flex: none; position: relative; width: 36px; height: 21px; margin: 0; cursor: pointer;
+  border-radius: 999px; border: 1px solid var(--control-stroke); background: color-mix(in srgb, var(--fg) 16%, var(--control)); transition: background .15s;
+}
+.check input[type="checkbox"]::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .35); transition: transform .15s;
+}
+.check input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.check input[type="checkbox"]:checked::after { transform: translateX(15px); }
+.check input[type="checkbox"]:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); outline: none; }
+.langs .check input, .langs label input { accent-color: var(--accent); }
+.theme { transition: border-color .12s, transform .12s; }
+.theme:hover { transform: translateY(-1px); }
+.theme.on { font-weight: 600; }
+.theme i { height: 40px; }
+.about { background: color-mix(in srgb, var(--fg) 2.5%, transparent); }

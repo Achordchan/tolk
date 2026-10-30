@@ -34,8 +34,6 @@ export function initSettings(h: Hooks) {
   const sModel = $<HTMLInputElement>("#s-model");
   const sAiKey = $<HTMLInputElement>("#s-ai-key");
   const sDeeplKey = $<HTMLInputElement>("#s-deepl-key");
-  const sMsKey = $<HTMLInputElement>("#s-ms-key");
-  const sMsRegion = $<HTMLInputElement>("#s-ms-region");
   const sDc = $<HTMLInputElement>("#s-dc");
   const sDcMs = $<HTMLInputElement>("#s-dc-ms");
   const sMini = $<HTMLInputElement>("#s-mini");
@@ -239,9 +237,6 @@ export function initSettings(h: Hooks) {
       fillVendor();
       sDeeplKey.value = "";
       sDeeplKey.placeholder = cfg.deeplHasKey ? "已保存，留空则不修改" : "";
-      sMsKey.value = "";
-      sMsKey.placeholder = cfg.microsoftHasKey ? "已保存，留空则不修改" : "";
-      sMsRegion.value = cfg.microsoftRegion;
       sDc.checked = cfg.prefs.doubleCopy;
       sDcMs.value = String(cfg.prefs.doubleCopyMs);
       sMini.checked = cfg.prefs.miniMode;
@@ -295,8 +290,6 @@ export function initSettings(h: Hooks) {
         model: sModel.value,
         aiKey: sAiKey.value,
         deeplKey: sDeeplKey.value,
-        microsoftKey: sMsKey.value,
-        microsoftRegion: sMsRegion.value,
       });
       await Tolk.setDoubleCopy(sDc.checked, Number(sDcMs.value));
       await Tolk.setMini(sMini.checked);

@@ -91,6 +91,7 @@ func showMini(text string) {
 	placeMini(miniMinHeight)
 	_ = MiniUpdate.Emit(miniWin, MiniState{State: "translating", Smart: smart, Source: pair.Source, Target: pair.Target})
 	miniWin.ShowInactive()
+	go macWatchMouse(true) // an outside click closes the bubble
 
 	go func() {
 		res, err := translate(text, pair.Source, pair.Target)
@@ -142,4 +143,17 @@ func (Tolk) HideMini() {
 	miniSeq++
 	miniMu.Unlock()
 	miniWin.Hide()
+	go macWatchMouse(false)
+}
+
+// miniOutsideClick closes the bubble when the click landed outside its window.
+func miniOutsideClick(x, y int) {
+	if miniWin == nil || !miniWin.IsVisible() {
+		return
+	}
+	b := miniWin.Bounds()
+	if x >= b.X && x < b.X+b.Width && y >= b.Y && y < b.Y+b.Height {
+		return
+	}
+	Tolk{}.HideMini()
 }

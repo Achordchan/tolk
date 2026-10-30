@@ -363,3 +363,23 @@ fieldset details.adv { margin: 6px 0 4px; border: 0; padding: 0; }
    user may want to copy is. */
 body { -webkit-user-select: none; user-select: none; cursor: default; }
 textarea, input, .output, .mini-body, .c-list, .notes, .facts dd, [contenteditable] { -webkit-user-select: text; user-select: text; }
+
+/* 输入助手 target languages: chips that wrap, no inner scroll box */
+.stack { margin: 12px 0 4px; }
+.stack-label { display: block; margin-bottom: 8px; font-size: 14px; color: color-mix(in srgb, var(--fg) 78%, transparent); }
+.langs { display: flex; flex-wrap: wrap; gap: 6px; max-height: none; overflow: visible; padding: 0; border: 0; background: none; }
+.langs label {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
+  border-radius: 999px; border: 1px solid var(--control-stroke); background: var(--control);
+  font-size: 13px; cursor: pointer; transition: background .12s, border-color .12s, color .12s;
+}
+.langs label:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--control-stroke)); }
+.langs label input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
+.langs label.on { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.langs label.off { opacity: .45; cursor: default; }
+.langs label:has(input:focus-visible) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.langs .ord {
+  display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
+}
+.langs .pack-chip { margin-left: 2px; height: 18px; padding: 0 6px; font-size: 10.5px; font-weight: 500; }

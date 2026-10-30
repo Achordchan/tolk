@@ -112,6 +112,7 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
         box.checked = on;
         box.disabled = on ? targetList.length <= 1 : full;
         l.classList.toggle("off", box.disabled && !on);
+        l.classList.toggle("on", on);
         box.addEventListener("change", async () => {
           targetList = box.checked ? [...targetList, name] : targetList.filter((x) => x !== name);
           drawTargets();
@@ -121,6 +122,12 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
           }
         });
         l.append(box, document.createTextNode(name));
+        if (on) {
+          const n = document.createElement("b");
+          n.className = "ord";
+          n.textContent = String(targetList.indexOf(name) + 1);
+          l.prepend(n);
+        }
         if (on && apple && (packs[name] === "supported" || downloading.has(name))) {
           const chip = document.createElement("button");
           chip.type = "button";

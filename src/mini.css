@@ -3,7 +3,7 @@ body.mini { height: auto; min-height: 0; overflow: hidden; background: var(--car
 .bubble { padding: 4px 6px 10px; }
 
 /* The window is frameless: the top bar drags it. */
-.bar { display: flex; align-items: center; gap: 4px; min-height: 22px; padding: 0 0 0 10px; background: transparent; --app-region: drag; }
+.bar { display: flex; align-items: center; gap: 4px; height: auto; min-height: 22px; margin: 0; overflow: visible; border-radius: 0; padding: 0 0 0 10px; background: transparent; --app-region: drag; }
 .bar button { --app-region: no-drag; }
 .bar .muted { font-size: 11px; opacity: .8; }
 .bar button.icon.small { width: 22px; height: 22px; border-radius: 6px; opacity: .55; }

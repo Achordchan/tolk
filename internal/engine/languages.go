@@ -1,6 +1,9 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // lang is one row of the language table: the Chinese label stored in the
 // config and the code each engine expects. An empty code means the engine
@@ -79,4 +82,31 @@ func codes(pick func(lang) string) map[string]string {
 // it quietly translate into something else.
 func unsupported(engine, role, name string) error {
 	return fmt.Errorf("%s暂不支持%s语言：%s，请换一个翻译引擎", engine, role, name)
+}
+
+// LabelForCode returns the language label for a code an engine reported as
+// detected ("en", "zh-Hans", "EN"), or "" when it is not in the table.
+func LabelForCode(code string) string {
+	c := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(code), "_", "-"))
+	if c == "" {
+		return ""
+	}
+	for _, l := range langTable {
+		for _, k := range []string{l.google, l.ms, l.dlSrc, l.dlTgt} {
+			if k != "" && strings.ToLower(k) == c {
+				return l.name
+			}
+		}
+	}
+	// "zh" alone, "en-US" and the like: match on the language part.
+	base := strings.SplitN(c, "-", 2)[0]
+	for _, l := range langTable {
+		if strings.ToLower(l.google) == base || strings.ToLower(l.ms) == base {
+			return l.name
+		}
+	}
+	if base == "zh" {
+		return "简体中文"
+	}
+	return ""
 }

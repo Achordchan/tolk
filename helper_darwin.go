@@ -35,6 +35,7 @@ var hs struct {
 	hello     helloInfo
 	hkRunning bool
 	hkError   string
+	hkRetried time.Time
 	iaActive  bool // 输入助手 is running in the helper
 	iaError   string
 	fire      func(string)
@@ -387,6 +388,17 @@ func macStatus() MacStatus {
 	defer cancel()
 	if err := c.Call(ctx, "permissions", nil, &perms); err == nil {
 		st.Accessibility, st.ScreenRecording = perms.Accessibility, perms.ScreenRecording
+	}
+	// The shortcuts failed for lack of a grant the user has since given: start
+	// them again instead of showing a stale error next to "已允许".
+	hs.mu.Lock()
+	retry := st.Accessibility && !hs.hkRunning && hs.hkError != "" && time.Since(hs.hkRetried) > 10*time.Second
+	if retry {
+		hs.hkRetried = time.Now()
+	}
+	hs.mu.Unlock()
+	if retry {
+		macApplyHotkeys()
 	}
 	hs.mu.Lock()
 	st.HotkeyRunning, st.HotkeyError = hs.hkRunning, hs.hkError

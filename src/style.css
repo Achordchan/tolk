@@ -342,3 +342,8 @@ details.adv > summary::before {
 details.adv[open] > summary::before { transform: rotate(45deg); }
 fieldset details.adv { margin: 6px 0 4px; border: 0; padding: 0; }
 .pane-body > .muted + fieldset { margin-top: 10px; }
+.pane-body::-webkit-scrollbar, textarea.list::-webkit-scrollbar, .langs::-webkit-scrollbar, .c-list::-webkit-scrollbar { width: 8px; }
+.pane-body::-webkit-scrollbar-thumb, textarea.list::-webkit-scrollbar-thumb, .langs::-webkit-scrollbar-thumb, .c-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--fg) 20%, transparent); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box;
+}
+.pane-body::-webkit-scrollbar-track, textarea.list::-webkit-scrollbar-track, .langs::-webkit-scrollbar-track, .c-list::-webkit-scrollbar-track { background: transparent; }

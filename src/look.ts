@@ -20,6 +20,15 @@ export function applyLook(p: Pick<Prefs, "theme" | "sourceFont" | "targetFont">)
 
 /** Apply the saved look now and whenever another window changes it. */
 export async function initLook(): Promise<Prefs> {
+  // The webview's own menu only offers Reload, which empties the page; text
+  // fields keep theirs for paste.
+  document.addEventListener("contextmenu", (e) => {
+    const t = e.target as HTMLElement;
+    if (!t.closest("textarea, input")) e.preventDefault();
+  });
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") e.preventDefault(); // no reload either
+  });
   const p = await Tolk.getPrefs();
   applyLook(p);
   events.prefsChanged.on((next) => applyLook(next));

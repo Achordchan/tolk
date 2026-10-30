@@ -358,3 +358,8 @@ fieldset details.adv { margin: 6px 0 4px; border: 0; padding: 0; }
 }
 .pack-chip:disabled { opacity: .6; cursor: default; }
 .langs { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
+
+/* An app, not a page: labels and buttons are not selectable text. Only what the
+   user may want to copy is. */
+body { -webkit-user-select: none; user-select: none; cursor: default; }
+textarea, input, .output, .mini-body, .c-list, .notes, .facts dd, [contenteditable] { -webkit-user-select: text; user-select: text; }

@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"tolk/internal/direction"
+	"tolk/internal/engine"
 )
 
 const (
@@ -126,6 +127,15 @@ func showMini(text string) {
 
 	go func() {
 		res, err := translate(text, pair.Source, pair.Target)
+		// The guess was wrong: the engine says the text is already in the
+		// target language, which would show it back unchanged. Translate it
+		// the other way instead.
+		if err == nil && engine.LabelForCode(res.Detected) == pair.Target {
+			other := direction.Other(pair.Target, p.SourceLang)
+			if r2, err2 := translate(text, engine.Auto, other); err2 == nil {
+				res, pair.Source, pair.Target, smart = r2, engine.Auto, other, true
+			}
+		}
 		miniMu.Lock()
 		stale := mine != miniSeq
 		miniMu.Unlock()

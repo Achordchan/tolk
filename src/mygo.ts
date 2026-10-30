@@ -205,6 +205,15 @@ export const Tolk = {
   about(): Promise<About> {
     return call("Tolk.About");
   },
+  /**
+   * AppleLanguagePacks reports, for each language the 输入助手 translates into,
+   * whether Apple's on-device pack is "installed", needs a download
+   * ("supported") or is "unsupported". The pair starts from the user's own
+   * language (the main window's target), which is what they type in.
+   */
+  appleLanguagePacks(targets: string[]): Promise<Record<string, string>> {
+    return call("Tolk.AppleLanguagePacks", targets);
+  },
   /** Autostart reports whether Tolk starts at login. */
   autostart(): Promise<boolean> {
     return call("Tolk.Autostart");
@@ -224,6 +233,14 @@ export const Tolk = {
   /** ConsoleLines returns the log lines newer than after. */
   consoleLines(after: number): Promise<Entry[]> {
     return call("Tolk.ConsoleLines", after);
+  },
+  /**
+   * DownloadAppleLanguage asks macOS to download the pack for target; the
+   * system shows its own confirmation. It returns once the pack is ready or the
+   * user declined.
+   */
+  downloadAppleLanguage(target: string): Promise<void> {
+    return call("Tolk.DownloadAppleLanguage", target);
   },
   /** GetInputAssist returns the 输入助手 settings and the helper's status. */
   getInputAssist(): Promise<InputAssistState> {

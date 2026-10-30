@@ -246,7 +246,10 @@ final class CandidatePanelController {
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.dismiss(reason: .outsideClick)
+                // 语言包下载提示是系统自己的窗口，点它也是「窗外点击」：
+                // 下载进行中不能收起面板，否则会取消下载，提示一闪就没了。
+                guard let self, !self.interceptionSuspended else { return }
+                self.dismiss(reason: .outsideClick)
             }
         }
 

@@ -352,3 +352,9 @@ fieldset details.adv { margin: 6px 0 4px; border: 0; padding: 0; }
 .empty.busy svg { animation: tolk-pulse 1.1s ease-in-out infinite; }
 .empty.busy strong { color: var(--fg); opacity: .7; }
 @keyframes tolk-pulse { 50% { opacity: .35; transform: scale(.92); } }
+.pack-chip {
+  margin-left: auto; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent);
+}
+.pack-chip:disabled { opacity: .6; cursor: default; }
+.langs { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }

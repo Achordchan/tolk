@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+
+	"tolk/internal/engine"
 )
 
 // MacNotice carries a short message from the native helper to the windows
@@ -67,6 +69,31 @@ func (Tolk) SetMacHotkeys(system, screenshot bool, keyCode int) error {
 // MacImportLegacy copies the old Mac app's settings and API key into Tolk.
 // It returns notes about anything that did not carry over.
 func (Tolk) MacImportLegacy() ([]string, error) { return macImport(true) }
+
+// AppleLanguagePacks reports, for each language the 输入助手 translates into,
+// whether Apple's on-device pack is "installed", needs a download
+// ("supported") or is "unsupported". The pair starts from the user's own
+// language (the main window's target), which is what they type in.
+func (Tolk) AppleLanguagePacks(targets []string) (map[string]string, error) {
+	return macApplePacks(targets)
+}
+
+// DownloadAppleLanguage asks macOS to download the pack for target; the
+// system shows its own confirmation. It returns once the pack is ready or the
+// user declined.
+func (Tolk) DownloadAppleLanguage(target string) error { return macAppleDownload(target) }
+
+// applePackSource is the language the user writes in, for a pack into target.
+func applePackSource(target string) string {
+	own := currentPrefs().TargetLang
+	if own == "" || own == engine.Auto || own == target {
+		if target == "英语" {
+			return "简体中文"
+		}
+		return "英语"
+	}
+	return own
+}
 
 func macCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 20*time.Second)

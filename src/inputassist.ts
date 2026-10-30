@@ -56,6 +56,36 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
   let targetList: string[] = [];
   let langs: string[] = [];
   let timer: number | undefined;
+  // Apple 本地翻译 needs a language pack per target: ask for it when the
+  // language is picked, not later in the middle of typing.
+  let apple = false;
+  let packs: Record<string, string> = {};
+  const downloading = new Set<string>();
+
+  async function checkPacks(names: string[]) {
+    if (!apple || !names.length) return;
+    try {
+      Object.assign(packs, await Tolk.appleLanguagePacks(names));
+    } catch {
+      /* the helper may be restarting */
+    }
+    drawTargets();
+  }
+
+  async function download(name: string) {
+    if (downloading.has(name)) return;
+    downloading.add(name);
+    drawTargets();
+    toast(`正在准备「${name}」语言包，请在系统弹出的窗口里点「下载」`);
+    try {
+      await Tolk.downloadAppleLanguage(name);
+    } catch (e) {
+      toast(String(e instanceof Error ? e.message : e));
+    }
+    downloading.delete(name);
+    await checkPacks([name]);
+    if (packs[name] === "installed") toast(`「${name}」语言包已就绪`);
+  }
 
   function label(key: number, mods: number) {
     if (win) {
@@ -82,17 +112,35 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
         box.checked = on;
         box.disabled = on ? targetList.length <= 1 : full;
         l.classList.toggle("off", box.disabled && !on);
-        box.addEventListener("change", () => {
+        box.addEventListener("change", async () => {
           targetList = box.checked ? [...targetList, name] : targetList.filter((x) => x !== name);
           drawTargets();
+          if (box.checked && apple) {
+            await checkPacks([name]);
+            if (packs[name] === "supported") void download(name);
+          }
         });
         l.append(box, document.createTextNode(name));
+        if (on && apple && (packs[name] === "supported" || downloading.has(name))) {
+          const chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "pack-chip";
+          chip.textContent = downloading.has(name) ? "下载中…" : "需下载";
+          chip.title = "下载 Apple 本地翻译语言包";
+          chip.disabled = downloading.has(name);
+          chip.addEventListener("click", (e) => {
+            e.preventDefault();
+            void download(name);
+          });
+          l.append(chip);
+        }
         return l;
       }),
     );
     count.textContent =
       `已选 ${targetList.length} 个（最多 ${MAX_TARGETS} 个），按勾选顺序排列。` +
-      (targetList.length > RECOMMENDED_TARGETS ? `建议不超过 ${RECOMMENDED_TARGETS} 个，挑起来更快。` : "");
+      (targetList.length > RECOMMENDED_TARGETS ? `建议不超过 ${RECOMMENDED_TARGETS} 个，挑起来更快。` : "") +
+      (targetList.some((n) => packs[n] === "supported") ? "标着「需下载」的语言要先下载语言包，点一下即可。" : "");
   }
 
   function drawScope() {
@@ -158,7 +206,10 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
         body.hidden = !c.enabled;
         drawShortcuts(c.shortcutKeyCode, c.shortcutModifiers);
         targetList = c.targets.slice();
+        apple = !win && (await Tolk.getSettings()).engine === "apple";
+        packs = {};
         drawTargets();
+        void checkPacks(targetList);
         scope.value = c.scope;
         block.value = c.blocklist;
         allow.value = c.allowlist;

@@ -439,6 +439,40 @@ func appleCall(ctx context.Context, texts []string, source, target string) ([]st
 	return out.Texts, nil
 }
 
+func macApplePacks(targets []string) (map[string]string, error) {
+	c, h := current()
+	if c == nil || !has(h, "apple") {
+		return map[string]string{}, nil // nothing to download without the helper
+	}
+	out := make(map[string]string, len(targets))
+	for _, t := range targets {
+		ctx, cancel := macCtx()
+		var res struct {
+			State string `json:"state"`
+		}
+		err := c.Call(ctx, "apple.status", map[string]any{"source": applePackSource(t), "target": t}, &res)
+		cancel()
+		if err == nil {
+			out[t] = res.State
+		}
+	}
+	return out, nil
+}
+
+// macAppleDownload translates a word into target: when the pack is missing,
+// the helper shows the system's download prompt and waits for it.
+func macAppleDownload(target string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	source := applePackSource(target)
+	sample := "Hello"
+	if strings.HasPrefix(source, "简体") || strings.HasPrefix(source, "繁体") {
+		sample = "你好"
+	}
+	_, err := appleCall(ctx, []string{sample}, source, target)
+	return err
+}
+
 // macImport reads the old app's data through the helper and merges it into
 // the shared config. manual calls may ask for the helper; the automatic one
 // quietly skips when it is not running.

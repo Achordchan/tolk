@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -89,16 +90,33 @@ func setupCrashOutput(dir string) {
 func takeCrash(dir string) string {
 	path := filepath.Join(dir, crashFile)
 	pending := filepath.Join(dir, crashPending)
-	if raw, err := os.ReadFile(path); err == nil && isCrash(string(raw)) {
+	if head := readHead(path, maxCrashRead); isCrash(head) {
 		// The newest crash wins; crash.log is emptied for this run next.
 		if os.Rename(path, pending) != nil {
-			return string(raw) // still reported if this run lives long enough
+			return head // still reported if this run lives long enough
 		}
 	}
-	if raw, err := os.ReadFile(pending); err == nil && isCrash(string(raw)) {
-		return string(raw)
+	if head := readHead(pending, maxCrashRead); isCrash(head) {
+		return head
 	}
 	return ""
+}
+
+// maxCrashRead bounds what startup reads of a crash dump. A fatal error with
+// many goroutines can write a huge one; the report keeps only its head (the
+// error and the goroutine that hit it), and the file is moved, not read
+// whole, so a dump that big cannot exhaust memory again on the next start.
+const maxCrashRead = 256 << 10
+
+// readHead returns up to n bytes from the start of the file at path.
+func readHead(path string, n int64) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	raw, _ := io.ReadAll(io.LimitReader(f, n))
+	return string(raw)
 }
 
 // isCrash: only the Go runtime writes to crash.log, and only when the

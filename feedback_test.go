@@ -86,3 +86,20 @@ func TestUpdateLogScrubbedBeforeCut(t *testing.T) {
 		t.Fatal("long log not scrubbed or empty")
 	}
 }
+
+func TestHugeCrashReadsOnlyHead(t *testing.T) {
+	dir := t.TempDir()
+	head := "fatal error: concurrent map writes\n\ngoroutine 7 [running]:\n"
+	dump := head + strings.Repeat("goroutine 9 [chan receive]:\nmain.worker()\n", 200000)
+	if err := os.WriteFile(filepath.Join(dir, crashFile), []byte(dump), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := takeCrash(dir)
+	if len(got) != maxCrashRead || !strings.HasPrefix(got, head) {
+		t.Fatalf("read %d bytes", len(got))
+	}
+	// Moved aside whole, not rewritten.
+	if fi, err := os.Stat(filepath.Join(dir, crashPending)); err != nil || fi.Size() != int64(len(dump)) {
+		t.Fatalf("pending file: %v", err)
+	}
+}

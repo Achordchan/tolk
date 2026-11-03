@@ -44,8 +44,10 @@ function draw(s: Update) {
   $("#ud-progress").hidden = s.state !== "downloading";
   $("#ud-fill").style.width = `${s.percent}%`;
   $("#ud-percent").textContent = `${s.percent}%`;
-  $("#ud-later").hidden = busy || (s.state === "ready" && s.force);
-  $("#ud-later").textContent = s.state === "error" ? "关闭" : "稍后";
+  // A download goes on in the background after the dialog closes; only a
+  // forced update or the restart itself cannot be waved away.
+  $("#ud-later").hidden = s.state === "installing" || (s.force && s.state !== "error");
+  $("#ud-later").textContent = s.state === "error" || s.state === "downloading" ? "关闭" : "稍后";
   $("#ud-install").hidden = busy;
   $("#ud-install").textContent = { ready: "重启更新", error: "重试" }[s.state] ?? "立即更新";
 }
@@ -72,8 +74,13 @@ export async function initUpdate(toast: (m: string) => void) {
     else if (dlg.open) draw(s);
     else if (s.force && (s.state === "downloading" || s.state === "installing")) openUpdate();
   };
+  // 稍后 on a downloaded update: do not ask again this run. Closing while it
+  // downloads still lets it ask once it is ready.
+  const dismiss = () => {
+    if (last.state !== "downloading") dismissed = last.version;
+  };
   $("#ud-later").addEventListener("click", () => {
-    dismissed = last.version;
+    dismiss();
     dlg.close();
   });
   $("#ud-install").addEventListener("click", async () => {
@@ -83,10 +90,10 @@ export async function initUpdate(toast: (m: string) => void) {
       draw({ ...last, state: "error", error: message(e) });
     }
   });
-  // Esc means 稍后, but a forced update or a running download cannot be waved away.
+  // Esc means 稍后, except where the button is hidden.
   dlg.addEventListener("cancel", (e) => {
     if ($("#ud-later").hidden) e.preventDefault();
-    else dismissed = last.version;
+    else dismiss();
   });
   events.updateChanged.on(apply);
   apply(await Tolk.updateStatus());

@@ -45,16 +45,20 @@ type raceResult struct {
 	err  error
 }
 
-// race asks every url at once. It returns once all have answered, or grace
-// after the first success, with the failures and the successes so far; the
-// rest are cancelled.
-func (c *Checker) race(ctx context.Context, urls []string, limit int64, grace time.Duration) []raceResult {
+// race asks every url at once. An answer counts only if check (when set)
+// accepts it: a proxy may answer 200 with an error or challenge page. It
+// returns once all have answered, or grace after the first good answer, with
+// the failures and the good answers so far; the rest are cancelled.
+func (c *Checker) race(ctx context.Context, urls []string, limit int64, grace time.Duration, check func([]byte) error) []raceResult {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ch := make(chan raceResult, len(urls))
 	for _, u := range urls {
 		go func(u string) {
 			b, err := c.get(ctx, u, limit)
+			if err == nil && check != nil {
+				err = check(b)
+			}
 			ch <- raceResult{u, b, err}
 		}(u)
 	}
@@ -77,10 +81,10 @@ func (c *Checker) race(ctx context.Context, urls []string, limit int64, grace ti
 	return out
 }
 
-// fetch returns the first good answer for u over any route.
-func (c *Checker) fetch(ctx context.Context, u string, limit int64) ([]byte, error) {
+// fetch returns the first answer for u over any route that check accepts.
+func (c *Checker) fetch(ctx context.Context, u string, limit int64, check func([]byte) error) ([]byte, error) {
 	var errs []string
-	for _, r := range c.race(ctx, c.routes(u), limit, 0) {
+	for _, r := range c.race(ctx, c.routes(u), limit, 0, check) {
 		if r.err == nil {
 			return r.body, nil
 		}

@@ -27,6 +27,9 @@ func Home() (string, error) {
 	if h := os.Getenv("TOLK_HOME"); h != "" {
 		return h, nil
 	}
+	if fallbackHome != "" {
+		return fallbackHome, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

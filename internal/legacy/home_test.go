@@ -59,3 +59,12 @@ func TestCopyTreeSkipsUpdateCaches(t *testing.T) {
 		t.Fatal("update_state not copied")
 	}
 }
+
+func TestHomeFallsBackWhenMoveFails(t *testing.T) {
+	t.Setenv("TOLK_HOME", "")
+	defer func() { fallbackHome = "" }()
+	fallbackHome = "/old"
+	if h, _ := Home(); h != "/old" {
+		t.Fatal(h)
+	}
+}

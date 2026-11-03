@@ -92,6 +92,7 @@ jobs:
           $old = Join-Path $env:LOCALAPPDATA "Programs\大佐翻译官"
           New-Item -ItemType Directory -Force $old | Out-Null
           Copy-Item $exe (Join-Path $old "大佐翻译官.exe")
+          Set-Content (Join-Path $old "update_manifest.json") "{}"
           $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1"
           New-Item -Force $key | Out-Null
           New-ItemProperty -Force $key -Name InstallLocation -Value "$old\" | Out-Null
@@ -101,6 +102,15 @@ jobs:
           $new = Join-Path $env:LOCALAPPDATA "Programs\Tolk"
           if (-not (Test-Path (Join-Path $new "Tolk.exe"))) { throw "没有装到 Tolk 目录" }
           if (Test-Path $old) { throw "旧的「大佐翻译官」目录没有删掉" }
+          # 旧目录里有用户自己的文件时：只删旧版的文件，别的留着。
+          New-Item -ItemType Directory -Force $old | Out-Null
+          Copy-Item $exe (Join-Path $old "大佐翻译官.exe")
+          Set-Content (Join-Path $old "我的笔记.txt") "keep"
+          New-ItemProperty -Force $key -Name InstallLocation -Value "$old\" | Out-Null
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "安装器退出码 $($p.ExitCode)" }
+          if (Test-Path (Join-Path $old "大佐翻译官.exe")) { throw "旧主程序没有删掉" }
+          if (-not (Test-Path (Join-Path $old "我的笔记.txt"))) { throw "用户自己的文件被删了" }
           $loc = (Get-ItemProperty $key).InstallLocation
           if ($loc.TrimEnd("\") -ne $new) { throw "卸载项还指着 $loc" }
           # 再装一次（2.2.3 以后的升级）：装回原处。

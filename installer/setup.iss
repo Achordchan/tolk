@@ -1,6 +1,7 @@
 ; Tolk 的 Windows 安装器。AppId 沿用 2.2.2 及以前的，所以覆盖安装时系统里的
 ; 卸载项还是同一个。2.2.3 起主程序叫 Tolk.exe、装在 Tolk 文件夹；从旧版升级时
-; 先关掉旧程序，装完删掉旧文件夹（旧版装在「大佐翻译官」文件夹，主程序同名）。
+; 先关掉旧程序，装完删掉旧版的文件（旧版装在「大佐翻译官」文件夹，主程序同名）；
+; 文件夹里别的东西不动，空了才删文件夹。
 #ifndef MyAppVersion
   #error 需要 /DMyAppVersion=x.y.z
 #endif
@@ -86,11 +87,29 @@ begin
   Result := '';
 end;
 
-// 装好后删掉旧文件夹：只在它确实是旧版目录（里面有旧主程序）且不是这次的目录时。
+// 旧版目录里属于旧版的文件：主程序、更新包带来的文件、旧的卸载程序。
+procedure DeleteOldFiles(Dir: String);
+begin
+  Dir := AddBackslash(Dir);
+  DeleteFile(Dir + '{#OldExeName}');
+  DeleteFile(Dir + 'update_manifest.json');
+  DeleteFile(Dir + 'LICENSE');
+  DeleteFile(Dir + 'DeepLX-LICENSE');
+  DeleteFile(Dir + 'src\ziyuan\logo.ico');
+  DeleteFile(Dir + 'unins000.exe');
+  DeleteFile(Dir + 'unins000.dat');
+  DeleteFile(Dir + 'unins000.msg');
+  // 只删空了的文件夹：用户放进去的别的东西都留着。
+  RemoveDir(Dir + 'src\ziyuan');
+  RemoveDir(Dir + 'src');
+  RemoveDir(RemoveBackslashUnlessRoot(Dir));
+end;
+
+// 装好后清掉旧版：只在旧目录确实是旧版的（里面有旧主程序）且不是这次的目录时。
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssPostInstall) and (OldDir <> '') and
      (CompareText(OldDir, RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) <> 0) and
      FileExists(AddBackslash(OldDir) + '{#OldExeName}') then
-    DelTree(OldDir, True, True, True);
+    DeleteOldFiles(OldDir);
 end;

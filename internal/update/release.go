@@ -181,7 +181,8 @@ func (c *Checker) latest(ctx context.Context) (*ghRelease, string, error) {
 	var errs []string
 	var best *ghRelease
 	from := ""
-	for _, r := range c.race(ctx, c.routes(c.Latest), 1<<20, 2*time.Second) {
+	valid := func(b []byte) error { _, err := parseRelease(b); return err }
+	for _, r := range c.race(ctx, c.routes(c.Latest), 1<<20, 2*time.Second, valid) {
 		if r.err != nil {
 			errs = append(errs, fmt.Sprintf("%s：%v", routeName(r.url, c.Origin), r.err))
 			continue
@@ -284,13 +285,21 @@ func (c *Checker) windowsInfo(ctx context.Context, r *ghRelease) (*Info, error) 
 	if sj == nil || sj.URL == "" {
 		return nil, errors.New("最新版本缺少更新签名")
 	}
-	b, err := c.fetch(ctx, sj.URL, 64<<10)
+	var s SigJSON
+	parse := func(b []byte) error {
+		var x SigJSON
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(string(b), "\xef\xbb\xbf")), &x); err != nil || x.Signature == "" {
+			return errors.New("签名元数据损坏")
+		}
+		s = x
+		return nil
+	}
+	b, err := c.fetch(ctx, sj.URL, 64<<10, parse)
 	if err != nil {
 		return nil, fmt.Errorf("下载签名元数据失败：%w", err)
 	}
-	var s SigJSON
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(string(b), "\xef\xbb\xbf")), &s); err != nil {
-		return nil, errors.New("签名元数据损坏")
+	if err := parse(b); err != nil {
+		return nil, err
 	}
 	if NormalizeVersion(s.AppVersion) != v {
 		return nil, errors.New("签名元数据目标版本不匹配")
@@ -322,7 +331,14 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 	if a == nil {
 		return nil, errors.New("最新版本没有 appcast.xml")
 	}
-	b, err := c.fetch(ctx, a.URL, 1<<20)
+	valid := func(b []byte) error {
+		var x appcast
+		if xml.Unmarshal(b, &x) != nil || len(x.Items) == 0 {
+			return errors.New("appcast 格式无效")
+		}
+		return nil
+	}
+	b, err := c.fetch(ctx, a.URL, 1<<20, valid)
 	if err != nil {
 		return nil, fmt.Errorf("下载 appcast 失败：%w", err)
 	}

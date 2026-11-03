@@ -12,9 +12,15 @@ const oldHomeName = ".dzfyq"
 // skipOnCopy are the update downloads and backups: not worth copying.
 var skipOnCopy = map[string]bool{"update_cache": true, "update_backup": true}
 
+// fallbackHome is the old folder, used for this run when moving it failed, so
+// the user's settings stay in use (and nothing new is written to the new
+// folder, which would stop the move from being tried again).
+var fallbackHome string
+
 // MigrateHome moves the settings of 2.2.2 and older to Home once. It reports
 // whether it moved anything. A folder that cannot be moved (a file still in
-// use on Windows) is copied instead and the old one left in place.
+// use on Windows) is copied instead and the old one left in place. If neither
+// works, this run keeps using the old folder and the next launch tries again.
 func MigrateHome() (bool, error) {
 	if os.Getenv("TOLK_HOME") != "" {
 		return false, nil
@@ -23,7 +29,12 @@ func MigrateHome() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return migrate(filepath.Join(home, oldHomeName), filepath.Join(home, ".tolk"))
+	old := filepath.Join(home, oldHomeName)
+	moved, err := migrate(old, filepath.Join(home, ".tolk"))
+	if err != nil {
+		fallbackHome = old
+	}
+	return moved, err
 }
 
 func migrate(old, dest string) (bool, error) {

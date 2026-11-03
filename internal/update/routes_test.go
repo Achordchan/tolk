@@ -53,7 +53,7 @@ func TestFetchUsesMirrorWhenOriginFails(t *testing.T) {
 	defer origin.Close()
 	mirror := proxyOf(t, good, 0)
 	c := &Checker{Client: &http.Client{Timeout: 5 * time.Second}, Origin: origin.URL + "/", Mirrors: []string{mirror.URL + "/"}}
-	b, err := c.fetch(context.Background(), origin.URL+"/x/a.sig.json", 10)
+	b, err := c.fetch(context.Background(), origin.URL+"/x/a.sig.json", 10, nil)
 	if err != nil || string(b) != "sig" {
 		t.Fatalf("%q %v", b, err)
 	}
@@ -86,5 +86,25 @@ func TestRoutesOnlyForOrigin(t *testing.T) {
 	}
 	if r := c.routes("https://github.com/a"); len(r) != 2 || r[1] != "https://m/https://github.com/a" {
 		t.Fatal(r)
+	}
+}
+
+func TestFetchSkipsInvalidAnswer(t *testing.T) {
+	// The proxy answers 200 at once with a challenge page; the origin is slower
+	// but right.
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer origin.Close()
+	page := proxyOf(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("<html>verify</html>")) }), 0)
+	c := &Checker{Client: &http.Client{Timeout: 5 * time.Second}, Origin: origin.URL + "/", Mirrors: []string{page.URL + "/"}}
+	isJSON := func(b []byte) error {
+		var v map[string]any
+		return json.Unmarshal(b, &v)
+	}
+	b, err := c.fetch(context.Background(), origin.URL+"/a.json", 100, isJSON)
+	if err != nil || string(b) != `{"ok":true}` {
+		t.Fatalf("%q %v", b, err)
 	}
 }

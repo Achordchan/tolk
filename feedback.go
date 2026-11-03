@@ -1,0 +1,499 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo"
+
+	"tolk/internal/logbuf"
+	"tolk/internal/report"
+	"tolk/internal/update"
+)
+
+// 提交问题 and the automatic error reports. Reports go to a relay
+// (report-worker/) that files them as GitHub issues; the GitHub token lives
+// there, never in the app. Everything is scrubbed of keys, e-mail addresses
+// and account names before it leaves the machine.
+
+var fb struct {
+	store *report.Store
+	crash string // what the previous run's crash output held
+	dir   string // state folder: report_state.json, crash files
+
+	// The update that ran before this start, as last_update_result.json
+	// said, read at once: the page's UpdateNotice deletes the file.
+	lastUpdate string
+
+	mu    sync.Mutex
+	first *logbuf.Entry // first error of the burst being collected
+}
+
+const (
+	crashFile = "crash.log"
+	// crashPending holds a crash until its report has been tried: the app
+	// may be closed again before the report goes out.
+	crashPending = "crash.pending.log"
+)
+
+func init() {
+	if testing.Testing() {
+		return // never report from go test
+	}
+	dir := ""
+	if dirs, err := update.DefaultDirs(); err == nil {
+		dir = dirs.State
+	} else {
+		dir = filepath.Join(os.TempDir(), "tolk")
+	}
+	fb.dir = dir
+	fb.store = report.NewStore(dir)
+	fb.lastUpdate = keepUpdateFailure(dir)
+	setupCrashOutput(dir)
+	Logs.OnError(onErrorLine)
+	go func() {
+		// Leave the network time to come up after login.
+		time.Sleep(20 * time.Second)
+		reportPreviousRun()
+	}()
+}
+
+// setupCrashOutput keeps a crash the previous run recorded for reporting,
+// then sends this run's Go crash report (an unrecovered panic or fatal
+// error) to crash.log. Without it a crash in the Windows GUI build left no
+// trace.
+func setupCrashOutput(dir string) {
+	fb.crash = takeCrash(dir)
+	path := filepath.Join(dir, crashFile)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return
+	}
+	if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
+		f.Close()
+	}
+	// f stays open for the life of the process; the runtime writes to it.
+}
+
+// takeCrash moves a crash in crash.log aside to crash.pending.log, where it
+// stays until its report has been tried, and returns the pending crash.
+func takeCrash(dir string) string {
+	path := filepath.Join(dir, crashFile)
+	pending := filepath.Join(dir, crashPending)
+	if head := readHead(path, maxCrashRead); isCrash(head) {
+		// The newest crash wins; crash.log is emptied for this run next.
+		if os.Rename(path, pending) != nil {
+			return head // still reported if this run lives long enough
+		}
+	}
+	if head := readHead(pending, maxCrashRead); isCrash(head) {
+		return head
+	}
+	return ""
+}
+
+// maxCrashRead bounds what startup reads of a crash dump. A fatal error with
+// many goroutines can write a huge one; the report keeps only its head (the
+// error and the goroutine that hit it), and the file is moved, not read
+// whole, so a dump that big cannot exhaust memory again on the next start.
+const maxCrashRead = 256 << 10
+
+// readHead returns up to n bytes from the start of the file at path.
+func readHead(path string, n int64) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	raw, _ := io.ReadAll(io.LimitReader(f, n))
+	return string(raw)
+}
+
+// isCrash: only the Go runtime writes to crash.log, and only when the
+// process dies, so anything in it is a crash dump: a panic, a fatal error,
+// or a fatal signal or Windows exception in native code (SIGSEGV: …,
+// Exception 0xc0000005 …), which carries neither of the first two.
+func isCrash(s string) bool {
+	return strings.TrimSpace(s) != ""
+}
+
+// ---- the 提交问题 dialog ----
+
+// FeedbackInfo is what the dialog shows before anything is sent.
+type FeedbackInfo struct {
+	AutoReport bool   `json:"autoReport"`
+	InstallID  string `json:"installId"`
+}
+
+// FeedbackInfo returns the auto-report switch and the anonymous install id.
+func (Tolk) FeedbackInfo() FeedbackInfo {
+	st := fb.store.Get()
+	return FeedbackInfo{AutoReport: !st.AutoDisabled, InstallID: st.InstallID}
+}
+
+// SetAutoReport turns the automatic error reports on or off.
+func (Tolk) SetAutoReport(on bool) error {
+	_, err := fb.store.Update(func(st *report.State) { st.AutoDisabled = !on })
+	if err == nil {
+		Logs.Infof("自动上传错误报告已%s", map[bool]string{true: "开启", false: "关闭"}[on])
+	}
+	return err
+}
+
+// FeedbackPreview is exactly the text that SubmitFeedback would send.
+func (Tolk) FeedbackPreview(description, contact string, withLogs bool) string {
+	return manualReport(description, contact, withLogs).Markdown()
+}
+
+// FeedbackResult tells the dialog how the report went.
+type FeedbackResult struct {
+	// Sent: the relay filed it; URL is the issue.
+	Sent   bool   `json:"sent"`
+	URL    string `json:"url"`
+	Number int    `json:"number"`
+	// When the relay could not be reached, the full report is on the
+	// clipboard and IssueURL opens GitHub's new-issue page filled in.
+	IssueURL string `json:"issueUrl"`
+	Error    string `json:"error"`
+	// Pending: it may have been filed; retry later with the same
+	// submission id, and offer no other way to file it meanwhile.
+	Pending bool `json:"pending"`
+}
+
+// SubmitFeedback sends a report from the 提交问题 dialog. submissionID is the
+// same for every attempt from one opening of the dialog, so a retry after a
+// lost reply cannot file the report twice.
+func (Tolk) SubmitFeedback(description, contact string, withLogs bool, submissionID string) FeedbackResult {
+	if strings.TrimSpace(description) == "" {
+		return FeedbackResult{Error: "请先描述一下遇到的问题"}
+	}
+	r := manualReport(description, contact, withLogs)
+	r.SubmissionID = submissionID
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	res, err := report.Send(ctx, nil, r)
+	if err == nil && res.Skipped == "" {
+		Logs.Infof("问题已提交：%s", res.URL)
+		return FeedbackResult{Sent: true, URL: res.URL, Number: res.Number}
+	}
+	if errors.Is(err, report.ErrPending) {
+		// The earlier try may still turn into an issue: no GitHub link, or
+		// it could be filed twice. 重试 with the same id in a minute or two.
+		return FeedbackResult{Error: res.Error, Pending: true}
+	}
+	msg := res.Skipped
+	if err != nil {
+		msg = err.Error()
+	}
+	Logs.Warnf("提交问题没有成功（%s），改为在 GitHub 上提交", msg)
+	mygo.Clipboard.WriteText(r.Markdown())
+	return FeedbackResult{IssueURL: report.IssueURL(report.Repo, r), Error: msg}
+}
+
+// OpenLink opens an http(s) link in the default browser.
+func (Tolk) OpenLink(url string) error {
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		return fmt.Errorf("不支持的链接")
+	}
+	return mygo.Shell.OpenExternal(url)
+}
+
+func manualReport(description, contact string, withLogs bool) report.Report {
+	title := strings.TrimSpace(description)
+	if i := strings.IndexAny(title, "\r\n"); i >= 0 {
+		title = title[:i]
+	}
+	r := baseReport(report.Manual, "[反馈] "+title, description, withLogs)
+	r.Contact = contact
+	return r.Clean()
+}
+
+// ---- automatic reports ----
+
+// Errors that say the network or a service is down are the user's weather,
+// not a bug; reporting them would only flood the tracker.
+var weather = []string{
+	"timeout", "timed out", "no such host", "connection refused", "connection reset",
+	"network is unreachable", "tls handshake", "eof", "i/o timeout", "context deadline",
+	"context canceled", "429", "rate limit", "超时", "网络", "无法连接",
+}
+
+func ignorable(text string) bool {
+	l := strings.ToLower(text)
+	for _, w := range weather {
+		if strings.Contains(l, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// onErrorLine collects a burst of error lines for a few seconds and reports
+// the first one, with the log around it.
+func onErrorLine(e logbuf.Entry) {
+	if ignorable(e.Text) || strings.Contains(e.Text, "错误报告") {
+		return
+	}
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+	if fb.first != nil {
+		return
+	}
+	fb.first = &e
+	time.AfterFunc(8*time.Second, func() {
+		fb.mu.Lock()
+		first := fb.first
+		fb.first = nil
+		fb.mu.Unlock()
+		if first != nil {
+			sendAuto(report.Error, "[自动] "+first.Text, "运行中记录到错误：\n\n"+first.Text, first.Text, nil)
+		}
+	})
+}
+
+// reportPreviousRun reports a crash of the previous run and an update the
+// update script says failed, once each.
+func reportPreviousRun() {
+	if fb.crash != "" {
+		head := crashHead(fb.crash)
+		pending := filepath.Join(fb.dir, crashPending)
+		sendAutoThen(report.Crash, "[崩溃] "+head, "上一次运行异常退出：\n\n"+head, head,
+			[]report.Attachment{{Name: "崩溃信息", Body: fb.crash, KeepHead: true}},
+			func() { _ = os.Remove(pending) })
+		fb.crash = ""
+	}
+	pending := filepath.Join(fb.dir, updatePending)
+	info, err := os.Stat(pending)
+	if err != nil {
+		return
+	}
+	res, ok := updateFailed(readHead(pending, 64<<10))
+	stamp := info.ModTime().UTC().Format(time.RFC3339)
+	if !ok || fb.store.Get().UpdateResultAt == stamp {
+		_ = os.Remove(pending)
+		return
+	}
+	// The copy stays until the report has been tried (or the user turned
+	// reports off), so one held back by the daily cap or cut short by
+	// quitting is tried again on a later run.
+	sendAutoThen(report.Update, fmt.Sprintf("[更新失败] v%s → v%s：%s", Version, res.Expected, res.Message),
+		fmt.Sprintf("更新到 v%s 失败：%s", res.Expected, res.Message), res.Message, nil,
+		func() {
+			_, _ = fb.store.Update(func(st *report.State) { st.UpdateResultAt = stamp })
+			_ = os.Remove(pending)
+		})
+}
+
+// updatePending holds a failed update's result until its report has been
+// tried: the page's UpdateNotice deletes last_update_result.json right
+// after start.
+const updatePending = "update_failure.pending.json"
+
+type updateResult struct {
+	Status   string `json:"status"`
+	Message  string `json:"message"`
+	Expected string `json:"expected_version"`
+}
+
+func updateFailed(raw string) (updateResult, bool) {
+	var res updateResult
+	err := json.Unmarshal([]byte(raw), &res)
+	return res, err == nil && res.Status == "failed"
+}
+
+// keepUpdateFailure returns what last_update_result.json says (or, with
+// none, a failure still waiting to be reported) and, for a failure, copies
+// it to updatePending with the same time, which tells one failure from the
+// next.
+func keepUpdateFailure(dir string) string {
+	path := filepath.Join(dir, "last_update_result.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		return readHead(filepath.Join(dir, updatePending), 64<<10) // still unreported
+	}
+	raw := strings.TrimPrefix(readHead(path, 64<<10), "\xef\xbb\xbf")
+	if _, ok := updateFailed(raw); ok {
+		pending := filepath.Join(dir, updatePending)
+		if os.WriteFile(pending, []byte(raw), 0o600) == nil {
+			_ = os.Chtimes(pending, info.ModTime(), info.ModTime())
+		}
+	}
+	return raw
+}
+
+func crashLine(l string) bool {
+	for _, p := range []string{"panic:", "fatal error:", "SIG", "Exception 0x"} {
+		if strings.HasPrefix(l, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// updateLogTail is the end of update.log, scrubbed before it is cut: a cut
+// inside a path would leave part of the account name without the
+// C:\Users\ in front that lets Scrub recognise it.
+func updateLogTail(path string) string {
+	const read = 256 << 10 // plenty for the last few updates
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	// The updater scripts only append, so the file can be large: read just
+	// its end.
+	cut := false
+	if fi, err := f.Stat(); err == nil && fi.Size() > read {
+		if _, err := f.Seek(-read, io.SeekEnd); err != nil {
+			return ""
+		}
+		cut = true
+	}
+	raw, _ := io.ReadAll(io.LimitReader(f, read))
+	s := string(raw)
+	if cut {
+		// The first line is cut, so it goes whole.
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			s = s[i+1:]
+		} else {
+			s = ""
+		}
+	}
+	return report.Tail(report.Scrub(s), 12000)
+}
+
+// crashHead is the "panic: …" line (or the signal / exception line) and the first Tolk frame below it.
+func crashHead(s string) string {
+	lines := strings.Split(s, "\n")
+	head := ""
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if head == "" && crashLine(l) {
+			head = l
+			continue
+		}
+		if head != "" && (strings.HasPrefix(l, "main.") || strings.HasPrefix(l, "tolk/")) {
+			return head + " @ " + l
+		}
+	}
+	if head == "" {
+		head = "程序崩溃"
+	}
+	return head
+}
+
+func sendAuto(kind, title, description, fpText string, extra []report.Attachment) {
+	sendAutoThen(kind, title, description, fpText, extra, nil)
+}
+
+// sendAutoThen is sendAuto with done run once the report has been tried,
+// sent or not, or is not to be sent at all (switched off, sent lately). A
+// report held back by the daily cap or an unsaved state file leaves done for
+// a later run.
+func sendAutoThen(kind, title, description, fpText string, extra []report.Attachment, done func()) {
+	if done == nil {
+		done = func() {}
+	}
+	fp := report.Fingerprint(kind, fpText)
+	switch fb.store.TryReserve(fp, time.Now()) {
+	case report.Declined:
+		done()
+		return
+	case report.Later: // daily cap, or the state file could not be saved
+		return
+	}
+	r := baseReport(kind, title, description, true)
+	r.Fingerprint = fp
+	r.SubmissionID = fb.store.Submission(fp)
+	r.Attachments = append(extra, r.Attachments...)
+	r = r.Clean()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+		defer cancel()
+		res, err := report.Send(ctx, nil, r)
+		if errors.Is(err, report.ErrPending) {
+			// Not over: the next report of it (this run or a later one) goes
+			// again with the same submission id, and done waits for that.
+			fb.store.Release(fp)
+			Logs.Infof("错误报告上一次的上传还在处理中，稍后再试")
+			return
+		}
+		fb.store.Finished(fp, time.Now())
+		done()
+		switch {
+		case err != nil:
+			// Warn, never error: an error line would report itself.
+			Logs.Warnf("自动上传错误报告没有成功：%v", err)
+		case res.Skipped != "":
+			Logs.Infof("错误报告未上传：%s", res.Skipped)
+		default:
+			Logs.Infof("已自动上传错误报告：%s", res.URL)
+		}
+	}()
+}
+
+// ---- what goes into every report ----
+
+func baseReport(kind, title, description string, withLogs bool) report.Report {
+	st := fb.store.Get()
+	r := report.Report{
+		Kind: kind, Title: title, Description: description,
+		InstallID: st.InstallID, Version: Version, OS: runtime.GOOS, Arch: runtime.GOARCH,
+	}
+	add := func(name, value string) {
+		if value != "" {
+			r.Env = append(r.Env, report.Field{Name: name, Value: value})
+		}
+	}
+	add("系统版本", report.OSVersion())
+	if s, err := (Tolk{}).GetSettings(); err == nil {
+		engine := s.Engine
+		if p, ok := s.Profiles[s.Vendor]; ok && engine == "openai_compat" {
+			engine += fmt.Sprintf("（%s %s）", s.Vendor, p.Model)
+		}
+		add("翻译引擎", engine)
+		p := s.Prefs
+		add("语言", p.SourceLang+" → "+p.TargetLang)
+		add("设置", fmt.Sprintf("小窗 %v · 双击复制 %v(%dms) · 主题 %s", p.MiniMode, p.DoubleCopy, p.DoubleCopyMs, p.Theme))
+	}
+	add("原生助手", helperVersion())
+	if exe, err := os.Executable(); err == nil {
+		add("程序位置", exe)
+	}
+	add("Go", runtime.Version())
+	if !withLogs {
+		return r
+	}
+	var b strings.Builder
+	entries := Logs.Since(0)
+	if len(entries) > 400 {
+		entries = entries[len(entries)-400:]
+	}
+	for _, e := range entries {
+		fmt.Fprintf(&b, "%s [%s] %s\n", time.UnixMilli(e.Time).Format("01-02 15:04:05"), e.Level, e.Text)
+	}
+	r.Attachments = append(r.Attachments, report.Attachment{Name: "运行日志（最近 400 行）", Body: b.String()})
+	if dirs, err := update.DefaultDirs(); err == nil {
+		if tail := updateLogTail(filepath.Join(dirs.State, "update.log")); tail != "" {
+			r.Attachments = append(r.Attachments, report.Attachment{Name: "更新日志 update.log", Body: tail})
+		}
+	}
+	if fb.lastUpdate != "" {
+		r.Attachments = append(r.Attachments, report.Attachment{Name: "上次更新结果", Body: fb.lastUpdate})
+	}
+	return r
+}

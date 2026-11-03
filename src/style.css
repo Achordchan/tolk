@@ -409,3 +409,25 @@ dialog.update-dialog p.error { margin: 0; word-break: break-word; }
 .ud-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .ud-actions:not(:has(button:not([hidden]))) { display: none; }
 .about-status { margin-top: 2px; font-size: 12px; }
+
+/* ---- 提交问题 (feedback.ts) ---- */
+.feedback-card strong { font-size: 15px; }
+.feedback-card .muted { font-size: 12.5px; margin-top: 2px; }
+.feedback-card button { flex: none; }
+dialog.feedback-dialog { width: min(520px, 94vw); max-height: 88vh; overflow: auto; }
+dialog.feedback-dialog h2 { margin: 0; font-size: 17px; }
+dialog.feedback-dialog p { margin: 0; }
+.feedback-dialog textarea, .feedback-dialog input[type="text"] {
+  flex: none; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--control-stroke);
+  background: var(--control); color: inherit; font: inherit; font-size: 13.5px; outline: none;
+}
+.feedback-dialog textarea { min-height: 110px; resize: vertical; }
+.feedback-dialog textarea:focus, .feedback-dialog input[type="text"]:focus { border-color: var(--accent); }
+.feedback-dialog .check { margin: 0; font-size: 13px; }
+.feedback-dialog details summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.fb-preview {
+  max-height: 220px; overflow: auto; margin: 8px 0 0; padding: 8px 10px; border-radius: 8px;
+  background: var(--control); white-space: pre-wrap; word-break: break-word; font-size: 11.5px;
+  -webkit-user-select: text; user-select: text;
+}
+#fb-done { font-size: 13.5px; line-height: 1.6; }

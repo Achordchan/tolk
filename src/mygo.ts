@@ -33,6 +33,31 @@ export interface Entry {
   text: string;
 }
 
+/** FeedbackInfo is what the dialog shows before anything is sent. */
+export interface FeedbackInfo {
+  autoReport: boolean;
+  installId: string;
+}
+
+/** FeedbackResult tells the dialog how the report went. */
+export interface FeedbackResult {
+  /** Sent: the relay filed it; URL is the issue. */
+  sent: boolean;
+  url: string;
+  number: number;
+  /**
+   * When the relay could not be reached, the full report is on the
+   * clipboard and IssueURL opens GitHub's new-issue page filled in.
+   */
+  issueUrl: string;
+  error: string;
+  /**
+   * Pending: it may have been filed; retry later with the same
+   * submission id, and offer no other way to file it meanwhile.
+   */
+  pending: boolean;
+}
+
 /**
  * InputAssistState is what the settings page shows for 输入助手: the saved
  * settings plus whether the helper has it running.
@@ -249,6 +274,14 @@ export const Tolk = {
   downloadAppleLanguage(target: string): Promise<void> {
     return call("Tolk.DownloadAppleLanguage", target);
   },
+  /** FeedbackInfo returns the auto-report switch and the anonymous install id. */
+  feedbackInfo(): Promise<FeedbackInfo> {
+    return call("Tolk.FeedbackInfo");
+  },
+  /** FeedbackPreview is exactly the text that SubmitFeedback would send. */
+  feedbackPreview(description: string, contact: string, withLogs: boolean): Promise<string> {
+    return call("Tolk.FeedbackPreview", description, contact, withLogs);
+  },
   /** GetInputAssist returns the 输入助手 settings and the helper's status. */
   getInputAssist(): Promise<InputAssistState> {
     return call("Tolk.GetInputAssist");
@@ -304,6 +337,10 @@ export const Tolk = {
   macStatus(): Promise<MacStatus> {
     return call("Tolk.MacStatus");
   },
+  /** OpenLink opens an http(s) link in the default browser. */
+  openLink(url: string): Promise<void> {
+    return call("Tolk.OpenLink", url);
+  },
   /**
    * PanelSnapshot is the view now, for a panel page that loaded after the
    * event was sent.
@@ -325,6 +362,10 @@ export const Tolk = {
    */
   setAppearance(theme: string, sourceFont: number, targetFont: number): Promise<void> {
     return call("Tolk.SetAppearance", theme, sourceFont, targetFont);
+  },
+  /** SetAutoReport turns the automatic error reports on or off. */
+  setAutoReport(on: boolean): Promise<void> {
+    return call("Tolk.SetAutoReport", on);
   },
   /** SetAutostart turns start-at-login on or off. */
   setAutostart(on: boolean): Promise<void> {
@@ -356,6 +397,14 @@ export const Tolk = {
   /** SetMini turns the Mini bubble on or off. */
   setMini(on: boolean): Promise<void> {
     return call("Tolk.SetMini", on);
+  },
+  /**
+   * SubmitFeedback sends a report from the 提交问题 dialog. submissionID is the
+   * same for every attempt from one opening of the dialog, so a retry after a
+   * lost reply cannot file the report twice.
+   */
+  submitFeedback(description: string, contact: string, withLogs: boolean, submissionID: string): Promise<FeedbackResult> {
+    return call("Tolk.SubmitFeedback", description, contact, withLogs, submissionID);
   },
   /** Translate runs the engine chosen in the legacy config. */
   translate(text: string, source: string, target: string): Promise<TranslateResult> {

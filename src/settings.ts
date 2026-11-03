@@ -2,6 +2,7 @@ import { Tolk, events } from "./mygo";
 import { THEMES, applyLook } from "./look";
 import { engineList } from "./engines";
 import { openUpdate } from "./update";
+import { initFeedback, openFeedback } from "./feedback";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -218,6 +219,24 @@ export function initSettings(h: Hooks) {
   events.prefsChanged.on((p) => {
     if (dlg.open) sMini.checked = p.miniMode;
   });
+
+  // ---- 提交问题 ----
+  initFeedback();
+  const autoReport = $<HTMLInputElement>("#a-autoreport");
+  $("#a-feedback").addEventListener("click", () => openFeedback());
+  $("#c-feedback").addEventListener("click", (e) => {
+    e.preventDefault();
+    openFeedback();
+  });
+  // Takes effect at once, like the rest of 关于.
+  autoReport.addEventListener("change", async () => {
+    try {
+      await Tolk.setAutoReport(autoReport.checked);
+    } catch (e) {
+      autoReport.checked = !autoReport.checked;
+      h.toast(message(e));
+    }
+  });
   check.addEventListener("click", async () => {
     if (["available", "downloading", "ready"].includes((await Tolk.updateStatus()).state)) return openUpdate();
     try {
@@ -267,6 +286,7 @@ export function initSettings(h: Hooks) {
       $("#a-helper-t").hidden = $("#a-helper").hidden = !about.helper;
       $("#a-helper").textContent = about.helper;
       drawUpdate(await Tolk.updateStatus());
+      autoReport.checked = (await Tolk.feedbackInfo()).autoReport;
       await h.mac?.load();
       await h.ia?.load();
       syncSections();

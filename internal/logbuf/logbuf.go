@@ -25,6 +25,16 @@ type Buffer struct {
 	next    int64
 	entries []Entry
 	tee     io.Writer
+	onError func(Entry)
+}
+
+// OnError registers fn to receive every error-level entry. fn runs on the
+// logging goroutine outside the buffer's lock, so it must not block; it may
+// log, but only below error level.
+func (b *Buffer) OnError(fn func(Entry)) {
+	b.mu.Lock()
+	b.onError = fn
+	b.mu.Unlock()
 }
 
 // New returns a Buffer holding up to max lines. tee, when set, also receives
@@ -64,10 +74,13 @@ func (b *Buffer) Add(level, text string) {
 	if len(b.entries) > b.max {
 		b.entries = append([]Entry(nil), b.entries[len(b.entries)-b.max:]...)
 	}
-	tee := b.tee
+	tee, onError := b.tee, b.onError
 	b.mu.Unlock()
 	if tee != nil {
 		fmt.Fprintf(tee, "%s [%s] %s\n", time.UnixMilli(e.Time).Format("15:04:05"), level, text)
+	}
+	if onError != nil && level == "error" {
+		onError(e)
 	}
 }
 

@@ -27,8 +27,12 @@ type State struct {
 	// failed). Sent later than Tried means the app quit mid-upload: that
 	// report is let through again instead of counting as sent.
 	Tried map[string]int64 `json:"tried,omitempty"`
-	Day   string           `json:"day"`
-	Count int              `json:"count"`
+	// Subs is the submission id of each upload not finished yet. A retry
+	// after the app quit mid-upload sends the same one, so the relay can
+	// tell whether the interrupted attempt already got through.
+	Subs  map[string]string `json:"subs,omitempty"`
+	Day   string            `json:"day"`
+	Count int               `json:"count"`
 	// UpdateResultAt is the updated_at of the last update result reported, so
 	// one failed update is reported once.
 	UpdateResultAt string `json:"updateResultAt"`
@@ -59,6 +63,9 @@ func (s *Store) load() State {
 	}
 	if st.Tried == nil {
 		st.Tried = map[string]int64{}
+	}
+	if st.Subs == nil {
+		st.Subs = map[string]string{}
 	}
 	return st
 }
@@ -98,6 +105,10 @@ func (s *Store) Get() State {
 	return st
 }
 
+// Submission is the submission id Reserve chose for fp: the one an
+// interrupted upload of it used, or a new one.
+func (s *Store) Submission(fp string) string { return s.Get().Subs[fp] }
+
 // Finished records that the upload reserved for fp is over, sent or not.
 func (s *Store) Finished(fp string, now time.Time) {
 	_, _ = s.Update(func(st *State) {
@@ -105,6 +116,7 @@ func (s *Store) Finished(fp string, now time.Time) {
 		if _, ok := st.Sent[fp]; ok {
 			st.Tried[fp] = now.Unix()
 		}
+		delete(st.Subs, fp)
 	})
 }
 
@@ -147,7 +159,11 @@ func (s *Store) Reserve(fp string, now time.Time) bool {
 			if now.Sub(time.Unix(t, 0)) > 7*24*time.Hour {
 				delete(st.Sent, k)
 				delete(st.Tried, k)
+				delete(st.Subs, k)
 			}
+		}
+		if !seen || finished || st.Subs[fp] == "" {
+			st.Subs[fp] = newID()
 		}
 		st.Sent[fp] = now.Unix()
 		st.Count++

@@ -80,7 +80,7 @@ const (
 var (
 	// secretKey names a setting whose value is a credential, up to the
 	// value. The name may be quoted, also JSON-escaped (\"password\").
-	secretKey    = `(?i)((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]\s*`
+	secretKey    = `(?i)((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?[ \t]*[:=][ \t]*`
 	extraSecrets = []struct {
 		re   *regexp.Regexp
 		with string
@@ -88,13 +88,11 @@ var (
 		// DeepL keys look like a UUID with ":fx"; Azure and others are long hex.
 		{regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:fx)?\b`), "***-uuid-***"},
 		{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`), "${1}_***"},
-		// Unquoted values; quoted ones are handled by scrubQuoted.
-		{regexp.MustCompile(secretKey + `)[^\s"'&,}\\]{3,}`), "${1}***"},
 		{regexp.MustCompile(`[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}`), "***@***"}, // same as the relay's
 	}
-	// secretOpen is a credential setting up to the quote its value opens
-	// with: "…", '…', or \"…\" (JSON inside a JSON string).
-	secretOpen = regexp.MustCompile(secretKey + `)(\\?["'])`)
+	// secretAssign is a credential setting up to its value, and the quote
+	// the value opens with if any: "…", '…', or \"…\" (JSON in a JSON string).
+	secretAssign = regexp.MustCompile(secretKey + `)(\\?["'])?`)
 	// Home folders give away the account name: /Users/name, C:\Users\name, /home/name.
 	homeRes = []*regexp.Regexp{
 		// The account name runs to the next separator and may hold spaces
@@ -113,7 +111,7 @@ func Scrub(s string) string {
 		s = strings.ReplaceAll(s, filepath.ToSlash(home), "~")
 	}
 	s = logbuf.Scrub(s)
-	s = scrubQuoted(s)
+	s = scrubSecrets(s)
 	for _, x := range extraSecrets {
 		s = x.re.ReplaceAllString(s, x.with)
 	}
@@ -123,21 +121,31 @@ func Scrub(s string) string {
 	return s
 }
 
-// scrubQuoted blanks every quoted credential value whole, escaped quotes
-// and backslashes included, up to its closing quote or, for a value cut off
-// (a truncated log line), to the end of the line. A scan rather than a
-// pattern: one pass, nothing to retry, and no way to stop early at an
-// escape. The relay's worker.js does the same.
-func scrubQuoted(s string) string {
+// scrubSecrets blanks the whole value of every credential setting. A
+// quoted value goes up to its closing quote, escaped quotes and backslashes
+// included, or for a value cut off (a truncated log line) to the end of the
+// line; an unquoted one up to the next whitespace, whatever characters it
+// holds. A scan rather than a pattern: one pass, nothing to retry, and no
+// way to stop early at an escape or a symbol. The relay's worker.js does
+// the same.
+func scrubSecrets(s string) string {
 	var b strings.Builder
 	pos := 0
 	for pos < len(s) {
-		m := secretOpen.FindStringSubmatchIndex(s[pos:])
+		m := secretAssign.FindStringSubmatchIndex(s[pos:])
 		if m == nil {
 			break
 		}
 		start := pos + m[1]
-		end := quotedEnd(s, start, s[pos+m[4]:pos+m[5]])
+		var end int
+		if m[4] >= 0 {
+			end = quotedEnd(s, start, s[pos+m[4]:pos+m[5]])
+		} else {
+			end = start
+			for end < len(s) && !strings.ContainsRune(" \t\r\n", rune(s[end])) {
+				end++
+			}
+		}
 		b.WriteString(s[pos:start])
 		if end > start {
 			b.WriteString("***")

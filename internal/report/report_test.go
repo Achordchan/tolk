@@ -188,6 +188,11 @@ func TestScrubDoubleEscapedValues(t *testing.T) {
 		// Only the value goes; what follows stays.
 		`password: "x" user: "y"`: `password: "***" user: "y"`,
 		`password: "" ok`:         `password: "" ok`,
+		// Unquoted values go whole up to whitespace, whatever they hold.
+		`PASSWORD=&A7secret! next`:   `PASSWORD=*** next`,
+		`token=ab,cd&ef}\gh` + "\nx": `token=***` + "\nx",
+		`api_key: ,leading`:          `api_key: ***`,
+		`password:` + "\n" + `next`:  `password:` + "\n" + `next`,
 	} {
 		if got := Scrub(in); got != want {
 			t.Errorf("Scrub(%.60q) = %.60q, want %.60q", in, got, want)
@@ -206,13 +211,21 @@ func TestReserveRetriesUploadCutShortByQuitting(t *testing.T) {
 		t.Fatal("same report let through while its upload runs")
 	}
 	// The app quits before the upload finishes; the next run tries again.
+	first := run1.Submission("crash")
 	run2 := NewStore(dir)
 	if !run2.Reserve("crash", now.Add(time.Hour)) {
 		t.Fatal("interrupted upload not retried")
+	}
+	// Same submission, so the relay can find what the cut-off attempt wrote.
+	if id := run2.Submission("crash"); id == "" || id != first {
+		t.Fatalf("submission %q, interrupted one was %q", id, first)
 	}
 	run2.Finished("crash", now.Add(time.Hour))
 	run3 := NewStore(dir)
 	if run3.Reserve("crash", now.Add(2*time.Hour)) {
 		t.Fatal("finished upload sent again within a day")
+	}
+	if !run3.Reserve("crash", now.Add(26*time.Hour)) || run3.Submission("crash") == first {
+		t.Fatal("a new report of the same error needs a new submission")
 	}
 }

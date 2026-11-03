@@ -38,31 +38,32 @@ const json = (data, status = 200) =>
 
 // A setting whose value is a credential, up to the value. The name may be
 // quoted, also JSON-escaped (\"password\").
-const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]\s*`;
+const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?[ \t]*[:=][ \t]*`;
 // Parts are bounded (RFC 5321 sizes): unbounded ones cost quadratic time on
 // a long run of letters with no @ in it.
 const EMAIL = /[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}/g;
-// Unquoted values; quoted ones are handled by scrubQuoted.
-const SECRET_UNQUOTED = new RegExp(SECRET_KEY + String.raw`)[^\s"'&,}\\]{3,}`, "gi");
-// A credential setting up to the quote its value opens with: "…", '…', or
-// \"…\" (JSON inside a JSON string).
-const SECRET_OPEN = new RegExp(SECRET_KEY + String.raw`)(\\?["'])`, "gi");
+// A credential setting up to its value, and the quote the value opens with
+// if any: "…", '…', or \"…\" (JSON inside a JSON string).
+const SECRET_ASSIGN = new RegExp(SECRET_KEY + String.raw`)(\\?["'])?`, "gi");
 
-// Blanks every quoted credential value whole, escaped quotes and
-// backslashes included, up to its closing quote or, for a value cut off (a
-// truncated log line), to the end of the line. A scan rather than a pattern:
-// one pass, nothing to retry, no way to stop early at an escape. Same as
-// scrubQuoted in internal/report/report.go.
-function scrubQuoted(s) {
+// Blanks the whole value of every credential setting. A quoted value goes
+// up to its closing quote, escaped quotes and backslashes included, or for a
+// value cut off (a truncated log line) to the end of the line; an unquoted
+// one up to the next whitespace, whatever characters it holds. A scan rather
+// than a pattern: one pass, nothing to retry, no way to stop early at an
+// escape or a symbol. Same as scrubSecrets in internal/report/report.go.
+function scrubSecrets(s) {
   let out = "";
   let pos = 0;
-  SECRET_OPEN.lastIndex = 0;
-  for (let m; (m = SECRET_OPEN.exec(s)); ) {
+  SECRET_ASSIGN.lastIndex = 0;
+  for (let m; (m = SECRET_ASSIGN.exec(s)); ) {
     const start = m.index + m[0].length;
-    const end = quotedEnd(s, start, m[2]);
+    let end = start;
+    if (m[2]) end = quotedEnd(s, start, m[2]);
+    else while (end < s.length && !" \t\r\n".includes(s[end])) end++;
     out += s.slice(pos, start) + (end > start ? "***" : "");
     pos = end;
-    SECRET_OPEN.lastIndex = Math.max(end, start);
+    SECRET_ASSIGN.lastIndex = Math.max(end, start);
   }
   return out + s.slice(pos);
 }
@@ -108,8 +109,7 @@ function quotedEnd(s, i, open) {
 // something it should not. The contact the user typed is added afterwards:
 // they asked for it to be shown.
 export function scrub(s) {
-  return scrubQuoted(String(s ?? ""))
-    .replace(SECRET_UNQUOTED, "$1***")
+  return scrubSecrets(String(s ?? ""))
     .replace(/(bearer\s+)[A-Za-z0-9._\-]{8,}/gi, "$1***")
     .replace(/\bsk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
     .replace(/\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}/g, "$1_***")

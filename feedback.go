@@ -310,6 +310,7 @@ func sendAutoThen(kind, title, description, fpText string, extra []report.Attach
 	}
 	r := baseReport(kind, title, description, true)
 	r.Fingerprint = fp
+	r.SubmissionID = fb.store.Submission(fp)
 	r.Attachments = append(extra, r.Attachments...)
 	r = r.Clean()
 	go func() {

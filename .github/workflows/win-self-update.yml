@@ -1,0 +1,66 @@
+name: Windows self update
+
+# Tolk 自己更新自己（2.2.x → 新版）的完整路径：用这次的代码检查已发布的 Release、
+# 下载验签、启动替换脚本、退出，再确认脚本真的把安装目录换成了新版。
+# 2.2.1/2.2.2 就是在"程序退出后脚本没跑起来"这一步坏的，单测替换脚本测不出来。
+# 只读已发布的 Release，不用任何 Secret。
+
+on:
+  pull_request:
+    paths:
+      - internal/update/**
+      - cmd/selfupdate-e2e/**
+      - .github/workflows/win-self-update.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  self-update:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+      - name: Update a scratch install and check the swap
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:RUNNER_TEMP "self-update"
+          $install = Join-Path $root "带 空格\大佐翻译官"
+          New-Item -ItemType Directory -Force $install | Out-Null
+          $env:DZFYQ_HOME = Join-Path $root "home"
+          $exe = Join-Path $install "大佐翻译官.exe"
+          go build -o $exe ./cmd/selfupdate-e2e
+          $oldHash = (Get-FileHash $exe).Hash
+          Set-Content (Join-Path $install "unins000.exe") "uninstaller"
+
+          & $exe
+          if ($LASTEXITCODE -ne 0) { throw "selfupdate-e2e 退出码 $LASTEXITCODE" }
+
+          $res = Join-Path $env:DZFYQ_HOME "update_state\last_update_result.json"
+          $deadline = (Get-Date).AddMinutes(5)
+          while (-not (Test-Path $res) -and (Get-Date) -lt $deadline) { Start-Sleep 2 }
+          Write-Host "---- update.log ----"
+          Get-Content (Join-Path $env:DZFYQ_HOME "update_state\update.log") -ErrorAction SilentlyContinue
+          Write-Host "---- result ----"
+          Get-Content $res -ErrorAction SilentlyContinue
+          if (-not (Test-Path $res)) { throw "替换脚本没有写出结果" }
+          if ((Get-Content $res -Raw | ConvertFrom-Json).status -ne "success") { throw "替换失败" }
+
+          # 安装目录里应该是刚发布的那个主程序。
+          $tag = gh release view --repo $env:GITHUB_REPOSITORY --json tagName -q .tagName
+          $ver = $tag.TrimStart("v")
+          gh release download $tag --repo $env:GITHUB_REPOSITORY --dir pkg --pattern "dazuofanyiguan_full.for.windows_$ver.zip"
+          Expand-Archive (Join-Path pkg "dazuofanyiguan_full.for.windows_$ver.zip") -DestinationPath pkgx
+          $want = (Get-FileHash (Join-Path pkgx "大佐翻译官.exe")).Hash
+          $got = (Get-FileHash $exe).Hash
+          if ($got -eq $oldHash) { throw "主程序没有被换掉" }
+          if ($got -ne $want) { throw "主程序不是 v$ver 的那个" }
+          if (-not (Test-Path (Join-Path $install "unins000.exe"))) { throw "卸载程序文件丢了" }
+          Write-Host "升级到 v$ver 成功"

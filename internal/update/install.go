@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -92,9 +93,36 @@ func installWindows(zipPath string, info *Info, dirs Dirs, exe string) error {
 		filepath.Join(dirs.State, "update.log"),
 		filepath.Join(dirs.State, "last_update_result.json"),
 		os.Getpid())...)
+	logPath := filepath.Join(dirs.State, "update.log")
+	before := fileSize(logPath)
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script)
 	cmd.Env = env
-	return startDetached(cmd)
+	if err := startDetached(cmd); err != nil {
+		return err
+	}
+	// The app quits as soon as this returns, so make sure the script is
+	// really running: its first act is a line in update.log. Without this
+	// check a script that never ran looked like an update that just did
+	// not happen.
+	for deadline := time.Now().Add(scriptStartTimeout); fileSize(logPath) <= before; {
+		if time.Now().After(deadline) {
+			return errors.New("更新脚本没有启动起来，可能被安全软件拦截了。请到 GitHub 或 Gitee 下载安装包覆盖安装")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return nil
+}
+
+// scriptStartTimeout is how long installWindows waits for the swap script to
+// write its first log line; PowerShell can take a few seconds on a busy PC.
+var scriptStartTimeout = 20 * time.Second
+
+func fileSize(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return -1
+	}
+	return fi.Size()
 }
 
 func writable(dir string) error {

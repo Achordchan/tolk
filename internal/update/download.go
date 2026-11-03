@@ -21,8 +21,7 @@ const (
 
 // Download fetches the package into dir and returns its path. It tests every
 // route (github.com and the mirrors) first and downloads over the fastest,
-// moving on to the next when one breaks. The result is not trusted until
-// Verify has passed.
+// moving on to the next when one breaks or its package fails verification.
 func (c *Checker) Download(ctx context.Context, info *Info, dir string, progress func(done, total int64)) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
@@ -32,6 +31,13 @@ func (c *Checker) Download(ctx context.Context, info *Info, dir string, progress
 		name := routeName(u, c.Origin)
 		c.logf("从 %s 下载 %s", name, info.name)
 		path, err := c.fetchTo(ctx, u, filepath.Join(dir, filepath.Base(info.name)), info.wantSize, progress)
+		if err == nil && c.verify != nil {
+			// A route that hands back a damaged package is skipped like
+			// one that breaks, so the next route still gets its turn.
+			if err = c.verify(info, path); err != nil {
+				os.Remove(path)
+			}
+		}
 		if err == nil {
 			return path, nil
 		}

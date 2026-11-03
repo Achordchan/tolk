@@ -14,6 +14,8 @@
 #define MyAppName "Tolk"
 #define MyAppExeName "Tolk.exe"
 #define OldExeName "大佐翻译官.exe"
+#define OldLnkName "大佐翻译官.lnk"
+#define ApprovedKey "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder"
 
 [Setup]
 AppId={{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}
@@ -105,9 +107,41 @@ begin
   RemoveDir(RemoveBackslashUnlessRoot(Dir));
 end;
 
-// 装好后清掉旧版：只在旧目录确实是旧版的（里面有旧主程序）且不是这次的目录时。
+// 开机自启：2.2.2 及以前的快捷方式叫「大佐翻译官」、指向旧主程序，旧主程序一删
+// 它就失效了。不等新版打开再修（静默安装、没勾“运行”时不会打开），装的时候就
+// 换成指向新主程序的 Tolk 快捷方式，「启动应用」里的开关状态一起带过去。
+// Tolk 快捷方式本来就在的，也指到这次装的位置。
+procedure MoveStartupShortcut;
+var
+  OldLnk, NewLnk: String;
+  Approved: AnsiString;
+begin
+  OldLnk := ExpandConstant('{userstartup}\{#OldLnkName}');
+  NewLnk := ExpandConstant('{userstartup}\Tolk.lnk');
+  if not FileExists(OldLnk) and not FileExists(NewLnk) then
+    Exit;
+  if FileExists(OldLnk) and not FileExists(NewLnk) and
+     RegQueryBinaryValue(HKCU, '{#ApprovedKey}', '{#OldLnkName}', Approved) then
+    RegWriteBinaryValue(HKCU, '{#ApprovedKey}', 'Tolk.lnk', Approved);
+  try
+    CreateShellLink(NewLnk, 'Tolk', ExpandConstant('{app}\{#MyAppExeName}'), '',
+      ExpandConstant('{app}'), ExpandConstant('{app}\{#MyAppExeName}'), 0, SW_SHOWNORMAL);
+  except
+    Log('开机自启快捷方式没建成：' + GetExceptionMessage);
+    Exit;
+  end;
+  if FileExists(OldLnk) then
+  begin
+    DeleteFile(OldLnk);
+    RegDeleteValue(HKCU, '{#ApprovedKey}', '{#OldLnkName}');
+  end;
+end;
+
+// 装好后先修开机自启，再清掉旧版：只在旧目录确实是旧版的（里面有旧主程序）且不是这次的目录时。
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  if CurStep = ssPostInstall then
+    MoveStartupShortcut;
   if (CurStep = ssPostInstall) and (OldDir <> '') and
      (CompareText(OldDir, RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) <> 0) and
      FileExists(AddBackslash(OldDir) + '{#OldExeName}') then

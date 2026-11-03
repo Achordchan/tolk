@@ -3,8 +3,10 @@ package update
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -106,5 +108,36 @@ func TestFetchSkipsInvalidAnswer(t *testing.T) {
 	b, err := c.fetch(context.Background(), origin.URL+"/a.json", 100, isJSON)
 	if err != nil || string(b) != `{"ok":true}` {
 		t.Fatalf("%q %v", b, err)
+	}
+}
+
+func TestDownloadMovesOnWhenPackageFailsVerify(t *testing.T) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("baad")) }))
+	t.Cleanup(bad.Close)
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond) // slower, so it is ranked after the bad one
+		w.Write([]byte("good"))
+	}))
+	t.Cleanup(good.Close)
+	c := NewChecker("windows", "1.0.0")
+	c.Origin, c.Mirrors = bad.URL+"/", []string{good.URL + "/"}
+	c.verify = func(_ *Info, path string) error {
+		b, _ := os.ReadFile(path)
+		if string(b) != "good" {
+			return errors.New("bad package")
+		}
+		return nil
+	}
+	info := &Info{name: "p.zip", url: bad.URL + "/pkg", wantSize: 4}
+	path, err := c.Download(context.Background(), info, t.TempDir(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "good" {
+		t.Fatalf("got %q", b)
+	}
+	c.Mirrors = nil
+	if _, err := c.Download(context.Background(), info, t.TempDir(), nil); err == nil {
+		t.Fatal("a package that fails verification on every route must fail")
 	}
 }

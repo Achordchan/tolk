@@ -78,6 +78,17 @@ func copyTree(src, dst string, top bool) error {
 			if err := copyTree(from, to, false); err != nil {
 				return err
 			}
+		case e.Type()&os.ModeSymlink != 0:
+			// A settings file linked to a synced folder stays a link. If
+			// the link cannot be made (Windows without the right), the
+			// move fails and the old folder stays in use.
+			target, err := os.Readlink(from)
+			if err != nil {
+				return err
+			}
+			if err := os.Symlink(target, to); err != nil {
+				return err
+			}
 		case e.Type().IsRegular():
 			if err := copyFile(from, to); err != nil {
 				return err

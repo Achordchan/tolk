@@ -64,6 +64,9 @@ type Checker struct {
 	Mirrors   []string // prefixes put in front of an Origin URL
 	// Logf, if set, is told which route each download took.
 	Logf func(format string, args ...any)
+	// verify checks a downloaded package before its route is accepted;
+	// tests swap it, since Verify trusts only the embedded keys.
+	verify func(info *Info, path string) error
 }
 
 // errOSTooOld means the newest release needs a newer macOS than this one.
@@ -79,6 +82,7 @@ func NewChecker(goos, version string) *Checker {
 		API:       DefaultAPI,
 		Origin:    GitHubOrigin,
 		Mirrors:   DefaultMirrors,
+		verify:    Verify,
 	}
 	if goos == "darwin" {
 		if out, err := exec.Command("sw_vers", "-productVersion").Output(); err == nil {
@@ -285,20 +289,20 @@ func (c *Checker) windowsInfo(ctx context.Context, r *ghRelease) (*Info, error) 
 	if sj == nil || sj.URL == "" {
 		return nil, errors.New("最新版本缺少更新签名")
 	}
-	var s SigJSON
-	parse := func(b []byte) error {
+	// parse runs on every route's answer at once, so it only reads.
+	parse := func(b []byte) (SigJSON, error) {
 		var x SigJSON
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(string(b), "\xef\xbb\xbf")), &x); err != nil || x.Signature == "" {
-			return errors.New("签名元数据损坏")
+			return x, errors.New("签名元数据损坏")
 		}
-		s = x
-		return nil
+		return x, nil
 	}
-	b, err := c.fetch(ctx, sj.URL, 64<<10, parse)
+	b, err := c.fetch(ctx, sj.URL, 64<<10, func(b []byte) error { _, err := parse(b); return err })
 	if err != nil {
 		return nil, fmt.Errorf("下载签名元数据失败：%w", err)
 	}
-	if err := parse(b); err != nil {
+	s, err := parse(b)
+	if err != nil {
 		return nil, err
 	}
 	if NormalizeVersion(s.AppVersion) != v {

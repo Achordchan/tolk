@@ -77,10 +77,6 @@ func (c *Checker) Prepare(ctx context.Context, info *Info, dirs Dirs, progress f
 	if err != nil {
 		return nil, err
 	}
-	if err := Verify(info, path); err != nil {
-		os.Remove(path)
-		return nil, err
-	}
 	if err := os.MkdirAll(dirs.State, 0o700); err != nil {
 		return nil, err
 	}

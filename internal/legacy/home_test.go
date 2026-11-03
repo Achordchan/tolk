@@ -68,3 +68,20 @@ func TestHomeFallsBackWhenMoveFails(t *testing.T) {
 		t.Fatal(h)
 	}
 }
+
+func TestCopyKeepsSymlinks(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "old"), filepath.Join(root, "new")
+	os.MkdirAll(src, 0o700)
+	synced := filepath.Join(root, "synced.json")
+	os.WriteFile(synced, []byte("{}"), 0o600)
+	if err := os.Symlink(synced, filepath.Join(src, "config.json")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if err := copyTree(src, dst, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(filepath.Join(dst, "config.json")); err != nil || got != synced {
+		t.Fatalf("link not kept: %q %v", got, err)
+	}
+}

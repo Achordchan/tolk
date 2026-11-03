@@ -96,12 +96,30 @@ jobs:
           $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1"
           New-Item -Force $key | Out-Null
           New-ItemProperty -Force $key -Name InstallLocation -Value "$old\" | Out-Null
+          # 旧版开了开机自启，并在「启动应用」里被关掉过：静默安装不会打开新版，
+          # 快捷方式得在安装时就指到新主程序，开关状态也要带过去。
+          $startup = [Environment]::GetFolderPath("Startup")
+          $oldLnk = Join-Path $startup "大佐翻译官.lnk"
+          $newLnk = Join-Path $startup "Tolk.lnk"
+          $sh = New-Object -ComObject WScript.Shell
+          $s = $sh.CreateShortcut($oldLnk); $s.TargetPath = (Join-Path $old "大佐翻译官.exe"); $s.Save()
+          $approved = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder"
+          New-Item -Force $approved | Out-Null
+          $off = [byte[]](3,0,0,0,0,0,0,0,0,0,0,0)
+          New-ItemProperty -Force $approved -Name "大佐翻译官.lnk" -PropertyType Binary -Value $off | Out-Null
           $setup = Get-ChildItem dist\Tolk-setup-windows_9.9.9.exe
           $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "安装器退出码 $($p.ExitCode)" }
           $new = Join-Path $env:LOCALAPPDATA "Programs\Tolk"
           if (-not (Test-Path (Join-Path $new "Tolk.exe"))) { throw "没有装到 Tolk 目录" }
           if (Test-Path $old) { throw "旧的「大佐翻译官」目录没有删掉" }
+          if (Test-Path $oldLnk) { throw "旧的开机自启快捷方式还在" }
+          if (-not (Test-Path $newLnk)) { throw "没有建 Tolk 开机自启快捷方式" }
+          $target = $sh.CreateShortcut($newLnk).TargetPath
+          if ($target -ne (Join-Path $new "Tolk.exe")) { throw "开机自启指向 $target" }
+          $carried = (Get-ItemProperty $approved -Name "Tolk.lnk" -ErrorAction SilentlyContinue)."Tolk.lnk"
+          if ($null -eq $carried -or $carried[0] -ne 3) { throw "「启动应用」里的关闭状态没带过去" }
+          if ((Get-ItemProperty $approved)."大佐翻译官.lnk") { throw "旧的开关记录没清掉" }
           # 旧目录里有用户自己的文件时：只删旧版的文件，别的留着。
           New-Item -ItemType Directory -Force $old | Out-Null
           Copy-Item $exe (Join-Path $old "大佐翻译官.exe")

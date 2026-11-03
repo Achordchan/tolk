@@ -3,6 +3,7 @@ package legacy
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -104,8 +105,8 @@ func TestMigrateRepointsLinksIntoOldFolder(t *testing.T) {
 }
 
 func TestMigrateRollsBackWhenRelinkFails(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores the read-only folder")
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a folder this user cannot write to: not on Windows, not as root")
 	}
 	root := t.TempDir()
 	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")

@@ -49,8 +49,8 @@ type Info struct {
 	pkgGOOS   string
 	userAgent string
 	// reload fetches the metadata again from GitHub itself and reports
-	// whether that gave a different signature: the one taken from a mirror
-	// may be what failed the package.
+	// whether that gave a different signature or size: the ones taken from
+	// a mirror may be what failed the package.
 	reload func(ctx context.Context) bool
 }
 
@@ -437,10 +437,10 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 			return false
 		}
 		got := ac.Items[best]
-		if got.Enclosure.Sig == info.sig || got.Enclosure.Length != info.wantSize {
+		if got.Enclosure.Sig == info.sig && got.Enclosure.Length == info.wantSize {
 			return false
 		}
-		info.sig = got.Enclosure.Sig
+		info.sig, info.wantSize, info.Size = got.Enclosure.Sig, got.Enclosure.Length, got.Enclosure.Length
 		return true
 	}
 	return info, nil

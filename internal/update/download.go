@@ -31,7 +31,16 @@ func (c *Checker) Download(ctx context.Context, info *Info, dir string, progress
 	for _, u := range c.rank(ctx, c.routes(info.url)) {
 		name := routeName(u, c.Origin)
 		c.logf("从 %s 下载 %s", name, info.name)
-		path, err := c.fetchTo(ctx, u, filepath.Join(dir, filepath.Base(info.name)), info.wantSize, progress)
+		dest := filepath.Join(dir, filepath.Base(info.name))
+		path, err := c.fetchTo(ctx, u, dest, info.wantSize, progress)
+		if errors.Is(err, errSizeMismatch) && !reloaded && info.reload != nil {
+			// The size may be what is wrong (a mirror's metadata): ask
+			// GitHub once and try this route again if that differs.
+			reloaded = true
+			if info.reload(ctx) {
+				path, err = c.fetchTo(ctx, u, dest, info.wantSize, progress)
+			}
+		}
 		if err == nil && c.verify != nil {
 			// A route that hands back a damaged package is skipped like
 			// one that breaks, so the next route still gets its turn.
@@ -58,6 +67,9 @@ func (c *Checker) Download(ctx context.Context, info *Info, dir string, progress
 	}
 	return "", fmt.Errorf("下载更新包失败：%s", strings.Join(errs, "；"))
 }
+
+// errSizeMismatch is a package of another size than the metadata says.
+var errSizeMismatch = errors.New("更新包大小与发布信息不一致")
 
 func (c *Checker) fetchTo(ctx context.Context, url, dest string, want int64, progress func(done, total int64)) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -119,7 +131,7 @@ func (c *Checker) fetchTo(ctx context.Context, url, dest string, want int64, pro
 	}
 	if want > 0 && done != want {
 		os.Remove(tmp)
-		return "", errors.New("更新包大小与发布信息不一致")
+		return "", errSizeMismatch
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		os.Remove(tmp)

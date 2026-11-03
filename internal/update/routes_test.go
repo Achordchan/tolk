@@ -257,3 +257,15 @@ func TestDownloadReloadsSignatureWhenPackageFailsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDownloadReloadsSizeWhenPackageDiffers(t *testing.T) {
+	pkg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("good")) }))
+	t.Cleanup(pkg.Close)
+	c := NewChecker("darwin", "1.0.0")
+	c.Origin, c.Mirrors, c.verify = "", nil, nil
+	info := &Info{name: "p.zip", url: pkg.URL + "/pkg", wantSize: 99, sig: "s"}
+	info.reload = func(context.Context) bool { info.wantSize = 4; return true }
+	if _, err := c.Download(context.Background(), info, t.TempDir(), nil); err != nil {
+		t.Fatal(err)
+	}
+}

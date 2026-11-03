@@ -119,7 +119,10 @@ async function submit() {
   let sent = false;
   try {
     const r = await Tolk.submitFeedback(...fields(), submissionId);
-    unresolved = !!r.pending;
+    // Only the relay's answer settles an unknown outcome: a later try that
+    // cannot reach it (offline) says nothing about the earlier one.
+    if (r.pending) unresolved = true;
+    else if (r.sent) unresolved = false;
     if (r.sent) {
       sent = true;
       // Filed: the GitHub link of an earlier failed try would file it again.
@@ -130,7 +133,13 @@ async function submit() {
       showDone(r.url);
       return;
     }
-    if (r.issueUrl) {
+    if (r.issueUrl && unresolved) {
+      // An earlier try may already have filed it: no GitHub link (it could
+      // file it twice) until the relay says what became of that one.
+      fallback = "";
+      github.hidden = true;
+      showError(`暂时连不上提交服务（${r.error}）。上一次提交可能已经成功，请稍后点「重试」确认，不会重复提交。`);
+    } else if (r.issueUrl) {
       fallback = r.issueUrl;
       showError(`暂时连不上提交服务（${r.error}）。完整内容已复制到剪贴板，可以改用 GitHub 提交：打开后如果日志不全，把剪贴板内容粘贴进去即可。`);
       github.hidden = false;

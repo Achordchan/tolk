@@ -1,6 +1,7 @@
 import { Tolk, events } from "./mygo";
 import { THEMES, applyLook } from "./look";
 import { engineList } from "./engines";
+import { openUpdate } from "./update";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -190,49 +191,32 @@ export function initSettings(h: Hooks) {
   });
 
   // ---- about + updates ----
-  const uBox = $("#a-update");
-  const uTitle = $("#u-title");
-  const uInstall = $("#u-install");
-  const uBar = $("#u-bar");
-  const uFill = $("#u-fill");
-  const uNotes = $("#u-notes");
+  const aStatus = $("#a-status");
   const check = $<HTMLButtonElement>("#a-check");
 
+  // The dialog in update.ts does the talking; 关于 only says where things stand.
   function drawUpdate(s: Update) {
     check.disabled = s.state === "checking" || s.state === "downloading" || s.state === "installing";
-    uBox.hidden = s.state === "idle" || s.state === "checking";
-    uInstall.hidden = s.state !== "available";
-    uBar.hidden = s.state !== "downloading";
-    uFill.style.width = `${s.percent}%`;
-    uNotes.textContent = s.notes ?? "";
-    uNotes.hidden = !s.notes;
-    uTitle.textContent =
+    check.textContent = s.state === "available" ? "查看更新" : "检查更新";
+    aStatus.textContent =
       {
         checking: "正在检查更新…",
         latest: "已是最新版本",
         available: `发现新版本 v${s.version}`,
         downloading: `正在下载 v${s.version}　${s.percent}%`,
-        installing: "更新包已校验，正在重启安装…",
-        error: `更新失败：${s.error}`,
-        idle: "",
+        installing: "正在重启安装…",
+        error: `检查更新失败：${s.error}`,
       }[s.state] ?? "";
-    uTitle.classList.toggle("error", s.state === "error");
-    if (s.state === "checking") {
-      uBox.hidden = false;
-    }
+    aStatus.hidden = !aStatus.textContent;
+    aStatus.classList.toggle("error", s.state === "error");
+    aStatus.classList.toggle("muted", s.state !== "error");
   }
   events.updateChanged.on(drawUpdate);
   check.addEventListener("click", async () => {
-    drawUpdate({ state: "checking", version: "", notes: "", force: false, percent: 0, error: "", source: "" });
+    if ((await Tolk.updateStatus()).state === "available") return openUpdate();
     try {
-      drawUpdate((await Tolk.checkUpdate()) as Update);
-    } catch (e) {
-      h.toast(message(e));
-    }
-  });
-  uInstall.addEventListener("click", async () => {
-    try {
-      await Tolk.installUpdate();
+      const s = (await Tolk.checkUpdate()) as Update;
+      if (s.state === "available") openUpdate();
     } catch (e) {
       h.toast(message(e));
     }

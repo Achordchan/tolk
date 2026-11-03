@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSendFallsBackOnlyWhenRelayIsUnreachable(t *testing.T) {
@@ -113,5 +115,37 @@ func TestSendStopsWhileEarlierAttemptIsPending(t *testing.T) {
 	res, err := Send(context.Background(), nil, r)
 	if !errors.Is(err, ErrPending) || !res.Pending || calls != 1 {
 		t.Fatalf("err %v, res %+v, calls %d", err, res, calls)
+	}
+}
+
+func TestUnsureOutcomeIsPendingNotFallback(t *testing.T) {
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body) // got the report, then no answer in time
+		time.Sleep(300 * time.Millisecond)
+	}))
+	defer hang.Close()
+	down := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	downURL := down.URL
+	down.Close() // connection refused: nothing was sent
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"number":9,"url":"u"}`))
+	}))
+	defer good.Close()
+	old := Endpoints
+	defer func() { Endpoints = old }()
+	client := &http.Client{Timeout: 100 * time.Millisecond}
+	r := Report{Kind: Manual, Title: "t", InstallID: "ab", Version: "2.2.3", SubmissionID: "aa"}.Clean()
+
+	Endpoints = []string{hang.URL, downURL}
+	if res, err := Send(context.Background(), client, r); !errors.Is(err, ErrPending) || !res.Pending {
+		t.Fatalf("a report that may have gone through must stay pending: %v %+v", err, res)
+	}
+	Endpoints = []string{downURL, downURL}
+	if _, err := Send(context.Background(), client, r); err == nil || errors.Is(err, ErrPending) {
+		t.Fatalf("an unreachable relay filed nothing: %v", err)
+	}
+	Endpoints = []string{hang.URL, good.URL}
+	if res, err := Send(context.Background(), client, r); err != nil || res.Number != 9 {
+		t.Fatalf("the spare address settles it: %v %+v", err, res)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"time"
 )
 
@@ -55,18 +56,34 @@ func Send(ctx context.Context, client *http.Client, r Report) (Result, error) {
 		client = &http.Client{Timeout: 20 * time.Second}
 	}
 	var last error
+	unsure := false
 	for _, ep := range Endpoints {
 		res, err := post(ctx, client, ep, payload)
 		if err == nil || errors.Is(err, ErrRejected) || errors.Is(err, ErrPending) {
 			return res, err
+		}
+		// The other address gets the same submission id, so trying it is
+		// safe even when this one may have filed the report.
+		if errors.Is(err, errUnsure) {
+			unsure = true
 		}
 		last = err
 		if ctx.Err() != nil {
 			break
 		}
 	}
+	if unsure {
+		// No address said yes or no, and one may have filed it: retry later
+		// with the same id rather than file it somewhere else.
+		return Result{Pending: true, Error: "提交结果不确定（可能已经提交成功），请过一两分钟再重试"}, fmt.Errorf("%w: %v", ErrPending, last)
+	}
 	return Result{}, last
 }
+
+// errUnsure marks a failure after the report reached the relay, when it may
+// have been filed anyway: the request was sent and then the answer timed
+// out or broke off, or the edge in front of the relay failed.
+var errUnsure = errors.New("outcome unknown")
 
 // MaxPayload stays under the relay's 200 KiB limit on the request.
 const MaxPayload = 180 << 10
@@ -120,24 +137,45 @@ func post(ctx context.Context, client *http.Client, endpoint string, payload []b
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tolk-Report", "1")
+	// A failure before the whole request went out (no DNS, refused, TLS,
+	// blocked) filed nothing; one after it may have.
+	sent := false
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		WroteRequest: func(i httptrace.WroteRequestInfo) { sent = sent || i.Err == nil },
+	}))
 	resp, err := client.Do(req)
 	if err != nil {
+		if sent {
+			return Result{}, fmt.Errorf("%w: %v", errUnsure, err)
+		}
 		return Result{}, err
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: %s: %v", errUnsure, endpoint, err)
+	}
 	var res Result
 	var shape struct {
 		OK *bool `json:"ok"`
 	}
-	if json.Unmarshal(raw, &shape) != nil || shape.OK == nil || resp.StatusCode >= 500 {
-		// Not a verdict from the relay (a proxy or block page, a gateway
-		// error, an outage): worth trying the other address.
+	if json.Unmarshal(raw, &shape) != nil || shape.OK == nil {
+		// Not the relay's answer. A block page or proxy refusal (4xx) means
+		// it never got there; a failing edge (5xx) may have cut it off
+		// after it acted. Either way the other address is worth a try.
+		if resp.StatusCode >= 500 {
+			return Result{}, fmt.Errorf("%w: %s: HTTP %d", errUnsure, endpoint, resp.StatusCode)
+		}
 		return Result{}, fmt.Errorf("%s: HTTP %d", endpoint, resp.StatusCode)
 	}
 	_ = json.Unmarshal(raw, &res)
 	if !res.OK && res.Pending {
 		return res, fmt.Errorf("%w: %s", ErrPending, res.Error)
+	}
+	if resp.StatusCode >= 500 {
+		// The relay failed before writing anything (it says pending when it
+		// may have written): the other address may get through.
+		return Result{}, fmt.Errorf("%s: HTTP %d: %s", endpoint, resp.StatusCode, res.Error)
 	}
 	if !res.OK && res.Skipped == "" {
 		// The relay looked at the report and refused it (bad fields, too

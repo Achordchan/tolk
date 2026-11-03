@@ -187,7 +187,13 @@ export class Coordinator {
       const [status, data] = await run;
       return json(data, status);
     } catch (e) {
-      return json({ ok: false, error: String(e && e.message ? e.message : e) }, 502);
+      const error = String(e && e.message ? e.message : e);
+      // A write was started and its outcome is unknown (pend: kept): the
+      // report may be filed. Say so, so the app retries with the same id
+      // instead of offering to file it on GitHub by hand.
+      const sub = String((report && report.submissionId) || "").replace(/[^0-9a-f]/gi, "").slice(0, 40);
+      const pending = sub && (await this.storage.get(`pend:${sub}`).catch(() => null));
+      return json({ ok: false, error, ...(pending ? { pending: true } : {}) }, 502);
     }
   }
 

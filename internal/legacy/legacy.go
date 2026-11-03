@@ -36,7 +36,9 @@ var known = map[string]bool{
 
 // Load parses the file into a generic map so nothing is lost on write-back.
 func Load(path string) (map[string]any, error) {
+	fileMu.RLock()
 	b, err := os.ReadFile(path)
+	fileMu.RUnlock()
 	if err != nil {
 		return nil, err
 	}

@@ -116,7 +116,7 @@ async function saveLanguages() {
   try {
     await Tolk.setLanguages(source.value, target.value);
   } catch (e) {
-    toast(String(e instanceof Error ? e.message : e));
+    toast(`语言设置没保存上：${e instanceof Error ? e.message : e}`);
   }
 }
 

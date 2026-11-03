@@ -88,7 +88,69 @@ type ghRelease struct {
 	Assets []ghAsset `json:"assets"`
 }
 
+// GitHubProxy is put in front of github.com download links as a last resort,
+// for networks that reach the GitHub API but not its file host. Everything it
+// serves is still checked against the embedded keys. Empty turns it off.
+var GitHubProxy = "https://ghfast.top/"
+
+// proxied returns url through GitHubProxy, or "" when url is not a github.com
+// download link.
+func proxied(url string) string {
+	if GitHubProxy == "" || !strings.HasPrefix(url, "https://github.com/") {
+		return ""
+	}
+	return GitHubProxy + url
+}
+
+// retryable reports whether a failed request is worth repeating: the network
+// broke or the server had a moment, rather than refusing for good.
+func retryable(err error) bool {
+	var h httpError
+	if errors.As(err, &h) {
+		return h >= 500 || h == http.StatusTooManyRequests
+	}
+	return !errors.Is(err, errTooLarge)
+}
+
+type httpError int
+
+func (e httpError) Error() string { return fmt.Sprintf("HTTP %d", int(e)) }
+
+var errTooLarge = errors.New("响应体积异常")
+
+// get fetches url, trying up to three times: right after launch (and after an
+// update restarts the app) the first connection to GitHub's file host often
+// times out while the next one goes through.
 func (c *Checker) get(ctx context.Context, url string, limit int64) ([]byte, error) {
+	var err error
+	for attempt, wait := 0, time.Second; ; attempt, wait = attempt+1, wait*2 {
+		var b []byte
+		if b, err = c.getOnce(ctx, url, limit); err == nil || attempt == 2 || !retryable(err) {
+			return b, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(wait):
+		}
+	}
+}
+
+// getAsset is get for a release file, falling back to GitHubProxy.
+func (c *Checker) getAsset(ctx context.Context, url string, limit int64) ([]byte, error) {
+	b, err := c.get(ctx, url, limit)
+	if err == nil || ctx.Err() != nil {
+		return b, err
+	}
+	if p := proxied(url); p != "" {
+		if b, perr := c.get(ctx, p, limit); perr == nil {
+			return b, nil
+		}
+	}
+	return nil, err
+}
+
+func (c *Checker) getOnce(ctx context.Context, url string, limit int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -101,14 +163,14 @@ func (c *Checker) get(ctx context.Context, url string, limit int64) ([]byte, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, httpError(resp.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return nil, err
 	}
 	if int64(len(b)) > limit {
-		return nil, errors.New("响应体积异常")
+		return nil, errTooLarge
 	}
 	return b, nil
 }
@@ -199,7 +261,7 @@ func (c *Checker) windowsInfo(ctx context.Context, r *ghRelease) (*Info, error) 
 	}
 	info := &Info{Version: v, Size: pkg.Size, name: name, url: pkg.URL, wantSize: pkg.Size}
 	if sj := find(r.Assets, name+".sig.json"); sj != nil {
-		b, err := c.get(ctx, sj.URL, 64<<10)
+		b, err := c.getAsset(ctx, sj.URL, 64<<10)
 		if err != nil {
 			return nil, fmt.Errorf("下载签名元数据失败：%w", err)
 		}
@@ -243,7 +305,7 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 	if a == nil {
 		return nil, errors.New("最新版本没有 appcast.xml")
 	}
-	b, err := c.get(ctx, a.URL, 1<<20)
+	b, err := c.getAsset(ctx, a.URL, 1<<20)
 	if err != nil {
 		return nil, fmt.Errorf("下载 appcast 失败：%w", err)
 	}

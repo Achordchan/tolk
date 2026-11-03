@@ -47,7 +47,15 @@ func migrate(old, dest string) (bool, error) {
 		return false, nil
 	}
 	if err := os.Rename(old, dest); err == nil {
-		return true, relink(old, dest)
+		if err := relink(old, dest, dest); err != nil {
+			// Put the folder back so this run and the next keep working
+			// from it, rather than from a moved copy with broken links.
+			if os.Rename(dest, old) == nil {
+				return false, err
+			}
+			return true, err
+		}
+		return true, nil
 	}
 	tmp := dest + ".partial"
 	_ = os.RemoveAll(tmp)
@@ -55,19 +63,25 @@ func migrate(old, dest string) (bool, error) {
 		_ = os.RemoveAll(tmp)
 		return false, err
 	}
+	if err := relink(old, tmp, dest); err != nil {
+		_ = os.RemoveAll(tmp)
+		return false, err
+	}
 	if err := os.Rename(tmp, dest); err != nil {
 		_ = os.RemoveAll(tmp)
 		return false, err
 	}
-	return true, relink(old, dest)
+	return true, nil
 }
 
-// relink points links that named a file inside the old folder by its full
-// path at the same file in the new one; after the move they would lead
-// nowhere. Relative links and links elsewhere are left alone.
-func relink(old, dest string) error {
+// relink points links under dir that named a file inside the old folder by
+// its full path at the same file under final, where dir ends up; after the
+// move they would lead nowhere. Relative links and links elsewhere are left
+// alone. Each new link is made beside the old one and then put in its place,
+// so a link that cannot be made leaves the old one as it was.
+func relink(old, dir, final string) error {
 	prefix := old + string(filepath.Separator)
-	return filepath.WalkDir(dest, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.Type()&os.ModeSymlink == 0 {
 			return err
 		}
@@ -75,10 +89,16 @@ func relink(old, dest string) error {
 		if err != nil || !filepath.IsAbs(target) || (target != old && !strings.HasPrefix(target, prefix)) {
 			return err
 		}
-		if err := os.Remove(path); err != nil {
+		tmp := path + ".relink"
+		_ = os.Remove(tmp)
+		if err := os.Symlink(final+strings.TrimPrefix(target, old), tmp); err != nil {
 			return err
 		}
-		return os.Symlink(dest+strings.TrimPrefix(target, old), path)
+		if err := os.Rename(tmp, path); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
+		return nil
 	})
 }
 

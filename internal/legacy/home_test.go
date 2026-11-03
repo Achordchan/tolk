@@ -102,3 +102,29 @@ func TestMigrateRepointsLinksIntoOldFolder(t *testing.T) {
 		t.Fatalf("link does not lead to the moved file: %q %v", b, err)
 	}
 }
+
+func TestMigrateRollsBackWhenRelinkFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read-only folder")
+	}
+	root := t.TempDir()
+	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
+	sub := filepath.Join(old, "sub")
+	os.MkdirAll(sub, 0o700)
+	os.WriteFile(filepath.Join(old, "work.json"), []byte("{}"), 0o600)
+	if err := os.Symlink(filepath.Join(old, "work.json"), filepath.Join(sub, "config.json")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	os.Chmod(sub, 0o500) // the new link cannot be made here
+	t.Cleanup(func() { os.Chmod(sub, 0o700); os.Chmod(filepath.Join(dest, "sub"), 0o700) })
+	moved, err := migrate(old, dest)
+	if moved || err == nil {
+		t.Fatalf("want a rolled-back failure, got %v %v", moved, err)
+	}
+	if got, err := os.Readlink(filepath.Join(sub, "config.json")); err != nil || got != filepath.Join(old, "work.json") {
+		t.Fatalf("old link changed: %q %v", got, err)
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		t.Fatal("the new folder must not stay behind")
+	}
+}

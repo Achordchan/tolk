@@ -2,6 +2,8 @@ package update
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -139,5 +141,39 @@ func TestDownloadMovesOnWhenPackageFailsVerify(t *testing.T) {
 	c.Mirrors = nil
 	if _, err := c.Download(context.Background(), info, t.TempDir(), nil); err == nil {
 		t.Fatal("a package that fails verification on every route must fail")
+	}
+}
+
+func TestSignatureFromMirrorMustVerify(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	_, other, _ := ed25519.GenerateKey(nil)
+	name := WindowsAssetName("2.0.0")
+	sig := func(k ed25519.PrivateKey) []byte {
+		p := Payload{AppVersion: "2.0.0", Filename: name, PackageType: "windows_full_update", Platform: "windows", SHA256: "ab", SizeBytes: 4}
+		b, _ := json.Marshal(SigJSON{Payload: p, Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(k, p.Canonical()))})
+		return b
+	}
+	// The origin answers first with metadata signed by someone else; the
+	// slower mirror has the real one.
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(sig(other)) }))
+	t.Cleanup(origin.Close)
+	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.Write(sig(priv))
+	}))
+	t.Cleanup(mirror.Close)
+	c := NewChecker("windows", "1.0.0")
+	c.Origin, c.Mirrors = origin.URL+"/", []string{mirror.URL + "/"}
+	c.windowsKey = base64.StdEncoding.EncodeToString(pub)
+	r := &ghRelease{Tag: "v2.0.0", Assets: []ghAsset{
+		{Name: name, Size: 4, URL: origin.URL + "/pkg"},
+		{Name: name + ".sig.json", URL: origin.URL + "/sig"},
+	}}
+	info, err := c.windowsInfo(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyPayload(c.windowsKey, Payload{AppVersion: "2.0.0", Filename: name, PackageType: "windows_full_update", Platform: "windows", SHA256: "ab", SizeBytes: 4}, info.sig); err != nil {
+		t.Fatal("took the badly signed metadata:", err)
 	}
 }

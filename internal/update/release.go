@@ -67,6 +67,9 @@ type Checker struct {
 	// verify checks a downloaded package before its route is accepted;
 	// tests swap it, since Verify trusts only the embedded keys.
 	verify func(info *Info, path string) error
+	// windowsKey, when set, replaces the embedded key for signature
+	// metadata (tests).
+	windowsKey string
 }
 
 // errOSTooOld means the newest release needs a newer macOS than this one.
@@ -289,11 +292,29 @@ func (c *Checker) windowsInfo(ctx context.Context, r *ghRelease) (*Info, error) 
 	if sj == nil || sj.URL == "" {
 		return nil, errors.New("最新版本缺少更新签名")
 	}
-	// parse runs on every route's answer at once, so it only reads.
+	// parse runs on every route's answer at once, so it only reads. A route
+	// counts only with metadata that fits this release and is signed, so a
+	// mirror serving something stale or broken cannot win the race.
+	key := c.windowsKey
+	if key == "" {
+		key = windowsKey
+	}
 	parse := func(b []byte) (SigJSON, error) {
 		var x SigJSON
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(string(b), "\xef\xbb\xbf")), &x); err != nil || x.Signature == "" {
 			return x, errors.New("签名元数据损坏")
+		}
+		if NormalizeVersion(x.AppVersion) != v {
+			return x, errors.New("签名元数据目标版本不匹配")
+		}
+		if x.Filename != name || x.PackageType != "windows_full_update" || x.Platform != "windows" {
+			return x, errors.New("签名元数据的文件名、包类型或平台不匹配")
+		}
+		if pkg.Size != 0 && pkg.Size != x.SizeBytes {
+			return x, errors.New("签名元数据文件大小与 Release 不一致")
+		}
+		if err := VerifyPayload(key, x.Payload, x.Signature); err != nil {
+			return x, fmt.Errorf("签名元数据验签失败：%w", err)
 		}
 		return x, nil
 	}
@@ -305,13 +326,7 @@ func (c *Checker) windowsInfo(ctx context.Context, r *ghRelease) (*Info, error) 
 	if err != nil {
 		return nil, err
 	}
-	if NormalizeVersion(s.AppVersion) != v {
-		return nil, errors.New("签名元数据目标版本不匹配")
-	}
 	info.sig, info.sha, info.wantSize = s.Signature, strings.ToLower(s.SHA256), s.SizeBytes
-	if pkg.Size != 0 && pkg.Size != s.SizeBytes {
-		return nil, errors.New("签名元数据文件大小与 Release 不一致")
-	}
 	info.Size = s.SizeBytes
 	return info, nil
 }

@@ -97,6 +97,7 @@ func windowsServer(t *testing.T, priv ed25519.PrivateKey, tamper bool) (*httptes
 	c := NewChecker("windows", "1.2.11")
 	c.Latest, c.API, c.Mirrors = srv.URL+"/release", "", nil
 	c.verify = nil // the tests verify with their own key
+	c.windowsKey = base64.StdEncoding.EncodeToString(priv.Public().(ed25519.PublicKey))
 	return srv, c, pkg
 }
 

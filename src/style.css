@@ -214,13 +214,6 @@ textarea.list { min-width: 0; min-height: 78px; padding: 6px 10px; resize: verti
 
 .about { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin: 10px 0; }
 .about strong { font-size: 18px; }
-.update { padding: 12px 16px; margin: 10px 0; }
-.update[hidden] { display: none; }
-.update-head { display: flex; align-items: center; gap: 10px; }
-.bar { height: 6px; margin-top: 10px; border-radius: 3px; background: var(--control); overflow: hidden; }
-.bar[hidden] { display: none; }
-.bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
-.notes { margin: 10px 0 0; max-height: 150px; overflow: auto; white-space: pre-wrap; font: inherit; font-size: 13px; color: var(--muted); }
 .facts { display: grid; grid-template-columns: 84px 1fr; gap: 6px 10px; font-size: 13px; margin: 12px 0; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; word-break: break-all; }
@@ -362,7 +355,7 @@ fieldset details.adv { margin: 6px 0 4px; border: 0; padding: 0; }
 /* An app, not a page: labels and buttons are not selectable text. Only what the
    user may want to copy is. */
 body { -webkit-user-select: none; user-select: none; cursor: default; }
-textarea, input, .output, .mini-body, .c-list, .notes, .facts dd, [contenteditable] { -webkit-user-select: text; user-select: text; }
+textarea, input, .output, .mini-body, .c-list, .ud-notes, .facts dd, [contenteditable] { -webkit-user-select: text; user-select: text; }
 
 /* 输入助手 target languages: chips that wrap, no inner scroll box */
 .stack { margin: 12px 0 4px; }
@@ -383,3 +376,20 @@ textarea, input, .output, .mini-body, .c-list, .notes, .facts dd, [contenteditab
   background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
 }
 .langs .pack-chip { margin-left: 2px; height: 18px; padding: 0 6px; font-size: 10.5px; font-weight: 500; }
+
+/* ---- update dialog (update.ts) ---- */
+dialog.update-dialog { width: min(460px, 92vw); height: auto; max-height: 80vh; padding: 22px 24px 18px; }
+dialog.update-dialog[open] { display: flex; flex-direction: column; gap: 14px; }
+.ud-head { display: flex; align-items: center; gap: 14px; }
+.ud-head h2 { margin: 0; font-size: 17px; }
+.ud-notes { flex: 0 1 auto; min-height: 0; max-height: 300px; overflow: auto; margin: 0; padding: 0 6px 0 18px; font-size: 13px; line-height: 1.6; color: color-mix(in srgb, var(--fg) 80%, transparent); }
+.ud-notes li + li { margin-top: 6px; }
+.ud-notes::-webkit-scrollbar { width: 8px; }
+.ud-notes::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--fg) 20%, transparent); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+dialog.update-dialog p.error { margin: 0; word-break: break-word; }
+.ud-progress { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.ud-track { flex: 1; height: 6px; border-radius: 3px; background: var(--control); overflow: hidden; }
+.ud-track i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.ud-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.ud-actions:not(:has(button:not([hidden]))) { display: none; }
+.about-status { margin-top: 2px; font-size: 12px; }

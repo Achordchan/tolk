@@ -6,6 +6,7 @@ import { initSettings } from "./settings";
 import { macPane } from "./mac";
 import { inputAssistPane } from "./inputassist";
 import { langName } from "./langname";
+import { initUpdate } from "./update";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -244,3 +245,4 @@ initSettings({
 
 showEmpty(true);
 input.focus();
+await initUpdate();

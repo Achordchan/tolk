@@ -193,15 +193,21 @@ func installUpdate(info *update.Info) {
 	mygo.App.Quit()
 }
 
-// watchUpdates checks shortly after start and then daily. A release marked
-// update=1 installs by itself once its signature has verified, as in dazuo-win.
+// watchUpdates checks right after start, so the page can ask about a new
+// version while the user is looking at it, and then daily; a failed check (no
+// network yet at login) tries again sooner. A release marked update=1 installs
+// by itself once its signature has verified, as in dazuo-win.
 func watchUpdates() {
-	time.Sleep(10 * time.Second)
+	time.Sleep(3 * time.Second)
 	for {
 		s, _ := checkUpdate()
 		if s.State == "available" && s.Force {
 			Logs.Warnf("v%s 是强制更新，自动安装", s.Version)
 			_ = Tolk{}.InstallUpdate()
+		}
+		if s.State == "error" {
+			time.Sleep(time.Hour)
+			continue
 		}
 		time.Sleep(24 * time.Hour)
 	}

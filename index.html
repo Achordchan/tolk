@@ -220,14 +220,10 @@
               <div>
                 <strong id="a-name">Tolk</strong>
                 <div class="muted" id="a-version"></div>
+                <div class="about-status muted" id="a-status" hidden></div>
               </div>
               <span class="spacer"></span>
               <button type="button" id="a-check" class="ghost">检查更新</button>
-            </div>
-            <div id="a-update" class="update card" hidden>
-              <div class="update-head"><strong id="u-title"></strong><span class="spacer"></span><button type="button" id="u-install" class="primary" hidden>立即更新</button></div>
-              <div class="bar" id="u-bar" hidden><i id="u-fill"></i></div>
-              <pre id="u-notes" class="notes"></pre>
             </div>
             <p class="muted">Tolk 由大佐翻译官（Windows）与 bagayalu（macOS）合并而来，沿用同一份设置和更新渠道。</p>
             <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">问题反馈</a></p>
@@ -251,6 +247,22 @@
           </div>
         </div>
       </form>
+    </dialog>
+    <dialog id="update-dialog" class="update-dialog">
+      <div class="ud-head">
+        <img src="/icon.png" alt="" width="48" height="48" />
+        <h2 id="ud-title"></h2>
+      </div>
+      <ul id="ud-notes" class="ud-notes"></ul>
+      <p id="ud-error" class="error" hidden></p>
+      <div id="ud-progress" class="ud-progress" hidden>
+        <div class="ud-track"><i id="ud-fill"></i></div>
+        <span id="ud-percent" class="muted"></span>
+      </div>
+      <div class="ud-actions">
+        <button type="button" id="ud-later" class="ghost">稍后</button>
+        <button type="button" id="ud-install" class="primary">立即更新</button>
+      </div>
     </dialog>
     <script type="module" src="./src/main.ts"></script>
   </body>

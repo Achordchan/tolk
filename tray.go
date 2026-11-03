@@ -65,9 +65,14 @@ func setupTray(win *mygo.Window, showMain func()) {
 	}
 }
 
+var refreshMu sync.Mutex
+
 // refreshTray redraws the check marks after a switch changed somewhere else
 // (the settings page, the main window's Mini button).
 func refreshTray() {
+	// One refresh at a time, so an older snapshot never lands after a newer one.
+	refreshMu.Lock()
+	defer refreshMu.Unlock()
 	trayState.mu.Lock()
 	tray := trayState.tray
 	trayState.mu.Unlock()

@@ -3,6 +3,7 @@
 package autostart
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,8 +55,12 @@ func Rename() error {
 		return err
 	}
 	// Turning a startup app off in Settings or Task Manager keeps the shortcut
-	// and records the choice by file name; carry it over to the new name.
-	carryApproval(oldShortcutName, shortcutName)
+	// and records the choice by file name; carry it over to the new name. If
+	// that fails, keep the old entry so a switched-off app stays off.
+	if err := carryApproval(oldShortcutName, shortcutName); err != nil {
+		_ = os.Remove(filepath.Join(dir, shortcutName))
+		return err
+	}
 	return os.Remove(old)
 }
 
@@ -63,19 +68,29 @@ func Rename() error {
 // entry, as a binary value named after the shortcut file.
 const approvedKey = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder`
 
-func carryApproval(from, to string) {
+// carryApproval copies the recorded switch of one entry to another. Nothing
+// recorded (never switched) is not an error.
+func carryApproval(from, to string) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, approvedKey, registry.QUERY_VALUE|registry.SET_VALUE)
+	if errors.Is(err, registry.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		return // never switched: nothing recorded
+		return err
 	}
 	defer k.Close()
 	v, _, err := k.GetBinaryValue(from)
+	if errors.Is(err, registry.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		return
+		return err
 	}
-	if k.SetBinaryValue(to, v) == nil {
-		_ = k.DeleteValue(from)
+	if err := k.SetBinaryValue(to, v); err != nil {
+		return err
 	}
+	_ = k.DeleteValue(from)
+	return nil
 }
 
 func run(script string, env ...string) (string, error) {

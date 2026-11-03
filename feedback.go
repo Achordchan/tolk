@@ -263,9 +263,11 @@ func reportPreviousRun() {
 	if fb.store.Get().UpdateResultAt == stamp {
 		return
 	}
-	_, _ = fb.store.Update(func(st *report.State) { st.UpdateResultAt = stamp })
-	sendAuto(report.Update, fmt.Sprintf("[更新失败] v%s → v%s：%s", Version, res.Expected, res.Message),
-		fmt.Sprintf("更新到 v%s 失败：%s", res.Expected, res.Message), res.Message, nil)
+	// Marked as handled once the report has been tried, so one held back by
+	// the daily cap (or cut short by quitting) is tried again on a later run.
+	sendAutoThen(report.Update, fmt.Sprintf("[更新失败] v%s → v%s：%s", Version, res.Expected, res.Message),
+		fmt.Sprintf("更新到 v%s 失败：%s", res.Expected, res.Message), res.Message, nil,
+		func() { _, _ = fb.store.Update(func(st *report.State) { st.UpdateResultAt = stamp }) })
 }
 
 // crashHead is the "panic: …" line and the first Tolk frame below it.

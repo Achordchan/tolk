@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,5 +48,26 @@ func TestCrashWaitsUntilReported(t *testing.T) {
 	_ = os.Remove(filepath.Join(dir, crashPending)) // what reporting does once tried
 	if got := takeCrash(dir); got != "" {
 		t.Fatalf("reported crash came back: %q", got)
+	}
+}
+
+func TestSignalCrashIsKept(t *testing.T) {
+	for _, dump := range []string{
+		"SIGSEGV: segmentation violation\nPC=0x7ff6 m=0 sigcode=1\n\ngoroutine 1 [running]:\nmain.callC()\n",
+		"Exception 0xc0000005 0x0 0x0 0x7ffd\nPC=0x7ffd\n\nmain.callC()\n",
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, crashFile), []byte(dump), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := takeCrash(dir); got != dump {
+			t.Fatalf("dump not kept: %q", got)
+		}
+		if h := crashHead(dump); h == "程序崩溃" || !strings.Contains(h, "@ main.callC()") {
+			t.Fatalf("crashHead = %q", h)
+		}
+	}
+	if takeCrash(t.TempDir()) != "" || isCrash(" \n") {
+		t.Fatal("an empty crash.log is not a crash")
 	}
 }

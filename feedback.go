@@ -100,8 +100,12 @@ func takeCrash(dir string) string {
 	return ""
 }
 
+// isCrash: only the Go runtime writes to crash.log, and only when the
+// process dies, so anything in it is a crash dump: a panic, a fatal error,
+// or a fatal signal or Windows exception in native code (SIGSEGV: …,
+// Exception 0xc0000005 …), which carries neither of the first two.
 func isCrash(s string) bool {
-	return strings.Contains(s, "panic:") || strings.Contains(s, "fatal error:")
+	return strings.TrimSpace(s) != ""
 }
 
 // ---- the 提交问题 dialog ----
@@ -270,13 +274,22 @@ func reportPreviousRun() {
 		func() { _, _ = fb.store.Update(func(st *report.State) { st.UpdateResultAt = stamp }) })
 }
 
-// crashHead is the "panic: …" line and the first Tolk frame below it.
+func crashLine(l string) bool {
+	for _, p := range []string{"panic:", "fatal error:", "SIG", "Exception 0x"} {
+		if strings.HasPrefix(l, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// crashHead is the "panic: …" line (or the signal / exception line) and the first Tolk frame below it.
 func crashHead(s string) string {
 	lines := strings.Split(s, "\n")
 	head := ""
 	for _, l := range lines {
 		l = strings.TrimSpace(l)
-		if head == "" && (strings.HasPrefix(l, "panic:") || strings.HasPrefix(l, "fatal error:")) {
+		if head == "" && crashLine(l) {
 			head = l
 			continue
 		}

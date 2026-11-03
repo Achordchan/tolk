@@ -61,6 +61,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 [Code]
 var
   OldDir: String;
+  OldUninstaller: String;
 
 // 旧版装在哪里：同一个 AppId 的卸载项里记着。
 function InitializeSetup(): Boolean;
@@ -68,6 +69,10 @@ begin
   if not RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1', 'InstallLocation', OldDir) then
     OldDir := '';
   OldDir := RemoveBackslashUnlessRoot(OldDir);
+  // 旧版自己的卸载程序（目录里可能还有别的程序的 unins000.exe）。
+  if not RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1', 'UninstallString', OldUninstaller) then
+    OldUninstaller := '';
+  OldUninstaller := RemoveQuotes(OldUninstaller);
   Result := True;
 end;
 
@@ -98,9 +103,14 @@ begin
   DeleteFile(Dir + 'LICENSE');
   DeleteFile(Dir + 'DeepLX-LICENSE');
   DeleteFile(Dir + 'src\ziyuan\logo.ico');
-  DeleteFile(Dir + 'unins000.exe');
-  DeleteFile(Dir + 'unins000.dat');
-  DeleteFile(Dir + 'unins000.msg');
+  // 只删旧版自己的卸载程序：卸载项里记着的那个，且就在这个目录里。
+  if (OldUninstaller <> '') and
+     (CompareText(AddBackslash(ExtractFileDir(OldUninstaller)), Dir) = 0) then
+  begin
+    DeleteFile(OldUninstaller);
+    DeleteFile(ChangeFileExt(OldUninstaller, '.dat'));
+    DeleteFile(ChangeFileExt(OldUninstaller, '.msg'));
+  end;
   // 只删空了的文件夹：用户放进去的别的东西都留着。
   RemoveDir(Dir + 'src\ziyuan');
   RemoveDir(Dir + 'src');

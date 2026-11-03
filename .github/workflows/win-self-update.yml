@@ -136,11 +136,17 @@ jobs:
           New-Item -ItemType Directory -Force $old | Out-Null
           Copy-Item $exe (Join-Path $old "大佐翻译官.exe")
           Set-Content (Join-Path $old "我的笔记.txt") "keep"
+          # 目录里还有别的程序的卸载程序；旧版 Tolk 的是 unins001。
+          Set-Content (Join-Path $old "unins000.exe") "other app"
+          Set-Content (Join-Path $old "unins001.exe") "old tolk"
+          New-ItemProperty -Force $key -Name UninstallString -Value "`"$old\unins001.exe`"" | Out-Null
           New-ItemProperty -Force $key -Name InstallLocation -Value "$old\" | Out-Null
           $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "安装器退出码 $($p.ExitCode)" }
           if (Test-Path (Join-Path $old "大佐翻译官.exe")) { throw "旧主程序没有删掉" }
           if (-not (Test-Path (Join-Path $old "我的笔记.txt"))) { throw "用户自己的文件被删了" }
+          if (-not (Test-Path (Join-Path $old "unins000.exe"))) { throw "别的程序的卸载程序被删了" }
+          if (Test-Path (Join-Path $old "unins001.exe")) { throw "旧版 Tolk 的卸载程序没删" }
           $loc = (Get-ItemProperty $key).InstallLocation
           if ($loc.TrimEnd("\") -ne $new) { throw "卸载项还指着 $loc" }
           # 再装一次（2.2.3 以后的升级）：装回原处。

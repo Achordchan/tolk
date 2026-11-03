@@ -239,3 +239,21 @@ func TestAppcastFromGitHubWinsOverFasterMirror(t *testing.T) {
 		t.Fatalf("%+v %v", info, err)
 	}
 }
+
+func TestDownloadReloadsSignatureWhenPackageFailsIt(t *testing.T) {
+	pkg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("good")) }))
+	t.Cleanup(pkg.Close)
+	c := NewChecker("darwin", "1.0.0")
+	c.Origin, c.Mirrors = "", nil
+	c.verify = func(info *Info, _ string) error {
+		if info.sig != "right" {
+			return errors.New("bad signature")
+		}
+		return nil
+	}
+	info := &Info{name: "p.zip", url: pkg.URL + "/pkg", wantSize: 4, sig: "forged"}
+	info.reload = func(context.Context) bool { info.sig = "right"; return true }
+	if _, err := c.Download(context.Background(), info, t.TempDir(), nil); err != nil {
+		t.Fatal(err)
+	}
+}

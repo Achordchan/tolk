@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -212,7 +213,7 @@ func downloadUpdate(info *update.Info, install bool) {
 	if err != nil {
 		Logs.Errorf("下载更新失败：%v", err)
 		setUpdate(UpdateState{State: "error", Version: info.Version, Notes: info.Notes, Force: info.Force, Error: err.Error()})
-		if !install {
+		if !install && !errors.Is(err, update.ErrCannotInstall) {
 			// A background download that broke tries again later by itself.
 			time.AfterFunc(30*time.Minute, func() { _, _ = checkUpdate() })
 		}

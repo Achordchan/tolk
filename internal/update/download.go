@@ -27,6 +27,7 @@ func (c *Checker) Download(ctx context.Context, info *Info, dir string, progress
 		return "", err
 	}
 	var errs []string
+	reloaded := false
 	for _, u := range c.rank(ctx, c.routes(info.url)) {
 		name := routeName(u, c.Origin)
 		c.logf("从 %s 下载 %s", name, info.name)
@@ -34,7 +35,16 @@ func (c *Checker) Download(ctx context.Context, info *Info, dir string, progress
 		if err == nil && c.verify != nil {
 			// A route that hands back a damaged package is skipped like
 			// one that breaks, so the next route still gets its turn.
-			if err = c.verify(info, path); err != nil {
+			err = c.verify(info, path)
+			if err != nil && !reloaded && info.reload != nil {
+				// Once: the signature may be what is wrong (a mirror's
+				// metadata), not the package.
+				reloaded = true
+				if info.reload(ctx) {
+					err = c.verify(info, path)
+				}
+			}
+			if err != nil {
 				os.Remove(path)
 			}
 		}

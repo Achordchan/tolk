@@ -106,9 +106,7 @@ func trayMenu(withQuit bool) *mygo.Menu {
 		{Label: "输入助手", Type: mygo.MenuItemCheckbox, Checked: ia.Enabled, Click: func(it *mygo.MenuItem, _ *mygo.Window) {
 			on := it.Checked
 			go func() {
-				s := loadInputAssist()
-				s.Enabled = on
-				if _, err := (Tolk{}).SetInputAssist(s); err != nil {
+				if err := setInputAssistEnabled(on); err != nil {
 					Logs.Errorf("输入助手切换失败：%v", err)
 					refreshTray()
 					return

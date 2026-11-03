@@ -171,7 +171,9 @@ func post(ctx context.Context, client *http.Client, endpoint string, payload []b
 		// Not the relay's answer. A block page or proxy refusal (4xx) means
 		// it never got there; a failing edge (5xx) may have cut it off
 		// after it acted. Either way the other address is worth a try.
-		if resp.StatusCode >= 500 {
+		// A 2xx with an unreadable body may be the relay's success cut
+		// short: it may have filed the report.
+		if resp.StatusCode >= 500 || resp.StatusCode/100 == 2 {
 			return Result{}, fmt.Errorf("%w: %s: HTTP %d", errUnsure, endpoint, resp.StatusCode)
 		}
 		return Result{}, fmt.Errorf("%s: HTTP %d", endpoint, resp.StatusCode)

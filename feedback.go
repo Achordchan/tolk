@@ -313,11 +313,25 @@ func crashLine(l string) bool {
 // updateLogTail is the end of update.log, scrubbed before it is cut: a cut
 // inside a path would leave part of the account name without the
 // C:\Users\ in front that lets Scrub recognise it.
-func updateLogTail(raw []byte) string {
+func updateLogTail(path string) string {
 	const read = 256 << 10 // plenty for the last few updates
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	// The updater scripts only append, so the file can be large: read just
+	// its end.
+	cut := false
+	if fi, err := f.Stat(); err == nil && fi.Size() > read {
+		if _, err := f.Seek(-read, io.SeekEnd); err != nil {
+			return ""
+		}
+		cut = true
+	}
+	raw, _ := io.ReadAll(io.LimitReader(f, read))
 	s := string(raw)
-	if len(s) > read {
-		s = s[len(s)-read:]
+	if cut {
 		// The first line is cut, so it goes whole.
 		if i := strings.IndexByte(s, '\n'); i >= 0 {
 			s = s[i+1:]
@@ -440,11 +454,11 @@ func baseReport(kind, title, description string, withLogs bool) report.Report {
 	}
 	r.Attachments = append(r.Attachments, report.Attachment{Name: "运行日志（最近 400 行）", Body: b.String()})
 	if dirs, err := update.DefaultDirs(); err == nil {
-		if raw, err := os.ReadFile(filepath.Join(dirs.State, "update.log")); err == nil {
-			r.Attachments = append(r.Attachments, report.Attachment{Name: "更新日志 update.log", Body: updateLogTail(raw)})
+		if tail := updateLogTail(filepath.Join(dirs.State, "update.log")); tail != "" {
+			r.Attachments = append(r.Attachments, report.Attachment{Name: "更新日志 update.log", Body: tail})
 		}
-		if raw, err := os.ReadFile(filepath.Join(dirs.State, "last_update_result.json")); err == nil {
-			r.Attachments = append(r.Attachments, report.Attachment{Name: "上次更新结果", Body: string(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")))})
+		if raw := readHead(filepath.Join(dirs.State, "last_update_result.json"), 64<<10); raw != "" {
+			r.Attachments = append(r.Attachments, report.Attachment{Name: "上次更新结果", Body: strings.TrimPrefix(raw, "\xef\xbb\xbf")})
 		}
 	}
 	return r

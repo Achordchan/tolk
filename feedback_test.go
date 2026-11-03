@@ -75,15 +75,25 @@ func TestSignalCrashIsKept(t *testing.T) {
 func TestUpdateLogScrubbedBeforeCut(t *testing.T) {
 	line := `copy C:\Users\Jane Doe\AppData\Local\Tolk\new\tolk.exe -> C:\Users\Jane Doe\AppData\Local\Programs\Tolk\tolk.exe ` + strings.Repeat("x", 300) + "\n"
 	log := strings.Repeat(line, 200)
+	path := filepath.Join(t.TempDir(), "update.log")
+	tail := func(s string) string {
+		if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return updateLogTail(path)
+	}
 	for _, cut := range []int{0, 7, 20, 40} { // move where the 12000-byte cut lands
-		got := updateLogTail([]byte(log[:len(log)-cut]))
+		got := tail(log[:len(log)-cut])
 		if strings.Contains(got, "Jane") || strings.Contains(got, "Doe") || strings.Contains(got, "ane D") {
 			t.Fatalf("account name left after cut %d", cut)
 		}
 	}
 	big := strings.Repeat(line, 2000) // over the 256 KiB read
-	if got := updateLogTail([]byte(big)); strings.Contains(got, "Doe") || got == "" {
+	if got := tail(big); strings.Contains(got, "Doe") || got == "" {
 		t.Fatal("long log not scrubbed or empty")
+	}
+	if updateLogTail(filepath.Join(t.TempDir(), "none")) != "" {
+		t.Fatal("no log, no attachment")
 	}
 }
 

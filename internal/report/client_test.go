@@ -171,3 +171,20 @@ func TestTimeoutWhileWritingHasNoRace(t *testing.T) {
 		}
 	}
 }
+
+func TestUnreadableSuccessIsPending(t *testing.T) {
+	cut := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"numb`)) // filed, answer cut short
+	}))
+	defer cut.Close()
+	down := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	downURL := down.URL
+	down.Close()
+	old := Endpoints
+	defer func() { Endpoints = old }()
+	Endpoints = []string{cut.URL, downURL}
+	r := Report{Kind: Manual, Title: "t", InstallID: "ab", Version: "2.2.3", SubmissionID: "aa"}.Clean()
+	if res, err := Send(context.Background(), nil, r); !errors.Is(err, ErrPending) || !res.Pending {
+		t.Fatalf("a cut-short success must stay pending: %v %+v", err, res)
+	}
+}

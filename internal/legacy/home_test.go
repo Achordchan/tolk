@@ -217,3 +217,20 @@ func TestMigrateKeepsOldFolderWhenUnreadable(t *testing.T) {
 		t.Fatalf("an unreadable old folder must be an error, got %v %v", moved, err)
 	}
 }
+
+func TestMigrateCleansAbsoluteLinkTargets(t *testing.T) {
+	root := t.TempDir()
+	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
+	os.MkdirAll(filepath.Join(old, "profiles"), 0o700)
+	os.WriteFile(filepath.Join(old, "profiles", "work.json"), []byte("{}"), 0o600)
+	winding := old + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Join(".dzfyq", "profiles", "work.json")
+	if err := os.Symlink(winding, filepath.Join(old, "config.json")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if moved, err := migrate(old, dest); !moved || err != nil {
+		t.Fatal(moved, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dest, "config.json")); err != nil || string(b) != "{}" {
+		t.Fatalf("%q %v", b, err)
+	}
+}

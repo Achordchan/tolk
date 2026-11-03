@@ -115,7 +115,7 @@ func relink(old, dir, final string, fold bool) error {
 		if err != nil {
 			return err
 		}
-		abs := target
+		abs := filepath.Clean(target) // /x/.dzfyq/../.dzfyq/a is /x/.dzfyq/a
 		if !filepath.IsAbs(target) {
 			abs = filepath.Clean(filepath.Join(old, rel, target))
 		}

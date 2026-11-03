@@ -269,7 +269,10 @@ func (c *Checker) Check(ctx context.Context, current string) (*Info, error) {
 		return nil, nil
 	}
 	info.Notes = cleanNotes(r.Body)
-	info.Force = forceRe.MatchString(r.Body)
+	// Nothing signs the release notes, so a forced update (restart without
+	// asking) is taken only from GitHub itself; through a mirror the same
+	// update just waits for the user.
+	info.Force = from == "GitHub" && forceRe.MatchString(r.Body)
 	info.pkgGOOS = c.GOOS
 	info.userAgent = c.UserAgent
 	return info, nil

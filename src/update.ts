@@ -77,6 +77,9 @@ export async function initUpdate(toast: (m: string) => void) {
     // A later silent check must not disturb a dialog that is still asking.
     const background = s.state === "checking" || s.state === "latest" || s.state === "idle";
     if (dlg.open && background) return;
+    // A failed download drops the restart the user asked for (the backend
+    // forgets it too).
+    if (s.state === "error") queued = "";
     last = s;
     if (s.state === "ready" && s.version !== dismissed) openUpdate();
     else if (dlg.open) draw(s);

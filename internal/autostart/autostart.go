@@ -1,8 +1,7 @@
 // Package autostart manages launching Tolk at login.
 //
-// On Windows it keeps using dazuo-win's Startup-folder shortcut
-// (大佐翻译官.lnk), so a user who already enabled it keeps it, and switching it
-// in Tolk changes the same entry. macOS uses the app's own login item.
+// On Windows it is a shortcut in the Startup folder (Tolk.lnk); macOS uses the
+// app's own login item.
 package autostart
 
 import "errors"

@@ -1,24 +1,16 @@
 package main
 
 import (
-	_ "embed"
 	"log"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
 
+	"tolk/internal/autostart"
 	"tolk/internal/doublecopy"
 )
-
-// trayIcon is the 32 px picture of design/logo.ico. Windows draws nothing in
-// the notification area for an icon without a picture, so the tray was there
-// but invisible.
-//
-//go:embed design/tray.png
-var trayIcon []byte
 
 // Copied is sent to the main window when text should be translated there.
 var Copied = mygo.NewEvent[string]("copied")
@@ -37,10 +29,12 @@ func main() {
 			Height:          640,
 			MinWidth:        480,
 			MinHeight:       360,
-			BackgroundColor: "light-dark(#ececec, #2b2b2b)",
+			BackgroundColor: mainBackground,
 			StateKey:        "main",
 			URL:             "/",
 		})
+		mainWindow.Store(win)
+		tintTitleBar(loadPrefs().Theme == "pink")
 		createMini()
 		go keepEngineWarm()
 		createInputAssistPanel()
@@ -85,25 +79,12 @@ func main() {
 		startHelper(onCopied)
 		startInputAssist()
 
-		menu := mygo.NewMenu([]*mygo.MenuItem{
-			{Label: "显示 Tolk", Click: func(*mygo.MenuItem, *mygo.Window) { showMain() }},
-			mygo.Separator(),
-			{Label: "退出", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
-		})
-		opts := mygo.TrayOptions{ToolTip: "Tolk", Menu: menu}
-		if runtime.GOOS == "windows" {
-			opts.Icon = trayIcon
-		}
-		if tray, err := mygo.NewTray(opts); err != nil {
-			log.Println("tray:", err)
-		} else if runtime.GOOS == "windows" {
-			// As in 大佐翻译官: a left click brings the window back, the
-			// right click opens the menu.
-			tray.OnClick(showMain)
-		}
-		if runtime.GOOS == "windows" {
-			go tidyLegacyShortcuts()
-		}
+		setupTray(win, showMain)
+		go func() {
+			if err := autostart.Rename(); err != nil {
+				Logs.Warnf("开机自启：%v", err)
+			}
+		}()
 	})
 
 	if err := mygo.App.Run(); err != nil {

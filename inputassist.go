@@ -53,6 +53,7 @@ func (Tolk) SetInputAssist(s inputassist.Config) (InputAssistState, error) {
 		return InputAssistState{}, err
 	}
 	pushInputAssist()
+	go refreshTray()
 	return inputAssistState(), nil
 }
 

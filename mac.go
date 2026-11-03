@@ -66,10 +66,6 @@ func (Tolk) SetMacHotkeys(system, screenshot bool, keyCode int) error {
 	return nil
 }
 
-// MacImportLegacy copies the old Mac app's settings and API key into Tolk.
-// It returns notes about anything that did not carry over.
-func (Tolk) MacImportLegacy() ([]string, error) { return macImport(true) }
-
 // AppleLanguagePacks reports, for each language the 输入助手 translates into,
 // whether Apple's on-device pack is "installed", needs a download
 // ("supported") or is "unsupported". The pair starts from the user's own

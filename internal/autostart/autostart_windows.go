@@ -11,14 +11,41 @@ import (
 	"syscall"
 )
 
-const shortcutName = "大佐翻译官.lnk"
+// shortcutName is the Startup-folder entry; Windows lists it by this name
+// under 启动应用. Versions up to 2.2.2 named it oldShortcutName.
+const (
+	shortcutName    = "Tolk.lnk"
+	oldShortcutName = "大佐翻译官.lnk"
+)
 
-func shortcutPath() (string, error) {
+func startupDir() (string, error) {
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
 		return "", fmt.Errorf("找不到 APPDATA")
 	}
-	return filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", shortcutName), nil
+	return filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup"), nil
+}
+
+func shortcutPath() (string, error) {
+	dir, err := startupDir()
+	return filepath.Join(dir, shortcutName), err
+}
+
+// Rename moves an entry made by 2.2.2 or older to the Tolk name, so Windows
+// shows Tolk among the startup apps. It does nothing when there is none.
+func Rename() error {
+	dir, err := startupDir()
+	if err != nil {
+		return err
+	}
+	old := filepath.Join(dir, oldShortcutName)
+	if _, err := os.Stat(old); err != nil {
+		return nil
+	}
+	if err := Set(true); err != nil {
+		return err
+	}
+	return os.Remove(old)
 }
 
 func run(script string, env ...string) (string, error) {
@@ -56,8 +83,10 @@ func Set(on bool) error {
 		return err
 	}
 	if !on {
-		if err := os.Remove(lnk); err != nil && !os.IsNotExist(err) {
-			return err
+		for _, p := range []string{lnk, filepath.Join(filepath.Dir(lnk), oldShortcutName)} {
+			if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 		}
 		return nil
 	}

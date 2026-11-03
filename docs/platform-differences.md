@@ -24,7 +24,7 @@
 | Apple 本地翻译（离线，不用 API Key） | 依赖系统的 Translation 框架（macOS 15.1+） |
 | 截图翻译 / 截图识别文字 | 依赖系统的屏幕录制和 Vision 文字识别 |
 | 系统级 ⌘C⌘C、连按两次 ⌘X 截图 | 靠事件监听（CGEventTap），需要辅助功能权限；Windows 用剪贴板变化检测，不需要权限 |
-| 权限引导、导入旧版 Mac 设置 | 只对 macOS 有意义 |
+| 权限引导 | 只对 macOS 有意义 |
 
 这些都由 `macos/helper` 里的 Swift 小助手提供，Windows 版没有对应的原生小助手。
 

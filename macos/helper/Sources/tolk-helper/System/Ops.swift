@@ -137,9 +137,6 @@ enum Ops {
             try inputAssist.triggerManually()
             return [:]
 
-        case "legacy.read":
-            return LegacyReader.read()
-
         case "quit":
             // 先把应答写出去再退出。
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
@@ -179,7 +176,6 @@ enum Ops {
         if #available(macOS 14.0, *) { capabilities.append("ocr") }
         capabilities.append(contentsOf: ["pin", "selection"])
         if supportsApple { capabilities.append("apple") }
-        capabilities.append("legacy")
         capabilities.append("hotkeys")
         capabilities.append("inputassist")
         return [

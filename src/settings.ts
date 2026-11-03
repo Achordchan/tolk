@@ -223,7 +223,8 @@ export function initSettings(h: Hooks) {
   });
 
   // ---- open / save / close ----
-  $("#open-settings").addEventListener("click", async () => {
+  async function open(pane = "service") {
+    if (dlg.open) return show(pane);
     try {
       cfg = await Tolk.getSettings();
       saved = await Tolk.getPrefs();
@@ -251,7 +252,6 @@ export function initSettings(h: Hooks) {
       $("#tab-mac").hidden = !mac;
       $("#fs-shot").hidden = !mac;
       $("#dc-system-row").hidden = !mac;
-      $("#migrate-row").hidden = !mac;
       $("#tab-ia").hidden = !h.ia;
       $("#fs-ia-key").hidden = !h.ia;
       $("#side-version").textContent = `版本 ${about.version}`;
@@ -264,13 +264,14 @@ export function initSettings(h: Hooks) {
       await h.mac?.load();
       await h.ia?.load();
       syncSections();
-      show("service");
+      show(pane);
       sError.hidden = true;
       dlg.showModal();
     } catch (e) {
       h.toast(message(e));
     }
-  });
+  }
+  $("#open-settings").addEventListener("click", () => void open());
 
   const close = () => {
     stopConsole();
@@ -312,4 +313,6 @@ export function initSettings(h: Hooks) {
       sError.hidden = false;
     }
   });
+
+  return { open };
 }

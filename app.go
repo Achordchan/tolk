@@ -111,7 +111,7 @@ func checkUpdate() (UpdateState, error) {
 	}
 	upd.mu.Unlock()
 	setUpdate(UpdateState{State: "checking"})
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	info, err := newChecker().Check(ctx, Version)
 	if err != nil {
@@ -199,16 +199,24 @@ func installUpdate(info *update.Info) {
 // by itself once its signature has verified, as in dazuo-win.
 func watchUpdates() {
 	time.Sleep(3 * time.Second)
-	for {
+	for failures := 0; ; {
 		s, _ := checkUpdate()
 		if s.State == "available" && s.Force {
 			Logs.Warnf("v%s 是强制更新，自动安装", s.Version)
 			_ = Tolk{}.InstallUpdate()
 		}
 		if s.State == "error" {
-			time.Sleep(time.Hour)
+			// Right after launch the network is often not ready yet; try
+			// again soon so the About pane does not keep showing the error.
+			failures++
+			if failures <= 3 {
+				time.Sleep(time.Duration(failures) * time.Minute)
+			} else {
+				time.Sleep(time.Hour)
+			}
 			continue
 		}
+		failures = 0
 		time.Sleep(24 * time.Hour)
 	}
 }

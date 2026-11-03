@@ -27,6 +27,9 @@ func (c *Checker) Download(ctx context.Context, info *Info, dir string, progress
 		return "", err
 	}
 	urls := append([]string{info.url}, c.mirrorURLs(ctx, info)...)
+	if p := proxied(info.url); p != "" {
+		urls = append(urls, p)
+	}
 	var errs []string
 	for _, u := range urls {
 		path, err := c.fetchTo(ctx, u, filepath.Join(dir, filepath.Base(info.name)), info.wantSize, progress)

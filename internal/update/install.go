@@ -97,20 +97,33 @@ func installWindows(zipPath string, info *Info, dirs Dirs, exe string) error {
 	before := fileSize(logPath)
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script)
 	cmd.Env = env
-	if err := startDetached(cmd); err != nil {
+	if err := startBackground(cmd); err != nil {
 		return err
 	}
 	// The app quits as soon as this returns, so make sure the script is
 	// really running: its first act is a line in update.log. Without this
 	// check a script that never ran looked like an update that just did
 	// not happen.
-	for deadline := time.Now().Add(scriptStartTimeout); fileSize(logPath) <= before; {
-		if time.Now().After(deadline) {
-			return errors.New("更新脚本没有启动起来，可能被安全软件拦截了。请到 GitHub 或 Gitee 下载安装包覆盖安装")
-		}
-		time.Sleep(100 * time.Millisecond)
+	if !waitGrow(logPath, before, scriptStartTimeout) {
+		// Stop it, so a script that starts late cannot still kill the app
+		// and swap files after the update was reported as failed, or race
+		// a retry. Until the app exits it only waits, so this is safe even
+		// if it got going at the last moment.
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		return errors.New("更新脚本没有启动起来，可能被安全软件拦截了。请到 GitHub 或 Gitee 下载安装包覆盖安装")
 	}
-	return nil
+	return cmd.Process.Release()
+}
+
+// waitGrow waits until the file at path is larger than before.
+func waitGrow(path string, before int64, timeout time.Duration) bool {
+	for deadline := time.Now().Add(timeout); fileSize(path) <= before; time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
+	return true
 }
 
 // scriptStartTimeout is how long installWindows waits for the swap script to

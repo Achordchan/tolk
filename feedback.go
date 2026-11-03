@@ -29,12 +29,18 @@ import (
 var fb struct {
 	store *report.Store
 	crash string // what the previous run's crash output held
+	dir   string // state folder: report_state.json, crash files
 
 	mu    sync.Mutex
 	first *logbuf.Entry // first error of the burst being collected
 }
 
-const crashFile = "crash.log"
+const (
+	crashFile = "crash.log"
+	// crashPending holds a crash until its report has been tried: the app
+	// may be closed again before the report goes out.
+	crashPending = "crash.pending.log"
+)
 
 func init() {
 	if testing.Testing() {
@@ -46,6 +52,7 @@ func init() {
 	} else {
 		dir = filepath.Join(os.TempDir(), "tolk")
 	}
+	fb.dir = dir
 	fb.store = report.NewStore(dir)
 	setupCrashOutput(dir)
 	Logs.OnError(onErrorLine)
@@ -56,16 +63,13 @@ func init() {
 	}()
 }
 
-// setupCrashOutput keeps what the previous run's crash output held, then
-// sends this run's Go crash report (an unrecovered panic or fatal error) to
-// the same file. Without it a crash in the Windows GUI build left no trace.
+// setupCrashOutput keeps a crash the previous run recorded for reporting,
+// then sends this run's Go crash report (an unrecovered panic or fatal
+// error) to crash.log. Without it a crash in the Windows GUI build left no
+// trace.
 func setupCrashOutput(dir string) {
+	fb.crash = takeCrash(dir)
 	path := filepath.Join(dir, crashFile)
-	if raw, err := os.ReadFile(path); err == nil {
-		if s := string(raw); strings.Contains(s, "panic:") || strings.Contains(s, "fatal error:") {
-			fb.crash = s
-		}
-	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
@@ -77,6 +81,27 @@ func setupCrashOutput(dir string) {
 		f.Close()
 	}
 	// f stays open for the life of the process; the runtime writes to it.
+}
+
+// takeCrash moves a crash in crash.log aside to crash.pending.log, where it
+// stays until its report has been tried, and returns the pending crash.
+func takeCrash(dir string) string {
+	path := filepath.Join(dir, crashFile)
+	pending := filepath.Join(dir, crashPending)
+	if raw, err := os.ReadFile(path); err == nil && isCrash(string(raw)) {
+		// The newest crash wins; crash.log is emptied for this run next.
+		if os.Rename(path, pending) != nil {
+			return string(raw) // still reported if this run lives long enough
+		}
+	}
+	if raw, err := os.ReadFile(pending); err == nil && isCrash(string(raw)) {
+		return string(raw)
+	}
+	return ""
+}
+
+func isCrash(s string) bool {
+	return strings.Contains(s, "panic:") || strings.Contains(s, "fatal error:")
 }
 
 // ---- the 提交问题 dialog ----
@@ -210,8 +235,10 @@ func onErrorLine(e logbuf.Entry) {
 func reportPreviousRun() {
 	if fb.crash != "" {
 		head := crashHead(fb.crash)
-		sendAuto(report.Crash, "[崩溃] "+head, "上一次运行异常退出：\n\n"+head, head,
-			[]report.Attachment{{Name: "崩溃信息", Body: fb.crash, KeepHead: true}})
+		pending := filepath.Join(fb.dir, crashPending)
+		sendAutoThen(report.Crash, "[崩溃] "+head, "上一次运行异常退出：\n\n"+head, head,
+			[]report.Attachment{{Name: "崩溃信息", Body: fb.crash, KeepHead: true}},
+			func() { _ = os.Remove(pending) })
 		fb.crash = ""
 	}
 	dirs, err := update.DefaultDirs()
@@ -262,8 +289,21 @@ func crashHead(s string) string {
 }
 
 func sendAuto(kind, title, description, fpText string, extra []report.Attachment) {
+	sendAutoThen(kind, title, description, fpText, extra, nil)
+}
+
+// sendAutoThen is sendAuto with done run once the report has been tried,
+// sent or not, or is not to be sent at all (switched off, sent lately). A
+// report held back by the daily cap leaves done for a later run.
+func sendAutoThen(kind, title, description, fpText string, extra []report.Attachment, done func()) {
+	if done == nil {
+		done = func() {}
+	}
 	fp := report.Fingerprint(kind, fpText)
 	if !fb.store.Reserve(fp, time.Now()) {
+		if !fb.store.CapReached(time.Now()) {
+			done()
+		}
 		return
 	}
 	r := baseReport(kind, title, description, true)
@@ -273,6 +313,7 @@ func sendAuto(kind, title, description, fpText string, extra []report.Attachment
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 		defer cancel()
+		defer done()
 		res, err := report.Send(ctx, nil, r)
 		switch {
 		case err != nil:

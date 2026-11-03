@@ -27,6 +27,8 @@ const LIMITS = {
 // Pages of 100 read when looking for an interrupted attempt's issue or
 // comment; a Worker may make only so many requests per call.
 const RECONCILE_PAGES = 20;
+// A GitHub call that hangs would hold up every report behind it.
+const GITHUB_TIMEOUT_MS = 15000;
 const KINDS = new Set(["manual", "error", "crash", "update"]);
 const LABELS = { manual: ["用户反馈"], error: ["自动上报"], crash: ["自动上报", "崩溃"], update: ["自动上报", "更新"] };
 const TOO_MANY = "今天提交得太多了，请明天再试";
@@ -125,7 +127,7 @@ export class Coordinator {
       // Submission records outlive the day: a retry just after midnight
       // must still find the one filed just before. They go after a week.
       const week = Date.now() - 7 * 86400e3;
-      for (const prefix of ["sub:", "pend:"]) {
+      for (const prefix of ["sub:", "pend:", "pfp:"]) {
         for (const [k, v] of await this.storage.list({ prefix })) if (!(v && v.at > week)) stale.push(k);
       }
       // delete() takes at most 128 keys a call.
@@ -149,6 +151,9 @@ export class Coordinator {
         ...(body ? { "content-type": "application/json" } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
+      // A write that times out may still have gone through: its pend: record
+      // stays (refused() keeps it for anything but a 4xx), and the retry checks.
+      signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(`GitHub ${resp.status}: ${data.message || "error"}`);
@@ -210,18 +215,25 @@ export class Coordinator {
       await this.storage.put(`seen:${fp}:${install}`, 1);
       return { ok: true, number: pend.issue, url: pend.url, merged: true };
     }
-    // Newest first, so the pages end once they reach issues older than the attempt.
-    const hit = await this.scan(
-      "/issues?state=all&sort=created&direction=desc",
-      (i) => Date.parse(i.created_at) < cutoff,
-      (i) => !i.pull_request && String(i.body || "").includes(mark),
-    );
+    const hit = await this.findIssue(sub, pend.at);
     if (!hit) return null;
     if (fp) {
       await this.storage.put(`fp:${fp}`, hit.number);
       await this.storage.put(`seen:${fp}:${install}`, 1);
+      await this.storage.delete(`pfp:${fp}`);
     }
     return { ok: true, number: hit.number, url: hit.html_url, merged: false };
+  }
+
+  // The issue a creation attempt for sub, started at at, opened, if any.
+  // Newest first, so the pages end once they reach issues older than that.
+  async findIssue(sub, at) {
+    const mark = marker(sub);
+    return this.scan(
+      "/issues?state=all&sort=created&direction=desc",
+      (i) => Date.parse(i.created_at) < at - 60e3,
+      (i) => !i.pull_request && String(i.body || "").includes(mark),
+    );
   }
 
   // Pages through a GitHub list until match finds an item, past says the
@@ -241,8 +253,11 @@ export class Coordinator {
 
   // GitHub answered a write with a 4xx: nothing was written, so a retry has
   // nothing to look for. Only a lost answer (network, 5xx) keeps pend:.
-  async refused(sub, e) {
-    if (sub && /GitHub 4\d\d/.test(String(e && e.message))) await this.storage.delete(`pend:${sub}`);
+  async refused(sub, e, fp) {
+    if (sub && /GitHub 4\d\d/.test(String(e && e.message))) {
+      await this.storage.delete(`pend:${sub}`);
+      if (fp) await this.storage.delete(`pfp:${fp}`);
+    }
     throw e;
   }
 
@@ -259,7 +274,19 @@ export class Coordinator {
 
     // Repeats of an automatic report go on the issue already open for it.
     if (fp) {
-      const known = await this.storage.get(`fp:${fp}`);
+      let known = await this.storage.get(`fp:${fp}`);
+      // A creation for this error whose answer was lost: whoever reports
+      // the error next (any install) first checks whether it went through,
+      // so the error does not get a second issue.
+      const pending = known ? null : await this.storage.get(`pfp:${fp}`);
+      if (pending) {
+        const hit = await this.findIssue(pending.sub, pending.at);
+        if (hit) {
+          known = hit.number;
+          await this.storage.put(`fp:${fp}`, known);
+        }
+        await this.storage.delete(`pfp:${fp}`);
+      }
       if (known) {
         // Only a missing issue (deleted or transferred) counts as gone; any
         // other failure is passed on, or a GitHub hiccup would open a duplicate.
@@ -282,15 +309,17 @@ export class Coordinator {
     }
 
     if (sub) await this.storage.put(`pend:${sub}`, { at: Date.now() });
+    if (sub && fp) await this.storage.put(`pfp:${fp}`, { at: Date.now(), sub });
     const labels = [...LABELS[kind], os === "windows" ? "Windows" : os === "darwin" ? "macOS" : os].filter(Boolean);
     // A token without the right to create labels gets a 422 for a new label;
     // the issue matters more than its labels.
     const issue = await this.gh("POST", "/issues", { title, body, labels })
       .catch((e) => (/GitHub (403|422)/.test(String(e.message)) ? this.gh("POST", "/issues", { title, body }) : Promise.reject(e)))
-      .catch((e) => this.refused(sub, e));
+      .catch((e) => this.refused(sub, e, fp));
     if (fp) {
       await this.storage.put(`fp:${fp}`, issue.number);
       await this.storage.put(`seen:${fp}:${install}`, 1);
+      await this.storage.delete(`pfp:${fp}`);
     }
     return [200, { ok: true, number: issue.number, url: issue.html_url, merged: false }];
   }

@@ -88,6 +88,13 @@ func (s *Store) Get() State {
 	return st
 }
 
+// CapReached says Reserve refuses because today's automatic reports are used
+// up (not because they are off): worth trying again another day.
+func (s *Store) CapReached(now time.Time) bool {
+	st := s.Get()
+	return !st.AutoDisabled && st.Day == now.Format("2006-01-02") && st.Count >= MaxAutoPerDay
+}
+
 // Reserve records an automatic report of fp at now, or says no when the
 // switch is off or the limits are reached. Recording before sending means a
 // relay that is down costs one attempt, not one per error.

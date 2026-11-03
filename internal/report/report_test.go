@@ -91,6 +91,9 @@ func TestReserveLimits(t *testing.T) {
 	if s.Reserve("zz", now.Add(25*time.Hour)) {
 		t.Fatal("daily cap not applied")
 	}
+	if !s.CapReached(now.Add(26*time.Hour)) || s.CapReached(now.Add(49*time.Hour)) {
+		t.Fatal("CapReached should hold for the capped day only")
+	}
 	if _, err := s.Update(func(st *State) { st.AutoDisabled = true }); err != nil {
 		t.Fatal(err)
 	}

@@ -254,8 +254,11 @@ export class Coordinator {
       if (pend) {
         // Searching GitHub is paid for like filing: a client resending one
         // submission cannot use the relay's GitHub quota without limit.
-        if (!(await this.bump(`rc:${ip}`, LIMITS.reconcilePerIpPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
-        if (!(await this.bump(`rcs:${sub}`, LIMITS.reconcilePerSubmissionPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
+        // Still pending, not refused: the earlier write may yet turn into an
+        // issue, so the client keeps its id and offers no other way to file it.
+        const throttled = [429, { ok: false, pending: true, error: TOO_MANY }];
+        if (!(await this.bump(`rc:${ip}`, LIMITS.reconcilePerIpPerDay))) return throttled;
+        if (!(await this.bump(`rcs:${sub}`, LIMITS.reconcilePerSubmissionPerDay))) return throttled;
         const found = await this.reconcile(sub, pend, fp, install);
         if (found) {
           await this.storage.put(`sub:${sub}`, { at: Date.now(), data: found });

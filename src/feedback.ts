@@ -130,6 +130,10 @@ async function submit() {
       showError(`暂时连不上提交服务（${r.error}）。完整内容已复制到剪贴板，可以改用 GitHub 提交：打开后如果日志不全，把剪贴板内容粘贴进去即可。`);
       github.hidden = false;
     } else {
+      // No fallback offered this time (the earlier try may still go
+      // through): one left from a previous try must not stay usable.
+      fallback = "";
+      github.hidden = true;
       showError(r.error || "提交失败");
     }
   } catch (e) {

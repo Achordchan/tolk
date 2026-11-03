@@ -61,6 +61,19 @@ body { margin: 0; height: 100vh; background: var(--bg); color: var(--fg); }
 
 .app { height: 100%; display: flex; flex-direction: column; gap: 14px; padding: 16px 18px 18px; }
 
+/* Start-up: the page's own HTML is the loading screen (cards, headings, the
+   placeholder), so the window never shows a blank sheet. The app eases in, and
+   the toolbar's controls, which wait for Go's answer, fade in together once
+   filled instead of growing from empty pills. */
+@keyframes app-in { from { opacity: 0; } }
+.app { animation: app-in 0.22s ease-out both; }
+.toolbar > * { transition: opacity 0.18s ease-out; }
+.booting .toolbar > * { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .app { animation: none; }
+  .toolbar > * { transition: none; }
+}
+
 .card { background: var(--card); border: 1px solid var(--stroke); border-radius: var(--radius); }
 
 .toolbar { display: flex; align-items: center; gap: 10px; padding: 10px; }
@@ -95,7 +108,10 @@ button.icon.small:hover { background: var(--control); color: var(--fg); }
 button.icon:active { opacity: 0.7; }
 
 .panes { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 640px) { .panes { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
+/* Narrow window: the pills drop their captions (源语言 / 目标语言 / 服务); the
+   value and the arrow icon between the languages still say what they are.
+   The window's minimum size (main.go) keeps everything else from squeezing. */
+@media (max-width: 880px) { .toolbar .pill-label { display: none; } }
 
 .pane { position: relative; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .pane-head {

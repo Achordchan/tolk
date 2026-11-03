@@ -1,8 +1,24 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="booting">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Before the first paint: the theme and text sizes from the last run
+      // (src/look.ts keeps them), so the window opens in its own colours.
+      (function () {
+        try {
+          var l = JSON.parse(localStorage.getItem("tolk.look") || "null");
+          var r = document.documentElement;
+          if (l && l.theme && l.theme !== "system") r.dataset.theme = l.theme;
+          if (l && l.sourceFont) r.style.setProperty("--src-size", l.sourceFont + "px");
+          if (l && l.targetFont) r.style.setProperty("--dst-size", l.targetFont + "px");
+        } catch (e) {}
+        // src/main.ts lifts this once the toolbar is filled; never leave it
+        // hidden if that does not happen.
+        setTimeout(function () { document.documentElement.classList.remove("booting"); }, 5000);
+      })();
+    </script>
     <title>Tolk</title>
     <link rel="stylesheet" href="./src/style.css" />
   </head>

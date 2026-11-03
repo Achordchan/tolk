@@ -154,3 +154,25 @@ func TestMigrateLinkedOldFolder(t *testing.T) {
 		t.Fatalf("settings not readable through the new folder: %q %v", b, err)
 	}
 }
+
+func TestMigrateRepointsRelativeLinksThroughOldName(t *testing.T) {
+	root := t.TempDir()
+	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
+	os.MkdirAll(filepath.Join(old, "profiles"), 0o700)
+	os.WriteFile(filepath.Join(old, "profiles", "work.json"), []byte("{}"), 0o600)
+	if err := os.Symlink("../.dzfyq/profiles/work.json", filepath.Join(old, "config.json")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	os.Symlink("profiles/work.json", filepath.Join(old, "inside.json"))
+	if moved, err := migrate(old, dest); !moved || err != nil {
+		t.Fatal(moved, err)
+	}
+	for _, n := range []string{"config.json", "inside.json"} {
+		if b, err := os.ReadFile(filepath.Join(dest, n)); err != nil || string(b) != "{}" {
+			t.Fatalf("%s: %q %v", n, b, err)
+		}
+	}
+	if got, _ := os.Readlink(filepath.Join(dest, "inside.json")); got != "profiles/work.json" {
+		t.Fatalf("a link within the folder was changed: %q", got)
+	}
+}

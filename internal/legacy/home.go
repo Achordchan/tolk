@@ -101,10 +101,34 @@ func relink(old, dir, final string) error {
 			return err
 		}
 		target, err := os.Readlink(path)
-		if err != nil || !filepath.IsAbs(target) || (target != old && !strings.HasPrefix(target, prefix)) {
+		if err != nil {
 			return err
 		}
-		if err := swapLink(path, final+strings.TrimPrefix(target, old)); err != nil {
+		// Where the link led from its place in the old folder.
+		rel, err := filepath.Rel(dir, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		abs := target
+		if !filepath.IsAbs(target) {
+			abs = filepath.Clean(filepath.Join(old, rel, target))
+		}
+		if abs != old && !strings.HasPrefix(abs, prefix) {
+			return nil // somewhere else: unaffected by the move
+		}
+		moved := final + strings.TrimPrefix(abs, old)
+		want := moved
+		if !filepath.IsAbs(target) {
+			// A relative link stays relative; it only changes when it
+			// went through the old folder's name (../.dzfyq/…).
+			if want, err = filepath.Rel(filepath.Join(final, rel), moved); err != nil {
+				return err
+			}
+		}
+		if want == target {
+			return nil
+		}
+		if err := swapLink(path, want); err != nil {
 			return err
 		}
 		done = append(done, change{path, target})

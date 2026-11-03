@@ -269,3 +269,21 @@ func TestDownloadReloadsSizeWhenPackageDiffers(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAppcastFallsBackToOlderItemThisMacCanRun(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel>
+<item><sparkle:shortVersionString>2.0.0</sparkle:shortVersionString><sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion>
+<enclosure url="https://example.com/dl/Tolk-2.0.0-macos.zip" length="1" sparkle:edSignature="a"/></item>
+<item><sparkle:shortVersionString>1.9.0</sparkle:shortVersionString><sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+<enclosure url="https://example.com/dl/Tolk-1.9.0-macos.zip" length="1" sparkle:edSignature="b"/></item>
+</channel></rss>`))
+	}))
+	t.Cleanup(srv.Close)
+	c := NewChecker("darwin", "1.0.0")
+	c.OSVersion, c.Origin, c.Mirrors = "14.0", "", nil
+	info, err := c.macInfo(context.Background(), &ghRelease{Tag: "v2.0.0", Assets: []ghAsset{{Name: "appcast.xml", URL: srv.URL + "/appcast.xml"}}})
+	if err != nil || info.Version != "1.9.0" {
+		t.Fatalf("%+v %v", info, err)
+	}
+}

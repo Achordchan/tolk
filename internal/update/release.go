@@ -376,6 +376,17 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 		if xml.Unmarshal(b, &ac) != nil || len(ac.Items) == 0 {
 			return nil, -1, errors.New("appcast 格式无效")
 		}
+		// The appcast must be this release's (a stale copy is not); the
+		// item picked may still be an older one this macOS can run.
+		if want != "" {
+			found := false
+			for _, it := range ac.Items {
+				found = found || NormalizeVersion(it.Short) == want
+			}
+			if !found {
+				return nil, -1, fmt.Errorf("appcast 里没有 %s", want)
+			}
+		}
 		best, tooOld := -1, false
 		for i, it := range ac.Items {
 			if it.Enclosure.URL == "" || it.Enclosure.Sig == "" {
@@ -394,9 +405,6 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 		}
 		if best < 0 {
 			return nil, -1, errors.New("appcast 里没有带签名的更新项")
-		}
-		if v := NormalizeVersion(ac.Items[best].Short); v != "" && want != "" && v != want {
-			return nil, -1, fmt.Errorf("appcast 是 %s 的，不是 %s", v, want)
 		}
 		return &ac, best, nil
 	}

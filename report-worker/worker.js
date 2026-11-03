@@ -234,8 +234,15 @@ export class Coordinator {
       // stays (refused() keeps it for anything but a 4xx), and the retry checks.
       signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw new Error(`GitHub ${resp.status}: ${data.message || "error"}`);
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(`GitHub ${resp.status}: ${data.message || "error"}`);
+    }
+    // Accepted, but the answer was cut off or timed out: what was written is
+    // unknown. Not a 4xx, so the pend: record stays and the retry looks for
+    // it, instead of reporting success with no issue.
+    const data = await resp.json().catch(() => null);
+    if (!data || typeof data !== "object") throw new Error(`GitHub reply unreadable (HTTP ${resp.status})`);
     return data;
   }
 

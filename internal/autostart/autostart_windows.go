@@ -61,14 +61,19 @@ func Rename() error {
 		_ = os.Remove(filepath.Join(dir, shortcutName))
 		return err
 	}
-	return os.Remove(old)
+	if err := os.Remove(old); err != nil {
+		return err
+	}
+	dropApproval(oldShortcutName)
+	return nil
 }
 
 // approvedKey holds the on/off switch Windows shows for each Startup-folder
 // entry, as a binary value named after the shortcut file.
 const approvedKey = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder`
 
-// carryApproval copies the recorded switch of one entry to another. Nothing
+// carryApproval copies the recorded switch of one entry to another; the old
+// record stays until its shortcut is gone. Nothing
 // recorded (never switched) is not an error.
 func carryApproval(from, to string) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, approvedKey, registry.QUERY_VALUE|registry.SET_VALUE)
@@ -86,11 +91,17 @@ func carryApproval(from, to string) error {
 	if err != nil {
 		return err
 	}
-	if err := k.SetBinaryValue(to, v); err != nil {
-		return err
+	return k.SetBinaryValue(to, v)
+}
+
+// dropApproval forgets the switch of an entry that is gone.
+func dropApproval(name string) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, approvedKey, registry.SET_VALUE)
+	if err != nil {
+		return
 	}
-	_ = k.DeleteValue(from)
-	return nil
+	defer k.Close()
+	_ = k.DeleteValue(name)
 }
 
 func run(script string, env ...string) (string, error) {

@@ -100,8 +100,9 @@ func trayMenu(withQuit bool) *mygo.Menu {
 		{Label: "显示主窗口", Click: func(*mygo.MenuItem, *mygo.Window) { showMain() }},
 		mygo.Separator(),
 		{Label: "Mini 模式", Type: mygo.MenuItemCheckbox, Checked: currentPrefs().MiniMode, Click: func(it *mygo.MenuItem, _ *mygo.Window) {
+			on := it.Checked
 			go func() {
-				if err := (Tolk{}).SetMini(it.Checked); err != nil {
+				if err := (Tolk{}).SetMini(on); err != nil {
 					Logs.Errorf("Mini 模式切换失败：%v", err)
 				}
 				_ = PrefsChanged.Broadcast(currentPrefs())

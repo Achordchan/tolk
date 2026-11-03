@@ -199,7 +199,7 @@
 
           <section class="pane-body console" data-pane="console" hidden>
             <h2>运行日志</h2>
-            <p class="muted">遇到问题时，把这里的内容复制给开发者。</p>
+            <p class="muted">遇到问题时，点<a href="#" id="c-feedback">提交问题</a>，这些日志会自动附上。</p>
             <div class="console-bar">
               <select id="c-level" aria-label="级别">
                 <option value="all">全部</option><option value="info">信息</option>
@@ -226,7 +226,16 @@
               <button type="button" id="a-check" class="ghost">检查更新</button>
             </div>
             <p class="muted">Tolk 由大佐翻译官（Windows）与 bagayalu（macOS）合并而来，沿用同一份设置和更新渠道。</p>
-            <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">问题反馈</a></p>
+            <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">已知问题</a></p>
+            <div class="about card feedback-card">
+              <div>
+                <strong>遇到问题？</strong>
+                <div class="muted">描述一下，Tolk 会附上版本、系统和运行日志一起提交给开发者。</div>
+              </div>
+              <span class="spacer"></span>
+              <button type="button" id="a-feedback" class="primary">提交问题</button>
+            </div>
+            <label class="check"><input id="a-autoreport" type="checkbox" /><span>出错时自动上传错误报告<small class="muted">只含版本、系统和去掉了密钥、邮箱、用户名的日志，同一种错误一天最多一次</small></span></label>
             <details class="adv">
               <summary>技术信息</summary>
               <dl class="facts">
@@ -262,6 +271,24 @@
       <div class="ud-actions">
         <button type="button" id="ud-later" class="ghost">稍后</button>
         <button type="button" id="ud-install" class="primary">立即更新</button>
+      </div>
+    </dialog>
+    <dialog id="feedback-dialog" class="update-dialog feedback-dialog">
+      <h2>提交问题</h2>
+      <p class="muted">写下发生了什么、你当时在做什么。提交后会在 GitHub 上生成一个公开的问题单，开发者会在那里回复。</p>
+      <textarea id="fb-desc" rows="6" placeholder="例如：选中文字连按两次复制没有反应，重启后也不行。"></textarea>
+      <input id="fb-contact" type="text" maxlength="100" placeholder="联系方式（选填，会公开显示，例如邮箱或微信）" />
+      <label class="check"><input id="fb-logs" type="checkbox" checked /><span>附带运行日志和更新日志<small class="muted">已自动去掉密钥、邮箱和电脑用户名</small></span></label>
+      <details id="fb-preview-box" class="adv">
+        <summary>查看将要提交的全部内容</summary>
+        <pre id="fb-preview" class="fb-preview mono"></pre>
+      </details>
+      <p id="fb-error" class="error" hidden></p>
+      <p id="fb-done" hidden></p>
+      <div class="ud-actions">
+        <button type="button" id="fb-cancel" class="ghost">取消</button>
+        <button type="button" id="fb-github" class="ghost" hidden>在 GitHub 上提交</button>
+        <button type="button" id="fb-send" class="primary">提交</button>
       </div>
     </dialog>
     <script type="module" src="./src/main.ts"></script>

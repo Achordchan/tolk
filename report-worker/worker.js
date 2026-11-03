@@ -20,6 +20,9 @@ const LIMITS = {
   ipPerDay: 40, // reports one address may file a day
   manualPerInstallPerDay: 6,
   commentsPerIssuePerDay: 30, // repeats added to one issue a day
+  // Looking for an interrupted attempt costs GitHub requests too.
+  reconcilePerIpPerDay: 20,
+  reconcilePerSubmissionPerDay: 5,
 };
 // Pages of 100 read when looking for an interrupted attempt's issue or
 // comment; a Worker may make only so many requests per call.
@@ -171,6 +174,10 @@ export class Coordinator {
       // connection dropped): look for what it wrote before writing again.
       const pend = await this.storage.get(`pend:${sub}`);
       if (pend) {
+        // Searching GitHub is paid for like filing: a client resending one
+        // submission cannot use the relay's GitHub quota without limit.
+        if (!(await this.bump(`rc:${ip}`, LIMITS.reconcilePerIpPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
+        if (!(await this.bump(`rcs:${sub}`, LIMITS.reconcilePerSubmissionPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
         const found = await this.reconcile(sub, pend, fp, install);
         if (found) {
           await this.storage.put(`sub:${sub}`, { at: Date.now(), data: found });
@@ -232,6 +239,13 @@ export class Coordinator {
     throw new Error("too many items to check for an earlier attempt");
   }
 
+  // GitHub answered a write with a 4xx: nothing was written, so a retry has
+  // nothing to look for. Only a lost answer (network, 5xx) keeps pend:.
+  async refused(sub, e) {
+    if (sub && /GitHub 4\d\d/.test(String(e && e.message))) await this.storage.delete(`pend:${sub}`);
+    throw e;
+  }
+
   async file(ip, r, kind, install, fp, version, sub) {
     if (!(await this.bump(`ip:${ip}`, LIMITS.ipPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
     if (!(await this.bump(`in:${install}`, LIMITS.installPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
@@ -240,7 +254,7 @@ export class Coordinator {
     }
 
     const os = String(r.os || "").replace(/[^a-z0-9]/gi, "").slice(0, 16);
-    const title = clip(scrub(r.title || "问题反馈").replace(/\s+/g, " ").trim(), 140);
+    const title = clip(scrub(r.title || "").replace(/\s+/g, " ").trim(), 140) || "问题反馈";
     const body = issueBody(r, version, os) + (sub ? "\n" + marker(sub) : "");
 
     // Repeats of an automatic report go on the issue already open for it.
@@ -258,7 +272,9 @@ export class Coordinator {
           if (await this.storage.get(`seen:${fp}:${install}`)) return merged;
           if (!(await this.bump(`cm:${fp}`, LIMITS.commentsPerIssuePerDay))) return merged;
           if (sub) await this.storage.put(`pend:${sub}`, { at: Date.now(), issue: issue.number, url: issue.html_url });
-          await this.gh("POST", `/issues/${issue.number}/comments`, { body: `又出现了一次（v${version}，${os}）\n\n` + body });
+          await this.gh("POST", `/issues/${issue.number}/comments`, { body: `又出现了一次（v${version}，${os}）\n\n` + body }).catch((e) =>
+            this.refused(sub, e),
+          );
           await this.storage.put(`seen:${fp}:${install}`, 1);
           return merged;
         }
@@ -269,9 +285,9 @@ export class Coordinator {
     const labels = [...LABELS[kind], os === "windows" ? "Windows" : os === "darwin" ? "macOS" : os].filter(Boolean);
     // A token without the right to create labels gets a 422 for a new label;
     // the issue matters more than its labels.
-    const issue = await this.gh("POST", "/issues", { title, body, labels }).catch((e) =>
-      /GitHub (403|422)/.test(String(e.message)) ? this.gh("POST", "/issues", { title, body }) : Promise.reject(e),
-    );
+    const issue = await this.gh("POST", "/issues", { title, body, labels })
+      .catch((e) => (/GitHub (403|422)/.test(String(e.message)) ? this.gh("POST", "/issues", { title, body }) : Promise.reject(e)))
+      .catch((e) => this.refused(sub, e));
     if (fp) {
       await this.storage.put(`fp:${fp}`, issue.number);
       await this.storage.put(`seen:${fp}:${install}`, 1);

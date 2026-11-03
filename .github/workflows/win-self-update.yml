@@ -98,7 +98,7 @@ jobs:
           New-ItemProperty -Force $key -Name InstallLocation -Value "$old\" | Out-Null
           # 旧版开了开机自启，并在「启动应用」里被关掉过：静默安装不会打开新版，
           # 快捷方式得在安装时就指到新主程序，开关状态也要带过去。
-          $startup = [Environment]::GetFolderPath("Startup")
+          $startup = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Startup"
           New-Item -ItemType Directory -Force $startup | Out-Null
           $oldLnk = Join-Path $startup "大佐翻译官.lnk"
           $newLnk = Join-Path $startup "Tolk.lnk"

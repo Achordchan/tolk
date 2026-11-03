@@ -115,9 +115,7 @@ func trayMenu(withQuit bool) *mygo.Menu {
 				if err := setInputAssistEnabled(on); err != nil {
 					Logs.Errorf("输入助手切换失败：%v", err)
 					refreshTray()
-					return
 				}
-				_ = InputAssistChanged.Broadcast(on)
 			}()
 		}},
 	}

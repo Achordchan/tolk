@@ -147,11 +147,20 @@ func checkUpdate() (UpdateState, error) {
 	if pending != nil && (err != nil || info == nil || update.CompareVersions(pending.Info.Version, info.Version) >= 0) {
 		// The downloaded one is still the newest we know of; 重启更新 must
 		// install it, not go after a release that failed to download.
+		// The same release may since have been made mandatory (GitHub's own
+		// answer only; Force is never taken from a mirror).
+		force := err == nil && info != nil && info.Force && info.Version == pending.Info.Version
 		upd.mu.Lock()
+		if force {
+			pending.Info.Force = true
+		}
 		upd.info = pending.Info
 		upd.mu.Unlock()
 		s := UpdateState{State: "ready", Version: pending.Info.Version, Notes: pending.Info.Notes, Force: pending.Info.Force, Source: pending.Info.Source}
 		setUpdate(s)
+		if force {
+			go applyUpdate(true)
+		}
 		return s, nil
 	}
 	if err != nil {

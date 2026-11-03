@@ -1,11 +1,11 @@
 package legacy
 
 import (
+	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -44,9 +44,15 @@ func migrate(old, dest string) (bool, error) {
 	if _, err := os.Lstat(dest); err == nil {
 		return false, nil
 	}
-	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
-		return false, nil
+	fi, err := os.Stat(old)
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && !fi.IsDir()) {
+		return false, nil // nothing to move
 	}
+	if err != nil {
+		// There but unreadable now: keep using it rather than start afresh.
+		return false, err
+	}
+	fold := foldsCase(old)
 	// The old folder is itself a link (to a synced folder): the new one
 	// becomes a link to the same place. The old link stays, so links inside
 	// that lead through it keep working.
@@ -61,7 +67,7 @@ func migrate(old, dest string) (bool, error) {
 		return true, nil
 	}
 	if err := os.Rename(old, dest); err == nil {
-		if err := relink(old, dest, dest); err != nil {
+		if err := relink(old, dest, dest, fold); err != nil {
 			// Put the folder back so this run and the next keep working
 			// from it, rather than from a moved copy with broken links.
 			if os.Rename(dest, old) == nil {
@@ -77,7 +83,7 @@ func migrate(old, dest string) (bool, error) {
 		_ = os.RemoveAll(tmp)
 		return false, err
 	}
-	if err := relink(old, tmp, dest); err != nil {
+	if err := relink(old, tmp, dest, fold); err != nil {
 		_ = os.RemoveAll(tmp)
 		return false, err
 	}
@@ -93,7 +99,7 @@ func migrate(old, dest string) (bool, error) {
 // move they would lead nowhere. Relative links and links elsewhere are left
 // alone. Each new link is made beside the old one and then put in its place,
 // so a link that cannot be made leaves the old one as it was.
-func relink(old, dir, final string) error {
+func relink(old, dir, final string, fold bool) error {
 	type change struct{ path, was string }
 	var done []change
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -113,7 +119,7 @@ func relink(old, dir, final string) error {
 		if !filepath.IsAbs(target) {
 			abs = filepath.Clean(filepath.Join(old, rel, target))
 		}
-		rest, ok := under(abs, old)
+		rest, ok := under(abs, old, fold)
 		if !ok {
 			return nil // somewhere else: unaffected by the move
 		}
@@ -214,12 +220,12 @@ func copyFile(from, to string) error {
 	return w.Close()
 }
 
-// under reports whether p is dir or inside it, and the part after dir.
-// Windows and macOS file names ignore case, so a link may spell the folder
-// .DZFYQ or the home folder differently.
-func under(p, dir string) (string, bool) {
+// under reports whether p is dir or inside it, and the part after dir. fold
+// compares ignoring case, for a file system that does (see foldsCase), where a
+// link may spell the folder .DZFYQ or the home folder differently.
+func under(p, dir string, fold bool) (string, bool) {
 	same := func(a, b string) bool { return a == b }
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+	if fold {
 		same = strings.EqualFold
 	}
 	if len(p) < len(dir) || !same(p[:len(dir)], dir) {
@@ -230,4 +236,23 @@ func under(p, dir string) (string, bool) {
 		return "", false // a sibling such as .dzfyq-old
 	}
 	return rest, true
+}
+
+// foldsCase reports whether the file system holding dir ignores case in
+// names: the same folder answers under another spelling. Windows and macOS
+// usually do, but a case-sensitive volume does not.
+func foldsCase(dir string) bool {
+	alt := strings.ToUpper(dir)
+	if alt == dir {
+		alt = strings.ToLower(dir)
+	}
+	if alt == dir {
+		return false
+	}
+	a, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	b, err := os.Stat(alt)
+	return err == nil && os.SameFile(a, b)
 }

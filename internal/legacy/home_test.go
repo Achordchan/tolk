@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -177,17 +178,42 @@ func TestMigrateRepointsRelativeLinksThroughOldName(t *testing.T) {
 	}
 }
 
-func TestUnderMatchesCaseWhereNamesIgnoreIt(t *testing.T) {
+func TestUnderFoldsCaseOnlyWhenTold(t *testing.T) {
 	dir := filepath.Join(string(filepath.Separator)+"home", ".dzfyq")
-	if rest, ok := under(filepath.Join(dir, "a.json"), dir); !ok || rest != string(filepath.Separator)+"a.json" {
+	if rest, ok := under(filepath.Join(dir, "a.json"), dir, false); !ok || rest != string(filepath.Separator)+"a.json" {
 		t.Fatal(rest, ok)
 	}
-	if _, ok := under(dir+"-old", dir); ok {
+	if _, ok := under(dir+"-old", dir, true); ok {
 		t.Fatal("a sibling folder is not inside")
 	}
 	upper := filepath.Join(string(filepath.Separator)+"HOME", ".DZFYQ", "a.json")
-	_, ok := under(upper, dir)
-	if want := runtime.GOOS == "windows" || runtime.GOOS == "darwin"; ok != want {
-		t.Fatalf("case-insensitive match on %s: got %v", runtime.GOOS, ok)
+	if _, ok := under(upper, dir, false); ok {
+		t.Fatal("a case-sensitive file system: .DZFYQ is another folder")
+	}
+	if _, ok := under(upper, dir, true); !ok {
+		t.Fatal("a case-insensitive file system: .DZFYQ is the same folder")
+	}
+}
+
+func TestFoldsCaseAsksTheFileSystem(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "probe")
+	os.MkdirAll(dir, 0o700)
+	_, err := os.Stat(strings.ToUpper(dir))
+	if got, want := foldsCase(dir), err == nil; got != want {
+		t.Fatalf("foldsCase = %v, but the upper-case spelling exists = %v", got, want)
+	}
+}
+
+func TestMigrateKeepsOldFolderWhenUnreadable(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a folder this user cannot enter: not on Windows, not as root")
+	}
+	root := t.TempDir()
+	locked := filepath.Join(root, "locked")
+	os.MkdirAll(filepath.Join(locked, ".dzfyq"), 0o700)
+	os.Chmod(locked, 0o000)
+	t.Cleanup(func() { os.Chmod(locked, 0o700) })
+	if moved, err := migrate(filepath.Join(locked, ".dzfyq"), filepath.Join(root, ".tolk")); moved || err == nil {
+		t.Fatalf("an unreadable old folder must be an error, got %v %v", moved, err)
 	}
 }

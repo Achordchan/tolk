@@ -283,6 +283,24 @@ func crashLine(l string) bool {
 	return false
 }
 
+// updateLogTail is the end of update.log, scrubbed before it is cut: a cut
+// inside a path would leave part of the account name without the
+// C:\Users\ in front that lets Scrub recognise it.
+func updateLogTail(raw []byte) string {
+	const read = 256 << 10 // plenty for the last few updates
+	s := string(raw)
+	if len(s) > read {
+		s = s[len(s)-read:]
+		// The first line is cut, so it goes whole.
+		if i := strings.IndexByte(s, '\n'); i >= 0 {
+			s = s[i+1:]
+		} else {
+			s = ""
+		}
+	}
+	return report.Tail(report.Scrub(s), 12000)
+}
+
 // crashHead is the "panic: …" line (or the signal / exception line) and the first Tolk frame below it.
 func crashHead(s string) string {
 	lines := strings.Split(s, "\n")
@@ -389,7 +407,7 @@ func baseReport(kind, title, description string, withLogs bool) report.Report {
 	r.Attachments = append(r.Attachments, report.Attachment{Name: "运行日志（最近 400 行）", Body: b.String()})
 	if dirs, err := update.DefaultDirs(); err == nil {
 		if raw, err := os.ReadFile(filepath.Join(dirs.State, "update.log")); err == nil {
-			r.Attachments = append(r.Attachments, report.Attachment{Name: "更新日志 update.log", Body: report.Tail(string(raw), 12000)})
+			r.Attachments = append(r.Attachments, report.Attachment{Name: "更新日志 update.log", Body: updateLogTail(raw)})
 		}
 		if raw, err := os.ReadFile(filepath.Join(dirs.State, "last_update_result.json")); err == nil {
 			r.Attachments = append(r.Attachments, report.Attachment{Name: "上次更新结果", Body: string(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")))})

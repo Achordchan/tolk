@@ -29,12 +29,18 @@ type Result struct {
 	URL     string `json:"url"`
 	Merged  bool   `json:"merged"`  // added to an existing issue for the same error
 	Skipped string `json:"skipped"` // the relay chose not to file it (rate limit…)
+	Pending bool   `json:"pending"` // an earlier attempt may still be going through
 	Error   string `json:"error"`
 }
 
 // ErrRejected means the relay answered and refused the report; trying the
 // next endpoint would not help.
 var ErrRejected = errors.New("report rejected")
+
+// ErrPending means an earlier attempt of this submission may still be going
+// through on GitHub: try again in a few minutes with the same submission
+// id, and file it nowhere else meanwhile.
+var ErrPending = errors.New("earlier attempt still pending")
 
 // Send delivers r (call Clean first) to the first relay that answers.
 func Send(ctx context.Context, client *http.Client, r Report) (Result, error) {
@@ -51,7 +57,7 @@ func Send(ctx context.Context, client *http.Client, r Report) (Result, error) {
 	var last error
 	for _, ep := range Endpoints {
 		res, err := post(ctx, client, ep, payload)
-		if err == nil || errors.Is(err, ErrRejected) {
+		if err == nil || errors.Is(err, ErrRejected) || errors.Is(err, ErrPending) {
 			return res, err
 		}
 		last = err
@@ -130,6 +136,9 @@ func post(ctx context.Context, client *http.Client, endpoint string, payload []b
 		return Result{}, fmt.Errorf("%s: HTTP %d", endpoint, resp.StatusCode)
 	}
 	_ = json.Unmarshal(raw, &res)
+	if !res.OK && res.Pending {
+		return res, fmt.Errorf("%w: %s", ErrPending, res.Error)
+	}
 	if !res.OK && res.Skipped == "" {
 		// The relay looked at the report and refused it (bad fields, too
 		// large): the other address runs the same relay and would too.

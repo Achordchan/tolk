@@ -233,3 +233,16 @@ func TestReserveRetriesUploadCutShortByQuitting(t *testing.T) {
 		t.Fatal("a new report of the same error needs a new submission")
 	}
 }
+
+func TestReleaseKeepsSubmissionForRetry(t *testing.T) {
+	s := NewStore(t.TempDir())
+	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.Local)
+	if !s.Reserve("e", now) {
+		t.Fatal("first report refused")
+	}
+	id := s.Submission("e")
+	s.Release("e")
+	if !s.Reserve("e", now.Add(time.Minute)) || s.Submission("e") != id {
+		t.Fatal("a released upload should go again with the same submission")
+	}
+}

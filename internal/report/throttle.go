@@ -109,6 +109,14 @@ func (s *Store) Get() State {
 // interrupted upload of it used, or a new one.
 func (s *Store) Submission(fp string) string { return s.Get().Subs[fp] }
 
+// Release ends this run's hold on fp without marking its upload finished:
+// a later report of it goes again, with the same submission id.
+func (s *Store) Release(fp string) {
+	s.mu.Lock()
+	delete(s.inflight, fp)
+	s.mu.Unlock()
+}
+
 // Finished records that the upload reserved for fp is over, sent or not.
 func (s *Store) Finished(fp string, now time.Time) {
 	_, _ = s.Update(func(st *State) {

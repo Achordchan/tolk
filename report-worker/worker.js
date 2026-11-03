@@ -29,6 +29,11 @@ const LIMITS = {
 const RECONCILE_PAGES = 20;
 // A GitHub call that hangs would hold up every report behind it.
 const GITHUB_TIMEOUT_MS = 15000;
+// GitHub may still be filing a write whose request timed out: until this
+// long after it, not finding it proves nothing, and writing again could
+// file it twice.
+const SETTLE_MS = 120e3;
+const STILL_PENDING = { ok: false, pending: true, error: "上一次提交还在处理中，请过一两分钟再重试" };
 const KINDS = new Set(["manual", "error", "crash", "update"]);
 const LABELS = { manual: ["用户反馈"], error: ["自动上报"], crash: ["自动上报", "崩溃"], update: ["自动上报", "更新"] };
 const TOO_MANY = "今天提交得太多了，请明天再试";
@@ -257,6 +262,7 @@ export class Coordinator {
           await this.storage.delete(`pend:${sub}`);
           return [200, found];
         }
+        if (Date.now() - pend.at < SETTLE_MS) return [409, STILL_PENDING];
       }
     }
     const [status, data] = await this.file(ip, r, kind, install, fp, version, sub);
@@ -353,6 +359,8 @@ export class Coordinator {
         if (hit) {
           known = hit.number;
           await this.storage.put(`fp:${fp}`, known);
+        } else if (Date.now() - pending.at < SETTLE_MS) {
+          return [409, STILL_PENDING];
         }
         await this.storage.delete(`pfp:${fp}`);
       }

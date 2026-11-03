@@ -97,3 +97,21 @@ func TestPayloadFitsAfterEscaping(t *testing.T) {
 		t.Fatal("logs dropped although a shorter cut fits")
 	}
 }
+
+func TestSendStopsWhileEarlierAttemptIsPending(t *testing.T) {
+	calls := 0
+	pending := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(409)
+		_, _ = w.Write([]byte(`{"ok":false,"pending":true,"error":"上一次提交还在处理中"}`))
+	}))
+	defer pending.Close()
+	old := Endpoints
+	defer func() { Endpoints = old }()
+	Endpoints = []string{pending.URL, pending.URL}
+	r := Report{Kind: Manual, Title: "t", InstallID: "ab", Version: "2.2.3", SubmissionID: "aa"}.Clean()
+	res, err := Send(context.Background(), nil, r)
+	if !errors.Is(err, ErrPending) || !res.Pending || calls != 1 {
+		t.Fatalf("err %v, res %+v, calls %d", err, res, calls)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -163,6 +164,11 @@ func (Tolk) SubmitFeedback(description, contact string, withLogs bool, submissio
 	if err == nil && res.Skipped == "" {
 		Logs.Infof("问题已提交：%s", res.URL)
 		return FeedbackResult{Sent: true, URL: res.URL, Number: res.Number}
+	}
+	if errors.Is(err, report.ErrPending) {
+		// The earlier try may still turn into an issue: no GitHub link, or
+		// it could be filed twice. 重试 with the same id in a minute or two.
+		return FeedbackResult{Error: res.Error}
 	}
 	msg := res.Skipped
 	if err != nil {
@@ -350,6 +356,13 @@ func sendAutoThen(kind, title, description, fpText string, extra []report.Attach
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 		defer cancel()
 		res, err := report.Send(ctx, nil, r)
+		if errors.Is(err, report.ErrPending) {
+			// Not over: the next report of it (this run or a later one) goes
+			// again with the same submission id, and done waits for that.
+			fb.store.Release(fp)
+			Logs.Infof("错误报告上一次的上传还在处理中，稍后再试")
+			return
+		}
 		fb.store.Finished(fp, time.Now())
 		done()
 		switch {

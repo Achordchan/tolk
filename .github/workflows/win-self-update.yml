@@ -102,11 +102,14 @@ jobs:
           New-Item -ItemType Directory -Force $startup | Out-Null
           $oldLnk = Join-Path $startup "大佐翻译官.lnk"
           $newLnk = Join-Path $startup "Tolk.lnk"
-          # 快捷方式用 Windows PowerShell 5.1 建、读，和 Tolk 自己一样
-          # （PowerShell 7 里 WScript.Shell 的 CreateShortcut 会报参数无效）。
-          $env:LNK = $oldLnk; $env:LNK_TARGET = Join-Path $old "大佐翻译官.exe"
+          # 快捷方式用 Windows PowerShell 5.1 建、读，和 Tolk 自己一样。runner 是英文
+          # 系统，WScript.Shell 处理不了中文路径（中文 Windows 上没问题），所以先用
+          # 英文名建好再改名；安装器只看文件名，不读它指向哪里。
+          $tmpLnk = Join-Path $env:RUNNER_TEMP "old-autostart.lnk"
+          $env:LNK = $tmpLnk; $env:LNK_TARGET = Join-Path $env:RUNNER_TEMP "old.exe"
           powershell.exe -NoProfile -Command '$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK);$s.TargetPath=$env:LNK_TARGET;$s.Save()'
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $oldLnk)) { throw "建旧快捷方式失败" }
+          if ($LASTEXITCODE -ne 0) { throw "建旧快捷方式失败" }
+          Move-Item -LiteralPath $tmpLnk -Destination $oldLnk -Force
           $approved = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder"
           New-Item -Force $approved | Out-Null
           $off = [byte[]](3,0,0,0,0,0,0,0,0,0,0,0)

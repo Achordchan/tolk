@@ -15,6 +15,10 @@ let fallback = "";
 // One id per opening of the dialog: 重试 after a lost reply is recognised by
 // the relay instead of filing the report twice.
 let submissionId = "";
+// The last try may have been filed (its outcome is unknown): closing and
+// reopening the dialog keeps its id, so a retry of the same report is
+// recognised by the relay. Editing it makes it a new submission.
+let unresolved = false;
 const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 function setFieldsEnabled(on: boolean) {
@@ -25,7 +29,7 @@ function setFieldsEnabled(on: boolean) {
 
 function reset() {
   busy = false;
-  submissionId = newId();
+  if (!unresolved) submissionId = newId();
   fallback = "";
   setFieldsEnabled(true);
   $("#fb-error").hidden = true;
@@ -115,6 +119,7 @@ async function submit() {
   let sent = false;
   try {
     const r = await Tolk.submitFeedback(...fields(), submissionId);
+    unresolved = !!r.pending;
     if (r.sent) {
       sent = true;
       // Filed: the GitHub link of an earlier failed try would file it again.
@@ -150,10 +155,25 @@ async function submit() {
   }
 }
 
+// Changed contents are a new submission: a retry must not be answered
+// with the result of the earlier, different one.
+// The GitHub link was built from the old contents, so it goes too: it
+// could still carry text or logs the user has since removed.
+function changed() {
+  submissionId = newId();
+  unresolved = false;
+  fallback = "";
+  $("#fb-github").hidden = true;
+}
+
 /** Opens the dialog; text pre-fills the description. */
 export function openFeedback(text = "") {
   reset();
-  if (text) $<HTMLTextAreaElement>("#fb-desc").value = text;
+  const desc = $<HTMLTextAreaElement>("#fb-desc");
+  if (text && text !== desc.value) {
+    desc.value = text;
+    changed();
+  }
   if (!dlg.open) dlg.showModal();
   $<HTMLTextAreaElement>("#fb-desc").focus();
 }
@@ -169,15 +189,6 @@ export function initFeedback() {
   });
   $("#fb-preview-box").addEventListener("toggle", refreshPreview);
   $("#fb-logs").addEventListener("change", refreshPreview);
-  // Changed contents are a new submission: a retry must not be answered
-  // with the result of the earlier, different one.
-  // The GitHub link was built from the old contents, so it goes too: it
-  // could still carry text or logs the user has since removed.
-  const changed = () => {
-    submissionId = newId();
-    fallback = "";
-    $("#fb-github").hidden = true;
-  };
   const edited = () => {
     changed();
     refreshPreviewSoon();

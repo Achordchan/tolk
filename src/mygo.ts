@@ -51,6 +51,11 @@ export interface FeedbackResult {
    */
   issueUrl: string;
   error: string;
+  /**
+   * Pending: it may have been filed; retry later with the same
+   * submission id, and offer no other way to file it meanwhile.
+   */
+  pending: boolean;
 }
 
 /**

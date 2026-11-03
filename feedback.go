@@ -147,6 +147,9 @@ type FeedbackResult struct {
 	// clipboard and IssueURL opens GitHub's new-issue page filled in.
 	IssueURL string `json:"issueUrl"`
 	Error    string `json:"error"`
+	// Pending: it may have been filed; retry later with the same
+	// submission id, and offer no other way to file it meanwhile.
+	Pending bool `json:"pending"`
 }
 
 // SubmitFeedback sends a report from the 提交问题 dialog. submissionID is the
@@ -168,7 +171,7 @@ func (Tolk) SubmitFeedback(description, contact string, withLogs bool, submissio
 	if errors.Is(err, report.ErrPending) {
 		// The earlier try may still turn into an issue: no GitHub link, or
 		// it could be filed twice. 重试 with the same id in a minute or two.
-		return FeedbackResult{Error: res.Error}
+		return FeedbackResult{Error: res.Error, Pending: true}
 	}
 	msg := res.Skipped
 	if err != nil {

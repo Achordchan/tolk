@@ -57,12 +57,18 @@ function fill(sel: HTMLSelectElement, items: [string, string][]) {
 enhanceSelect(source);
 enhanceSelect(target);
 enhanceSelect(engineSel);
-const langs = await Tolk.languages();
+// One round trip instead of four in a row: on a slow PC each call to Go is
+// noticeable, and the toolbar stays empty until all of them are back.
+const [langs, about, initialPrefs, initialSettings] = await Promise.all([
+  Tolk.languages(),
+  Tolk.about(),
+  initLook(),
+  Tolk.getSettings(),
+]);
 fill(source, [AUTO, ...langs].map((n) => [n, shown(n)]));
 fill(target, langs.map((n) => [n, shown(n)]));
-const about = await Tolk.about();
 fill(engineSel, engineList(about.os));
-let prefs = await initLook();
+let prefs = initialPrefs;
 source.value = prefs.sourceLang;
 target.value = prefs.targetLang;
 
@@ -130,7 +136,9 @@ async function refreshSettings() {
   engineSel.value = s.engine;
   return s;
 }
-await refreshSettings();
+engineSel.value = initialSettings.engine;
+// The page is filled in: let the toolbar's labels fade in (see .booting).
+document.documentElement.classList.remove("booting");
 
 let seq = 0;
 let timer: number | undefined;

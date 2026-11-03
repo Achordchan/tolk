@@ -90,8 +90,8 @@ var (
 		{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`), "${1}_***"},
 		// Quoted values go whole, spaces and escaped quotes included:
 		// first JSON inside a string (\"secret\"), then "…" and '…'.
-		// Inside such a value, escaped twice, a backslash is \\\\\\\\, a quote
-		// \\\\\", another escape \\\\n; \\n is a character escaped once. No two
+		// Inside such a value, escaped twice, a backslash is \\\\, a quote
+		// \\\", another escape \\n; \n is a character escaped once. No two
 		// alternatives match the same text, so the first \" left over ends it
 		// and nothing has to be retried.
 		{regexp.MustCompile(secretKey + `\\")(?:\\\\\\\\|\\\\\\"|\\\\[^"\\]|\\[^"\\]|[^\\"\r\n])*\\"`), `${1}***\"`},

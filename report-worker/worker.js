@@ -36,8 +36,8 @@ const json = (data, status = 200) =>
 const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]\s*`;
 // Quoted values go whole, spaces and escaped quotes included: first JSON
 // inside a string (\"secret\", where an escaped quote is \\\"), then "…" and '…'.
-// Escaped twice, a backslash in such a value is \\\\\\\\, a quote \\\\\", another
-// escape \\\\n; \\n is a character escaped once. No two alternatives match
+// Escaped twice, a backslash in such a value is \\\\, a quote \\\", another
+// escape \\n; \n is a character escaped once. No two alternatives match
 // the same text, so the first \" left over ends the value and an
 // unterminated one fails without backtracking.
 // Parts are bounded (RFC 5321 sizes): unbounded ones cost quadratic time on

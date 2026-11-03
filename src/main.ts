@@ -57,12 +57,18 @@ function fill(sel: HTMLSelectElement, items: [string, string][]) {
 enhanceSelect(source);
 enhanceSelect(target);
 enhanceSelect(engineSel);
-const langs = await Tolk.languages();
+// One round trip instead of four in a row: on a slow PC each call to Go is
+// noticeable, and the toolbar stays empty until all of them are back.
+const [langs, about, initialPrefs, initialSettings] = await Promise.all([
+  Tolk.languages(),
+  Tolk.about(),
+  initLook(),
+  Tolk.getSettings(),
+]);
 fill(source, [AUTO, ...langs].map((n) => [n, shown(n)]));
 fill(target, langs.map((n) => [n, shown(n)]));
-const about = await Tolk.about();
 fill(engineSel, engineList(about.os));
-let prefs = await initLook();
+let prefs = initialPrefs;
 source.value = prefs.sourceLang;
 target.value = prefs.targetLang;
 
@@ -81,7 +87,12 @@ function showTheme(theme: string) {
   themeBtn.title = `主题：${name}（点击切换）`;
 }
 showTheme(prefs.theme);
-events.prefsChanged.on((p) => showTheme(p.theme));
+// The tray / menu bar can switch Mini mode too.
+events.prefsChanged.on((p) => {
+  prefs = p;
+  showTheme(p.theme);
+  showMini();
+});
 themeBtn.addEventListener("click", async () => {
   const order = THEMES.map(([id]) => id);
   const next = order[(order.indexOf(prefs.theme) + 1) % order.length]!;
@@ -125,7 +136,9 @@ async function refreshSettings() {
   engineSel.value = s.engine;
   return s;
 }
-await refreshSettings();
+engineSel.value = initialSettings.engine;
+// The page is filled in: let the toolbar's labels fade in (see .booting).
+document.documentElement.classList.remove("booting");
 
 let seq = 0;
 let timer: number | undefined;
@@ -229,7 +242,7 @@ events.copied.on((text) => {
 events.macNotice.on((m) => toast(m));
 
 for (const id of ["#s-engine", "#s-vendor", "#s-dc-ms", "#ia-shortcut", "#ia-scope", "#c-level"]) enhanceSelect($<HTMLSelectElement>(id));
-initSettings({
+const settings = initSettings({
   os: about.os,
   toast,
   mac: about.os === "darwin" ? macPane(toast, () => $("#s-cancel").click()) : undefined,
@@ -241,6 +254,15 @@ initSettings({
     await refreshSettings();
     schedule(0);
   },
+});
+
+// From the tray / menu bar / Dock menu.
+events.menuCommand.on(async (c) => {
+  if (c === "settings") await settings.open();
+  else if (c === "update") {
+    await settings.open("about");
+    $<HTMLButtonElement>("#a-check").click();
+  }
 });
 
 showEmpty(true);

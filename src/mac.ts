@@ -25,7 +25,6 @@ export function macPane(toast: (m: string) => void, close: () => void): MacPane 
     badge(sr, st.screenRecording, st.running);
     $("#p-guide").toggleAttribute("disabled", !st.running);
     $("#p-shot").toggleAttribute("disabled", !st.running);
-    $("#p-migrate").toggleAttribute("disabled", !st.running);
     if (hkNote) {
       hkNote.textContent = st.hotkeyError ? `快捷键没能启动：${st.hotkeyError}` : "";
       hkNote.hidden = !hkNote.textContent;
@@ -47,10 +46,6 @@ export function macPane(toast: (m: string) => void, close: () => void): MacPane 
   act("#p-shot", async () => {
     close(); // get the sheet out of the way before the selection layer opens
     await Tolk.macScreenshot("translate");
-  });
-  act("#p-migrate", async () => {
-    const notes = await Tolk.macImportLegacy();
-    toast(notes.length ? notes[0]! : "已导入旧版设置，请重新打开设置查看");
   });
   ax.addEventListener("click", () => void Tolk.macRequestPermission("accessibility").catch((e) => toast(String(e))));
   sr.addEventListener("click", () => void Tolk.macRequestPermission("screenRecording").catch((e) => toast(String(e))));

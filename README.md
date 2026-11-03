@@ -20,7 +20,6 @@ Windows 和 macOS 通用的翻译工具，由「大佐翻译官」（Windows，P
 | `internal/legacy` | 旧配置读写，引擎构建 |
 | `internal/update` | 更新器：Windows 旧格式 Ed25519 更新包、macOS Sparkle appcast |
 | `internal/helper` `macos/helper` | 小助手的 Go 客户端、Swift 实现与协议（`PROTOCOL.md`） |
-| `internal/macmigrate` | 导入旧版 Mac 的设置和 API Key |
 | `cmd/tolk-release` | 发布工具：打包、签名、appcast、Gitee 镜像 |
 | `src` `index.html` `mini.html` `panel.html` | 前端（`panel.html` 是 Windows 输入助手的候选面板） |
 | `installer/setup.iss` | Windows 安装器（沿用旧 AppId，原地升级） |

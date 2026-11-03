@@ -1,8 +1,24 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="booting">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Before the first paint: the theme and text sizes from the last run
+      // (src/look.ts keeps them), so the window opens in its own colours.
+      (function () {
+        try {
+          var l = JSON.parse(localStorage.getItem("tolk.look") || "null");
+          var r = document.documentElement;
+          if (l && l.theme && l.theme !== "system") r.dataset.theme = l.theme;
+          if (l && l.sourceFont) r.style.setProperty("--src-size", l.sourceFont + "px");
+          if (l && l.targetFont) r.style.setProperty("--dst-size", l.targetFont + "px");
+        } catch (e) {}
+        // src/main.ts lifts this once the toolbar is filled; never leave it
+        // hidden if that does not happen.
+        setTimeout(function () { document.documentElement.classList.remove("booting"); }, 5000);
+      })();
+    </script>
     <title>Tolk</title>
     <link rel="stylesheet" href="./src/style.css" />
   </head>
@@ -225,8 +241,7 @@
               <span class="spacer"></span>
               <button type="button" id="a-check" class="ghost">检查更新</button>
             </div>
-            <p class="muted">Tolk 由大佐翻译官（Windows）与 bagayalu（macOS）合并而来，沿用同一份设置和更新渠道。</p>
-            <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">已知问题</a></p>
+            <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">问题反馈</a></p>
             <div class="about card feedback-card">
               <div>
                 <strong>遇到问题？</strong>
@@ -243,9 +258,6 @@
                 <dt>设置文件</dt><dd id="a-config" class="mono"></dd>
                 <dt id="a-helper-t" hidden>原生助手</dt><dd id="a-helper" hidden></dd>
               </dl>
-              <div class="actions left" id="migrate-row" hidden>
-                <button type="button" id="p-migrate" class="ghost">从旧版大佐翻译官导入设置</button>
-              </div>
             </details>
           </section>
 

@@ -2,6 +2,9 @@ import { Tolk, events } from "./mygo";
 
 type Prefs = Awaited<ReturnType<typeof Tolk.getPrefs>>;
 
+/** Read by the inline script in index.html, mini.html and panel.html. */
+const LOOK_KEY = "tolk.look";
+
 export const THEMES: [string, string][] = [
   ["system", "跟随系统"],
   ["light", "浅色"],
@@ -16,6 +19,14 @@ export function applyLook(p: Pick<Prefs, "theme" | "sourceFont" | "targetFont">)
   else delete root.dataset.theme;
   root.style.setProperty("--src-size", `${p.sourceFont}px`);
   root.style.setProperty("--dst-size", `${p.targetFont}px`);
+  // Remembered for the next start: the inline script at the top of each page
+  // applies it before the first paint, so a dark or pink window does not
+  // flash light while Go answers.
+  try {
+    localStorage.setItem(LOOK_KEY, JSON.stringify({ theme: p.theme, sourceFont: p.sourceFont, targetFont: p.targetFont }));
+  } catch {
+    /* storage can be unavailable */
+  }
 }
 
 /** Apply the saved look now and whenever another window changes it. */

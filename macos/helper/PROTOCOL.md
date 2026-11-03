@@ -24,7 +24,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 
 | op | 参数 | 结果 |
 |---|---|---|
-| `hello` | 无 | `{"version":"1","macos":"15.1","capabilities":["ocr","pin","selection","apple","legacy"]}`；`apple` 仅在系统 ≥ 15.1 时列出 |
+| `hello` | 无 | `{"version":"1","macos":"15.1","capabilities":["ocr","pin","selection","apple"]}`；`apple` 仅在系统 ≥ 15.1 时列出 |
 | `permissions` | 无 | `{"accessibility":bool,"screenRecording":bool}`，不弹窗 |
 | `permissions.request` | `kind`: `accessibility` \| `screenRecording` | `{}`，触发系统授权提示；已拒绝时打开对应系统设置页 |
 | `permissions.guide` | 无 | `{}`，显示 bagayalu 里 `PermissionGuideView` 同款授权引导窗口（缺哪个讲哪个） |
@@ -35,7 +35,6 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 | `apple.status` | `source`, `target` | `{"state":"installed"\|"supported"\|"unsupported"}`（`supported` = 需要先下载语言包） |
 | `apple.translate` | `texts`:[string], `source`, `target` | `{"texts":[string]}`，与输入等长同序；需要下载语言包时由系统弹下载窗口 |
 | `hotkeys.configure` | `doubleCopy`:bool、`screenshot`:bool、`windowMs`:int（默认 550）、`screenshotKeyCode`:int（默认 7，即 X） | `{"running":bool,"error":"<中文原因，可省略>"}`，见下文「全局快捷键」 |
-| `legacy.read` | 无 | 读出旧版 bagayalu 的设置和 API Key，见下文 |
 | `quit` | 无 | `{}` 然后退出 |
 
 ## helper → Go
@@ -95,24 +94,6 @@ helper → Go：
 **复制取词兜底（2.1.1）**：只在**手动快捷键**（含 `inputassist.trigger`）触发、且 AX 取词（含 Chromium 开启无障碍后的重试）都失败时启用，自动显示永远不走它。流程：先查应用范围（黑白名单）和安全输入 / 密码框，再保存剪贴板、模拟 ⌘C，轮询 `changeCount`（上限约 300ms）判断复制是否生效——`changeCount` 没变就视为没选中，剪贴板里的旧内容绝不当选区；读完无论成败都还原原剪贴板，复制后还要确认前台仍是批准时的那个进程。这种来源没有 AX 元素：弹窗锚在鼠标位置；提交只走模拟 ⌘V，粘贴前只校验前台进程和安全输入（没法校验“全文没变”，粘贴后也读不回结果，按已发出处理），校验不过就把译文复制到剪贴板并提示；粘贴完成后还原原剪贴板。限制：在“无选区时 ⌘C 会复制整行”的编辑器里没有选区会取到整行；取词和粘贴期间会短暂改动剪贴板（剪贴板管理器可能记到一条）；只能还原剪贴板里的实际数据，不含延迟提供的数据。
 
 用户可见文字沿用老版措辞（面板、提示、气泡）。统计 `InputAssistMetrics` 不移植。设置页、测试页、新功能引导（`InputAssistSettingsPane` / `InputAssistTestView` / `InputAssistOnboardingView`）不在 helper 里做，由 Tolk 的网页设置页承担。
-
-## 旧版数据（`legacy.read`）
-
-用于从旧版 bagayalu（bundle id `achord.dazuofanyiguan`，Tolk 沿用同一个 id，所以读的是同一个 UserDefaults 域和同一批 Keychain 项）迁移。结果：
-
-```json
-{
-  "defaults": { "<UserDefaults 键>": <JSON 可表示的值> },
-  "keys": { "<Keychain 账号名>": "<API Key>" },
-  "languages": { "zh-CN": "简体中文", "auto": "自动检测", "...": "..." }
-}
-```
-
-- `languages`：旧版语言代码 → Tolk 中文标签（38 项，含 `auto`），迁移 `sourceLanguageCode` / `targetLanguageCode` 时直接查表；查不到的代码（如 `la`）Tolk 自行处理。
-
-- `defaults` 只放 `AppSettings`、`InputAssistSettings` 用到的键（见 `Core/AppSettings.swift`），值不是 JSON 可表示的类型就丢掉。
-- `keys` 来自 `Core/KeychainStore.swift` 使用的 service（`com.achord.dazuofanyiguan`），账号名目前只有 `openAIAPIKey`。**不要写入、不要删除**任何 Keychain 项，只读；读不到（用户拒绝授权）就从结果里略去，不报错。
-- API Key 属于机密：**不要写日志**，只在这个返回里出现。
 
 ## 其他要求
 

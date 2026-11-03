@@ -1,4 +1,4 @@
-import { Tolk } from "./mygo";
+import { Tolk, events } from "./mygo";
 import type { MacPane } from "./settings";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -185,6 +185,15 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
   }
 
   enabled.addEventListener("change", () => (body.hidden = !enabled.checked));
+  // Switched from the menu bar / tray while the sheet is open: show it here,
+  // or saving the sheet would switch it back.
+  events.inputAssistChanged.on((on) => {
+    if (!loaded) return;
+    savedEnabled = on;
+    enabled.checked = on;
+    body.hidden = !on;
+    void refresh().catch(() => {});
+  });
   scope.addEventListener("change", drawScope);
   // Clicking here makes Tolk the frontmost app, so triggering at once would try
   // to read Tolk's own window. Close the sheet, give the user a moment to switch

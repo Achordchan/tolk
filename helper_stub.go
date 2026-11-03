@@ -20,8 +20,6 @@ func macScreenshot(string) error { return errNoHelper }
 
 func macApplyHotkeys() {}
 
-func macImport(bool) ([]string, error) { return nil, errNoHelper }
-
 func macApplePacks([]string) (map[string]string, error) { return nil, errNoHelper }
 
 func macAppleDownload(string) error { return errNoHelper }

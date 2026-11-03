@@ -160,13 +160,20 @@ export function initFeedback() {
   $("#fb-logs").addEventListener("change", refreshPreview);
   // Changed contents are a new submission: a retry must not be answered
   // with the result of the earlier, different one.
-  const edited = () => {
+  // The GitHub link was built from the old contents, so it goes too: it
+  // could still carry text or logs the user has since removed.
+  const changed = () => {
     submissionId = newId();
+    fallback = "";
+    $("#fb-github").hidden = true;
+  };
+  const edited = () => {
+    changed();
     refreshPreviewSoon();
   };
   $("#fb-desc").addEventListener("input", edited);
   $("#fb-contact").addEventListener("input", edited);
-  $("#fb-logs").addEventListener("change", () => (submissionId = newId()));
+  $("#fb-logs").addEventListener("change", changed);
   // A request in flight would finish unseen; keep the dialog until it answers.
   dlg.addEventListener("cancel", (e) => {
     if (busy) e.preventDefault();

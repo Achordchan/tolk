@@ -28,7 +28,7 @@ func runWindowsScript(t *testing.T, sourceVersion string) (target string, result
 	os.WriteFile(script, []byte("\xef\xbb\xbf"+strings.ReplaceAll(windowsApplyScript, "\n", "\r\n")), 0o600)
 	plan := &WindowsPlan{SourceDir: source, ExeName: "app.cmd", Version: "9.9.9"}
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script)
-	cmd.Env = append(os.Environ(), plan.Env(target, filepath.Join(root, "backup"), filepath.Join(root, "log.txt"), filepath.Join(root, "result.json"), 999999)...)
+	cmd.Env = append(os.Environ(), plan.Env(target, filepath.Join(root, "backup"), filepath.Join(root, "log.txt"), filepath.Join(root, "result.json"), 999999, true)...)
 	out, _ := cmd.CombinedOutput()
 	t.Logf("script output: %s", out)
 	time.Sleep(2 * time.Second) // Start-Process is asynchronous

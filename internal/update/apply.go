@@ -9,9 +9,8 @@ import (
 	"strings"
 )
 
-// LegacyExeName is the executable name of every Windows install made by
-// dazuo-win; update packages carry it so one package fits old and new clients.
-const LegacyExeName = "大佐翻译官.exe"
+// ExeName is the program inside a Windows update package (and of an install).
+const ExeName = "Tolk.exe"
 
 // WindowsPlan is a verified, extracted package ready for the swap script.
 type WindowsPlan struct {
@@ -20,8 +19,8 @@ type WindowsPlan struct {
 	Version   string
 }
 
-// PrepareWindows extracts a verified package and checks it the way the old
-// updater did (manifest version, main program, resources). The executable
+// PrepareWindows extracts a verified package and checks it (manifest version,
+// main program). The executable
 // inside is renamed to exeName, the name of the running program, so the swap
 // never leaves two executables behind.
 func PrepareWindows(zipPath, workDir, version, exeName string) (*WindowsPlan, error) {
@@ -36,13 +35,13 @@ func PrepareWindows(zipPath, workDir, version, exeName string) (*WindowsPlan, er
 		return nil, err
 	}
 	root := dest
-	if _, err := os.Stat(filepath.Join(root, LegacyExeName)); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ExeName)); err != nil {
 		entries, _ := os.ReadDir(dest)
 		if len(entries) == 1 && entries[0].IsDir() {
 			root = filepath.Join(dest, entries[0].Name())
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, LegacyExeName)); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ExeName)); err != nil {
 		return nil, errors.New("更新包内未找到主程序，请确认上传的是完整运行目录 zip")
 	}
 	b, err := os.ReadFile(filepath.Join(root, "update_manifest.json"))
@@ -62,12 +61,12 @@ func PrepareWindows(zipPath, workDir, version, exeName string) (*WindowsPlan, er
 	if m.PackageType != "" && m.PackageType != "windows_full_update" {
 		return nil, fmt.Errorf("更新包类型不受支持：%s", m.PackageType)
 	}
-	if exeName != "" && exeName != LegacyExeName {
-		if err := os.Rename(filepath.Join(root, LegacyExeName), filepath.Join(root, exeName)); err != nil {
+	if exeName != "" && exeName != ExeName {
+		if err := os.Rename(filepath.Join(root, ExeName), filepath.Join(root, exeName)); err != nil {
 			return nil, err
 		}
 	} else {
-		exeName = LegacyExeName
+		exeName = ExeName
 	}
 	return &WindowsPlan{SourceDir: root, ExeName: exeName, Version: NormalizeVersion(version)}, nil
 }
@@ -86,15 +85,16 @@ func sanitize(s string) string {
 }
 
 // WindowsEnv is the environment the swap script reads.
-func (p *WindowsPlan) Env(targetDir, backupDir, logPath, resultPath string, pid int) []string {
+func (p *WindowsPlan) Env(targetDir, backupDir, logPath, resultPath string, pid int, relaunch bool) []string {
 	return []string{
-		"DZFYQ_UPDATE_SOURCE_DIR=" + p.SourceDir,
-		"DZFYQ_UPDATE_TARGET_DIR=" + targetDir,
-		"DZFYQ_UPDATE_EXE_NAME=" + p.ExeName,
-		fmt.Sprintf("DZFYQ_UPDATE_PROCESS_ID=%d", pid),
-		"DZFYQ_UPDATE_BACKUP_DIR=" + backupDir,
-		"DZFYQ_UPDATE_LOG_PATH=" + logPath,
-		"DZFYQ_UPDATE_RESULT_PATH=" + resultPath,
-		"DZFYQ_UPDATE_EXPECTED_VERSION=" + p.Version,
+		"TOLK_UPDATE_RELAUNCH=" + map[bool]string{true: "1", false: "0"}[relaunch],
+		"TOLK_UPDATE_SOURCE_DIR=" + p.SourceDir,
+		"TOLK_UPDATE_TARGET_DIR=" + targetDir,
+		"TOLK_UPDATE_EXE_NAME=" + p.ExeName,
+		fmt.Sprintf("TOLK_UPDATE_PROCESS_ID=%d", pid),
+		"TOLK_UPDATE_BACKUP_DIR=" + backupDir,
+		"TOLK_UPDATE_LOG_PATH=" + logPath,
+		"TOLK_UPDATE_RESULT_PATH=" + resultPath,
+		"TOLK_UPDATE_EXPECTED_VERSION=" + p.Version,
 	}
 }

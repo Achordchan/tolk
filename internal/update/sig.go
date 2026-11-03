@@ -1,10 +1,8 @@
 // Package update checks for, verifies and installs Tolk releases.
 //
-// Windows keeps the signed full-ZIP format of dazuo-win (Ed25519 over a
-// canonical JSON payload, same public key), so the old client, the bridge
-// release and Tolk's own updates share one signing and verification path.
-// macOS keeps the Sparkle appcast format (Ed25519 over the archive bytes, same
-// SUPublicEDKey) for the same reason.
+// Windows packages are full ZIPs signed with Ed25519 over a canonical JSON
+// payload (the format of the old Windows app); macOS uses the Sparkle appcast
+// format (Ed25519 over the archive bytes).
 package update
 
 import (
@@ -21,20 +19,19 @@ import (
 	"strings"
 )
 
-// Public keys of the channels the old apps read. Only the one-off bridge
-// releases in dazuo-win and bagayalu-translate are signed with their private
-// halves, which live in those repos' own CI secrets.
-const (
-	LegacyWindowsPublicKeyB64 = "RUYCZIcVqIzgPf56cREkoGvQnYYiujdI/nG7EGiGPWA="
-	LegacySparklePublicKeyB64 = "uYKsIloVV+bt+R3StPtVAxMd2CPIHvmS5LZlbYmxQ0Y="
-)
-
 // Public keys Tolk's own updater trusts. Releases published from Tolk's repo
 // are signed with the matching private keys (secrets TOLK_UPDATE_PRIVATE_KEY_PEM
 // and TOLK_SPARKLE_PRIVATE_KEY, made with `tolk-release keygen`).
 const (
 	WindowsPublicKeyB64 = "+byogBgEJzXHqC5VkRDVTUPEqK+xVfTtHk3oRrQM3mg="
 	SparklePublicKeyB64 = "eIwCBqGdteE11gn75aEpRJLALSyfhkFQ9oAYmIu2ojk="
+)
+
+// The keys Verify checks against. Only the e2e test build swaps them, for a
+// throwaway pair.
+var (
+	windowsKey = WindowsPublicKeyB64
+	sparkleKey = SparklePublicKeyB64
 )
 
 // Payload is what the Windows signature covers. Field order is the

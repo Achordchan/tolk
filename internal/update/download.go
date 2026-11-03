@@ -19,27 +19,57 @@ const (
 	maxZipRatio        = 100.0
 )
 
-// Download fetches the package into dir and returns its path. It tries the
-// release's own URL, then the same asset on the other sources. The result is
-// not trusted until Verify has passed.
+// Download fetches the package into dir and returns its path. It tests every
+// route (github.com and the mirrors) first and downloads over the fastest,
+// moving on to the next when one breaks or its package fails verification.
 func (c *Checker) Download(ctx context.Context, info *Info, dir string, progress func(done, total int64)) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	urls := append([]string{info.url}, c.mirrorURLs(ctx, info)...)
-	if p := proxied(info.url); p != "" {
-		urls = append(urls, p)
-	}
 	var errs []string
-	for _, u := range urls {
-		path, err := c.fetchTo(ctx, u, filepath.Join(dir, filepath.Base(info.name)), info.wantSize, progress)
+	reloaded := false
+	for _, u := range c.rank(ctx, c.routes(info.url)) {
+		name := routeName(u, c.Origin)
+		c.logf("从 %s 下载 %s", name, info.name)
+		dest := filepath.Join(dir, filepath.Base(info.name))
+		path, err := c.fetchTo(ctx, u, dest, info.wantSize, progress)
+		if errors.Is(err, errSizeMismatch) && !reloaded && info.reload != nil {
+			// The size may be what is wrong (a mirror's metadata): ask
+			// GitHub once and try this route again if that differs.
+			reloaded = true
+			if info.reload(ctx) {
+				path, err = c.fetchTo(ctx, u, dest, info.wantSize, progress)
+			}
+		}
+		if err == nil && c.verify != nil {
+			// A route that hands back a damaged package is skipped like
+			// one that breaks, so the next route still gets its turn.
+			err = c.verify(info, path)
+			if err != nil && !reloaded && info.reload != nil {
+				// Once: the signature may be what is wrong (a mirror's
+				// metadata), not the package.
+				reloaded = true
+				if info.reload(ctx) {
+					err = c.verify(info, path)
+				}
+			}
+			if err != nil {
+				os.Remove(path)
+			}
+		}
 		if err == nil {
 			return path, nil
 		}
-		errs = append(errs, err.Error())
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		errs = append(errs, fmt.Sprintf("%s：%v", name, err))
 	}
 	return "", fmt.Errorf("下载更新包失败：%s", strings.Join(errs, "；"))
 }
+
+// errSizeMismatch is a package of another size than the metadata says.
+var errSizeMismatch = errors.New("更新包大小与发布信息不一致")
 
 func (c *Checker) fetchTo(ctx context.Context, url, dest string, want int64, progress func(done, total int64)) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -101,7 +131,7 @@ func (c *Checker) fetchTo(ctx context.Context, url, dest string, want int64, pro
 	}
 	if want > 0 && done != want {
 		os.Remove(tmp)
-		return "", errors.New("更新包大小与发布信息不一致")
+		return "", errSizeMismatch
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		os.Remove(tmp)
@@ -127,12 +157,12 @@ func Verify(info *Info, path string) error {
 		if info.sha != "" && sum != info.sha {
 			return errors.New("更新包校验值与发布信息不一致，已终止更新")
 		}
-		return VerifyPayload(WindowsPublicKeyB64, Payload{
+		return VerifyPayload(windowsKey, Payload{
 			AppVersion: info.Version, Filename: info.name, PackageType: "windows_full_update",
 			Platform: "windows", SHA256: sum, SizeBytes: size,
 		}, info.sig)
 	case "darwin":
-		return VerifyFileBytes(SparklePublicKeyB64, path, info.sig)
+		return VerifyFileBytes(sparkleKey, path, info.sig)
 	}
 	return errors.New("这个系统暂不支持自动更新")
 }

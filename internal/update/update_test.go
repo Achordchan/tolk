@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -40,17 +41,17 @@ func TestExtractZipRejectsEscapes(t *testing.T) {
 
 func TestPrepareWindowsChecksManifestAndRenamesExe(t *testing.T) {
 	files := map[string]string{
-		LegacyExeName:          "exe",
+		ExeName:                "exe",
 		"update_manifest.json": `{"app_version":"2.0.0","package_type":"windows_full_update"}`,
 	}
-	plan, err := PrepareWindows(makeZip(t, files), t.TempDir(), "2.0.0", "Tolk.exe")
+	plan, err := PrepareWindows(makeZip(t, files), t.TempDir(), "2.0.0", "tolk-renamed.exe")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.ExeName != "Tolk.exe" {
+	if plan.ExeName != "tolk-renamed.exe" {
 		t.Fatal(plan.ExeName)
 	}
-	if _, err := os.Stat(filepath.Join(plan.SourceDir, "Tolk.exe")); err != nil {
+	if _, err := os.Stat(filepath.Join(plan.SourceDir, "tolk-renamed.exe")); err != nil {
 		t.Fatal("exe not renamed")
 	}
 	if _, err := PrepareWindows(makeZip(t, files), t.TempDir(), "2.0.1", ""); err == nil {
@@ -72,7 +73,7 @@ func windowsServer(t *testing.T, priv ed25519.PrivateKey, tamper bool) (*httptes
 	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"tag_name": "v2.0.0",
-			"body":     "# 更新日志\n- 新功能\nDZFYQ-SIG-WINDOWS:abc\nupdate=1\n",
+			"body":     "# 更新日志\n- 新功能\nupdate=1\n",
 			"assets": []map[string]any{
 				{"name": name, "size": len(pkg), "browser_download_url": srv.URL + "/pkg"},
 				{"name": name + ".sig.json", "size": 10, "browser_download_url": srv.URL + "/sig"},
@@ -95,7 +96,9 @@ func windowsServer(t *testing.T, priv ed25519.PrivateKey, tamper bool) (*httptes
 	srv = httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	c := NewChecker("windows", "1.2.11")
-	c.Sources = []Source{{"Test", srv.URL + "/release"}}
+	c.Latest, c.API, c.Mirrors = srv.URL+"/release", "", nil
+	c.verify = nil // the tests verify with their own key
+	c.windowsKey = base64.StdEncoding.EncodeToString(priv.Public().(ed25519.PublicKey))
 	return srv, c, pkg
 }
 
@@ -106,7 +109,7 @@ func TestWindowsCheckDownloadVerify(t *testing.T) {
 	if err != nil || info == nil {
 		t.Fatalf("check: %v %v", info, err)
 	}
-	if info.Version != "2.0.0" || !info.Force || strings.Contains(info.Notes, "DZFYQ") || strings.Contains(info.Notes, "update=1") {
+	if info.Version != "2.0.0" || !info.Force || strings.Contains(info.Notes, "update=1") {
 		t.Fatalf("info %+v", info)
 	}
 	if again, _ := c.Check(context.Background(), "2.0.0"); again != nil {
@@ -159,25 +162,13 @@ func TestMacCheckParsesAppcast(t *testing.T) {
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 	c := NewChecker("darwin", "1.4.1")
-	c.Sources = []Source{{"Test", srv.URL + "/release"}}
+	c.Latest, c.API, c.Mirrors = srv.URL+"/release", "", nil
 	info, err := c.Check(context.Background(), "1.4.1")
 	if err != nil || info == nil {
 		t.Fatalf("%v %v", info, err)
 	}
 	if info.Version != "2.0.0" || info.Size != 1234 || info.url != "https://example.com/dl/Tolk-2.0.0-macos.zip" || info.sig != "c2ln" {
 		t.Fatalf("%+v", info)
-	}
-}
-
-func TestFallsBackToMirrorSource(t *testing.T) {
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "no", 403) }))
-	defer bad.Close()
-	_, priv, _ := ed25519.GenerateKey(nil)
-	_, c, _ := windowsServer(t, priv, false)
-	c.Sources = append([]Source{{"Blocked", bad.URL}}, c.Sources...)
-	info, err := c.Check(context.Background(), "1.2.11")
-	if err != nil || info == nil || info.Source != "Test" {
-		t.Fatalf("%+v %v", info, err)
 	}
 }
 
@@ -194,7 +185,7 @@ func TestMacApplyScript(t *testing.T) {
 	stub("ditto", `cp -R "$1" "$2"`)
 	stub("xattr", `exit 0`)
 	stub("open", `echo "$1" >> "$OPENED"`)
-	run := func(codesignOK bool) (target, result, opened string) {
+	run := func(codesignOK bool, relaunch string) (target, result, opened string) {
 		dir := t.TempDir()
 		target = filepath.Join(dir, "App.app")
 		newApp := filepath.Join(dir, "new", "App.app")
@@ -214,7 +205,7 @@ func TestMacApplyScript(t *testing.T) {
 			"TOLK_UPDATE_PID=999999", "TOLK_UPDATE_NEW="+newApp, "TOLK_UPDATE_TARGET="+target,
 			"TOLK_UPDATE_BACKUP="+filepath.Join(dir, "backup", "App.app"),
 			"TOLK_UPDATE_LOG="+filepath.Join(dir, "log"), "TOLK_UPDATE_RESULT="+filepath.Join(dir, "result.json"),
-			"TOLK_UPDATE_VERSION=2.0.0", "OPENED="+filepath.Join(dir, "opened"))
+			"TOLK_UPDATE_VERSION=2.0.0", "TOLK_UPDATE_RELAUNCH="+relaunch, "OPENED="+filepath.Join(dir, "opened"))
 		os.MkdirAll(filepath.Join(dir, "backup"), 0o755)
 		cmd.Run()
 		b, _ := os.ReadFile(filepath.Join(target, "v"))
@@ -222,11 +213,15 @@ func TestMacApplyScript(t *testing.T) {
 		o, _ := os.ReadFile(filepath.Join(dir, "opened"))
 		return string(b), string(r), string(o)
 	}
-	if v, res, opened := run(true); v != "new" || !strings.Contains(res, `"success"`) || !strings.Contains(opened, "App.app") {
+	if v, res, opened := run(true, "1"); v != "new" || !strings.Contains(res, `"success"`) || !strings.Contains(opened, "App.app") {
 		t.Fatalf("success path: v=%s res=%s opened=%s", v, res, opened)
 	}
-	if v, res, opened := run(false); v != "old" || !strings.Contains(res, `"failed"`) || !strings.Contains(opened, "App.app") {
+	if v, res, opened := run(false, "1"); v != "old" || !strings.Contains(res, `"failed"`) || !strings.Contains(opened, "App.app") {
 		t.Fatalf("rollback path: v=%s res=%s opened=%s", v, res, opened)
+	}
+	// Quitting: swap, but leave the app closed.
+	if v, res, opened := run(true, "0"); v != "new" || !strings.Contains(res, `"success"`) || opened != "" {
+		t.Fatalf("quit path: v=%s res=%s opened=%s", v, res, opened)
 	}
 }
 
@@ -253,7 +248,7 @@ func macAppcastServer(t *testing.T, minOS string) (*httptest.Server, string) {
 func TestMacCheckSkipsReleaseNeedingNewerOS(t *testing.T) {
 	_, rel := macAppcastServer(t, "15.0")
 	c := NewChecker("darwin", "1.4.1")
-	c.Sources, c.OSVersion = []Source{{"Test", rel}}, "14.5"
+	c.Latest, c.API, c.Mirrors, c.OSVersion = rel, "", nil, "14.5"
 	if info, err := c.Check(context.Background(), "1.4.1"); info != nil || err != nil {
 		t.Fatalf("an incompatible release must not be offered: %+v %v", info, err)
 	}
@@ -266,9 +261,58 @@ func TestMacCheckSkipsReleaseNeedingNewerOS(t *testing.T) {
 func TestMacCheckPrefersArchiveAttachedToSameRelease(t *testing.T) {
 	srv, rel := macAppcastServer(t, "13.0")
 	c := NewChecker("darwin", "1.4.1")
-	c.Sources, c.OSVersion = []Source{{"Mirror", rel}}, "14.5"
+	c.Latest, c.API, c.Mirrors, c.OSVersion = rel, "", nil, "14.5"
 	info, err := c.Check(context.Background(), "1.4.1")
 	if err != nil || info == nil || info.url != srv.URL+"/mirror/Tolk-2.0.0-macos.zip" {
 		t.Fatalf("%+v %v", info, err)
+	}
+}
+
+func TestOwnedByNeedsTolksEntryAndUninstaller(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "unins000.exe"), nil, 0o600)
+	if ownedBy(dir, "") {
+		t.Fatal("no uninstall entry: not Tolk's install")
+	}
+	if ownedBy(dir, filepath.Join(dir, "other")) {
+		t.Fatal("an uninstaller of something else in the folder is not enough")
+	}
+	if !ownedBy(dir, dir+string(filepath.Separator)) {
+		t.Fatal("Tolk's entry names this folder")
+	}
+	if link := filepath.Join(t.TempDir(), "via"); os.Symlink(dir, link) == nil && !ownedBy(dir, link) {
+		t.Fatal("an entry naming the folder through a link is the same folder")
+	}
+	os.Remove(filepath.Join(dir, "unins000.exe"))
+	if ownedBy(dir, dir) {
+		t.Fatal("the uninstaller must be there too")
+	}
+}
+
+func TestForeignFilesInInstallFolder(t *testing.T) {
+	target, source := t.TempDir(), t.TempDir()
+	for _, n := range []string{"Tolk.exe", "LICENSE"} {
+		os.WriteFile(filepath.Join(source, n), nil, 0o600)
+		os.WriteFile(filepath.Join(target, n), nil, 0o600)
+	}
+	os.WriteFile(filepath.Join(target, "unins000.exe"), nil, 0o600)
+	os.WriteFile(filepath.Join(target, "unins000.dat"), nil, 0o600)
+	if extra := foreignFiles(target, source); len(extra) != 0 {
+		t.Fatalf("only Tolk's own files: %v", extra)
+	}
+	os.WriteFile(filepath.Join(target, "notes.txt"), nil, 0o600)
+	if extra := foreignFiles(target, source); len(extra) != 1 || extra[0] != "notes.txt" {
+		t.Fatalf("a file of someone else's: %v", extra)
+	}
+}
+
+func TestApplyRechecksForeignFiles(t *testing.T) {
+	target, source := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(source, "Tolk.exe"), nil, 0o600)
+	os.WriteFile(filepath.Join(target, "Tolk.exe"), nil, 0o600)
+	os.WriteFile(filepath.Join(target, "saved-later.txt"), nil, 0o600)
+	p := &Pending{goos: "windows", target: target, dirs: Dirs{Cache: t.TempDir(), State: t.TempDir()}, plan: &WindowsPlan{SourceDir: source}}
+	if err := p.Apply(false); !errors.Is(err, ErrCannotInstall) {
+		t.Fatalf("a file saved after preparing must stop the swap: %v", err)
 	}
 }

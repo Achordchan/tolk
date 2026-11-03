@@ -11,6 +11,7 @@ import (
 
 	"tolk/internal/autostart"
 	"tolk/internal/doublecopy"
+	"tolk/internal/legacy"
 )
 
 // Copied is sent to the main window when text should be translated there.
@@ -23,6 +24,13 @@ func main() {
 	mygo.App.SetLanguages("zh-Hans", "zh-Hant", "en")
 
 	mygo.App.WhenReady(func() {
+		// 2.2.2 and older kept everything in ~/.dzfyq; move it once, before
+		// anything reads the settings.
+		if moved, err := legacy.MigrateHome(); err != nil {
+			Logs.Errorf("搬移旧设置目录失败：%v", err)
+		} else if moved {
+			Logs.Infof("设置已搬到新目录")
+		}
 		applyNativeTheme(loadPrefs().Theme)
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:  "Tolk",
@@ -101,7 +109,7 @@ func main() {
 
 		setupTray(win, showMain)
 		go func() {
-			if err := autostart.Rename(); err != nil {
+			if err := autostart.Migrate(); err != nil {
 				Logs.Warnf("开机自启：%v", err)
 			}
 		}()

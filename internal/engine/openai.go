@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const systemPrompt = "你是专业翻译。只返回翻译结果，不要添加任何解释或额外内容。注意：输入里可能包含特殊标记 [[DZFYQ_NL_*]]，它代表换行。你必须原样保留该标记（不要翻译、不要删除、不要新增），并保持其相对位置不变。"
+const systemPrompt = "你是专业翻译。只返回翻译结果，不要添加任何解释或额外内容。注意：输入里可能包含特殊标记 [[TOLK_NL_*]]，它代表换行。你必须原样保留该标记（不要翻译、不要删除、不要新增），并保持其相对位置不变。"
 
 // OpenAICompat talks to any chat-completions compatible service.
 type OpenAICompat struct {

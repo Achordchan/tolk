@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,6 +32,11 @@ var fb struct {
 	crash string // what the previous run's crash output held
 	dir   string // state folder: report_state.json, crash files
 
+	// The update that ran before this start, as last_update_result.json
+	// said, read at once: the page's UpdateNotice deletes the file.
+	lastUpdate   string
+	lastUpdateAt string // its modification time, which update failure was reported
+
 	mu    sync.Mutex
 	first *logbuf.Entry // first error of the burst being collected
 }
@@ -56,6 +60,11 @@ func init() {
 	}
 	fb.dir = dir
 	fb.store = report.NewStore(dir)
+	path := filepath.Join(dir, "last_update_result.json")
+	if info, err := os.Stat(path); err == nil {
+		fb.lastUpdate = strings.TrimPrefix(readHead(path, 64<<10), "\xef\xbb\xbf")
+		fb.lastUpdateAt = info.ModTime().UTC().Format(time.RFC3339)
+	}
 	setupCrashOutput(dir)
 	Logs.OnError(onErrorLine)
 	go func() {
@@ -272,25 +281,15 @@ func reportPreviousRun() {
 			func() { _ = os.Remove(pending) })
 		fb.crash = ""
 	}
-	dirs, err := update.DefaultDirs()
-	if err != nil {
-		return
-	}
-	path := filepath.Join(dirs.State, "last_update_result.json")
-	info, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-	raw, _ := os.ReadFile(path)
 	var res struct {
 		Status   string `json:"status"`
 		Message  string `json:"message"`
 		Expected string `json:"expected_version"`
 	}
-	if json.Unmarshal(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")), &res) != nil || res.Status != "failed" {
+	if json.Unmarshal([]byte(fb.lastUpdate), &res) != nil || res.Status != "failed" {
 		return
 	}
-	stamp := info.ModTime().UTC().Format(time.RFC3339)
+	stamp := fb.lastUpdateAt
 	if fb.store.Get().UpdateResultAt == stamp {
 		return
 	}
@@ -457,9 +456,9 @@ func baseReport(kind, title, description string, withLogs bool) report.Report {
 		if tail := updateLogTail(filepath.Join(dirs.State, "update.log")); tail != "" {
 			r.Attachments = append(r.Attachments, report.Attachment{Name: "更新日志 update.log", Body: tail})
 		}
-		if raw := readHead(filepath.Join(dirs.State, "last_update_result.json"), 64<<10); raw != "" {
-			r.Attachments = append(r.Attachments, report.Attachment{Name: "上次更新结果", Body: strings.TrimPrefix(raw, "\xef\xbb\xbf")})
-		}
+	}
+	if fb.lastUpdate != "" {
+		r.Attachments = append(r.Attachments, report.Attachment{Name: "上次更新结果", Body: fb.lastUpdate})
 	}
 	return r
 }

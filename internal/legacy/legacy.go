@@ -1,5 +1,5 @@
-// Package legacy reads the settings of the Python (dazuo-win) app so a
-// Tolk upgrade keeps them. The file is only read; unknown keys are kept.
+// Package legacy reads and writes Tolk's config.json, whose layout comes from
+// the old Windows app. Unknown keys are kept.
 package legacy
 
 import (
@@ -21,13 +21,29 @@ type Summary struct {
 	UnknownKeys []string `json:"unknownKeys"`
 }
 
-// DefaultPath is where dazuo-win keeps config.json.
-func DefaultPath() (string, error) {
+// Home is the folder of Tolk's settings and update files: ~/.tolk, or
+// $TOLK_HOME.
+func Home() (string, error) {
+	if h := os.Getenv("TOLK_HOME"); h != "" {
+		return h, nil
+	}
+	if fallbackHome != "" {
+		return fallbackHome, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".dzfyq", "config.json"), nil
+	return filepath.Join(home, ".tolk"), nil
+}
+
+// DefaultPath is config.json in Home.
+func DefaultPath() (string, error) {
+	h, err := Home()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(h, "config.json"), nil
 }
 
 var known = map[string]bool{

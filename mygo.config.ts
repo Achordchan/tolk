@@ -6,14 +6,13 @@ const [major, minor, patch] = version.split(".").map(Number);
 // Sparkle compares this number with the build of the app being replaced, so it
 // has to stay above bagayalu's builds (141 at 1.4.1) and only ever grow.
 const build = String(major * 10000 + minor * 100 + patch);
-const mac = process.platform === "darwin";
 
 export default defineConfig({
   name: "Tolk",
-  // macOS keeps bagayalu's bundle id so the Accessibility, Screen Recording and
-  // Keychain grants of an upgrading user carry over; elsewhere nothing depends
-  // on it.
-  identifier: mac ? "achord.dazuofanyiguan" : "app.tolk.desktop",
+  // Up to 2.2.2 macOS used the old app's bundle id (achord.dazuofanyiguan);
+  // changing it in 2.2.3 meant granting Accessibility and Screen Recording
+  // again once.
+  identifier: "app.tolk.desktop",
   version,
   copyright: "Copyright © Achord",
   // `mygo dev` runs devCommand and loads devUrl; `mygo build` runs

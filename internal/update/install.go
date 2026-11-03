@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"tolk/internal/legacy"
 )
 
 // Dirs are where an install keeps its working files.
@@ -20,16 +22,11 @@ type Dirs struct {
 	State  string // log and last result
 }
 
-// DefaultDirs match dazuo-win: everything lives under ~/.dzfyq (or
-// $DZFYQ_HOME), so old logs and the pending-update guard stay in one place.
+// DefaultDirs live in the settings folder (~/.tolk, or $TOLK_HOME).
 func DefaultDirs() (Dirs, error) {
-	root := os.Getenv("DZFYQ_HOME")
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return Dirs{}, err
-		}
-		root = filepath.Join(home, ".dzfyq")
+	root, err := legacy.Home()
+	if err != nil {
+		return Dirs{}, err
 	}
 	return Dirs{
 		Cache:  filepath.Join(root, "update_cache"),
@@ -38,62 +35,158 @@ func DefaultDirs() (Dirs, error) {
 	}, nil
 }
 
-// Install downloads, verifies and starts the swap of the running app. It
-// returns once the swap script runs; the caller must then quit the app so the
-// script can replace it.
+// Pending is an update that has been downloaded, verified and unpacked, and
+// only waits for the app to make way.
+type Pending struct {
+	Info   *Info
+	goos   string
+	dirs   Dirs
+	target string       // Windows: install dir; macOS: the running .app
+	plan   *WindowsPlan // Windows
+	newApp string       // macOS
+}
+
+// Install downloads, verifies and starts the swap of the running app, which
+// starts the new version when it is done. It returns once the swap script
+// runs; the caller must then quit the app so the script can replace it.
 func (c *Checker) Install(ctx context.Context, info *Info, dirs Dirs, progress func(done, total int64)) error {
+	p, err := c.Prepare(ctx, info, dirs, progress)
+	if err != nil {
+		return err
+	}
+	return p.Apply(true)
+}
+
+// ErrCannotInstall marks a copy of Tolk that cannot update itself where it
+// is; trying again later will not change that.
+var ErrCannotInstall = errors.New("无法自动更新")
+
+// Prepare downloads, verifies and unpacks an update without touching the
+// running app.
+func (c *Checker) Prepare(ctx context.Context, info *Info, dirs Dirs, progress func(done, total int64)) (*Pending, error) {
 	if info == nil {
-		return errors.New("没有可安装的更新")
+		return nil, errors.New("没有可安装的更新")
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
-		return err
+		return nil, err
+	}
+	if c.GOOS != "windows" && c.GOOS != "darwin" {
+		return nil, errors.New("这个系统暂不支持自动更新")
+	}
+	// Whether this copy can update itself at all is known before anything is
+	// downloaded; such a refusal is lasting (ErrCannotInstall), not worth
+	// retrying.
+	p := &Pending{Info: info, goos: c.GOOS, dirs: dirs}
+	if c.GOOS == "windows" {
+		p.target = filepath.Dir(exe)
+		if err := writable(p.target); err != nil {
+			return nil, fmt.Errorf("%w：当前安装目录没有写入权限，无法静默替换更新。请先用安装包安装到用户目录，之后即可使用静默更新", ErrCannotInstall)
+		}
+		// The swap makes the folder exactly the package (plus the
+		// uninstaller), so it must be a folder the installer made for Tolk,
+		// not wherever a copy of the exe happens to sit (Downloads…).
+		if !installedDir(p.target) {
+			return nil, fmt.Errorf("%w：Tolk 没有用安装包安装（所在文件夹里没有卸载程序），不能自动更新。请用安装包安装一次，之后就能自动更新", ErrCannotInstall)
+		}
+	} else {
+		if p.target, err = bundlePath(exe); err != nil {
+			return nil, fmt.Errorf("%w：%v", ErrCannotInstall, err)
+		}
+		if err := writable(filepath.Dir(p.target)); err != nil {
+			return nil, fmt.Errorf("%w：应用所在的文件夹不可写：%s。请把应用放到「应用程序」文件夹后再更新", ErrCannotInstall, filepath.Dir(p.target))
+		}
 	}
 	path, err := c.Download(ctx, info, dirs.Cache, progress)
 	if err != nil {
-		return err
-	}
-	if err := Verify(info, path); err != nil {
-		os.Remove(path)
-		return err
+		return nil, err
 	}
 	if err := os.MkdirAll(dirs.State, 0o700); err != nil {
-		return err
+		return nil, err
 	}
-	switch c.GOOS {
-	case "windows":
-		return installWindows(path, info, dirs, exe)
-	case "darwin":
-		return installMac(path, info, dirs, exe)
+	if c.GOOS == "windows" {
+		if p.plan, err = PrepareWindows(path, dirs.Cache, info.Version, filepath.Base(exe)); err != nil {
+			return nil, err
+		}
+		// The swap mirrors the package over the folder; anything else in
+		// it (Tolk installed into a folder shared with other things) would
+		// be deleted, so such a folder is not swapped automatically.
+		if extra := foreignFiles(p.target, p.plan.SourceDir); len(extra) > 0 {
+			return nil, fmt.Errorf("%w：安装目录 %s 里还有不属于 Tolk 的文件（%s），自动更新会删掉它们。请用安装包更新，或把 Tolk 装到单独的文件夹", ErrCannotInstall, p.target, strings.Join(extra, "、"))
+		}
+		return p, nil
 	}
-	return errors.New("这个系统暂不支持自动更新")
+	dest := filepath.Join(dirs.Cache, "mac_update_"+sanitize(info.Version))
+	if err := os.RemoveAll(dest); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dest, 0o700); err != nil {
+		return nil, err
+	}
+	// ditto keeps resource forks, symlinks and permissions inside the bundle.
+	if out, err := exec.Command("/usr/bin/ditto", "-x", "-k", path, dest).CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("解压更新包失败：%v %s", err, strings.TrimSpace(string(out)))
+	}
+	if p.newApp, err = findApp(dest); err != nil {
+		return nil, err
+	}
+	if err := sameRequirement(p.target, p.newApp); err != nil {
+		return nil, err
+	}
+	// The archive's signature says nothing about which version it is: an
+	// appcast from a mirror could pass off an older signed build as new.
+	if err := bundleVersion(p.newApp, info.Version); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
-func installWindows(zipPath string, info *Info, dirs Dirs, exe string) error {
-	target := filepath.Dir(exe)
-	if err := writable(target); err != nil {
-		return errors.New("当前安装目录没有写入权限，无法静默替换更新。请先用安装包安装到用户目录，之后即可使用静默更新")
-	}
-	plan, err := PrepareWindows(zipPath, dirs.Cache, info.Version, filepath.Base(exe))
+// bundleVersion checks that the app bundle is the version it was offered as.
+func bundleVersion(app, want string) error {
+	out, err := exec.Command("/usr/bin/plutil", "-extract", "CFBundleShortVersionString", "raw", "-o", "-",
+		filepath.Join(app, "Contents", "Info.plist")).Output()
 	if err != nil {
-		return err
+		return fmt.Errorf("读不到新版本的版本号：%v", err)
+	}
+	if got := NormalizeVersion(string(out)); got != NormalizeVersion(want) {
+		return fmt.Errorf("更新包里是 %s，不是发布信息说的 %s，已终止更新", got, want)
+	}
+	return nil
+}
+
+// Apply starts the script that swaps in the update once this process has
+// exited. relaunch starts the new version afterwards; it is false when the
+// user is quitting. The caller must exit soon after.
+func (p *Pending) Apply(relaunch bool) error {
+	if p.goos == "windows" {
+		return p.applyWindows(relaunch)
+	}
+	return p.applyMac(relaunch)
+}
+
+func (p *Pending) applyWindows(relaunch bool) error {
+	dirs, plan := p.dirs, p.plan
+	// Checked again right before the swap: the update may have waited hours
+	// for Tolk to quit, and something may have been saved in the folder.
+	if extra := foreignFiles(p.target, plan.SourceDir); len(extra) > 0 {
+		return fmt.Errorf("%w：安装目录 %s 里有不属于 Tolk 的文件（%s），自动更新会删掉它们，已取消。请用安装包更新", ErrCannotInstall, p.target, strings.Join(extra, "、"))
 	}
 	script := filepath.Join(dirs.Cache, "apply_update.ps1")
 	// PowerShell 5 reads a BOM-less script in the ANSI code page, which would
-	// garble the Chinese executable name.
+	// garble a non-ASCII path.
 	body := "\xef\xbb\xbf" + strings.ReplaceAll(windowsApplyScript, "\n", "\r\n")
 	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
 		return err
 	}
-	env := append(os.Environ(), plan.Env(target,
-		filepath.Join(dirs.Backup, "v"+plan.Version),
-		filepath.Join(dirs.State, "update.log"),
-		filepath.Join(dirs.State, "last_update_result.json"),
-		os.Getpid())...)
 	logPath := filepath.Join(dirs.State, "update.log")
+	env := append(os.Environ(), plan.Env(p.target,
+		filepath.Join(dirs.Backup, "v"+plan.Version),
+		logPath,
+		filepath.Join(dirs.State, "last_update_result.json"),
+		os.Getpid(), relaunch)...)
 	before := fileSize(logPath)
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script)
 	cmd.Env = env
@@ -111,9 +204,32 @@ func installWindows(zipPath string, info *Info, dirs Dirs, exe string) error {
 		// if it got going at the last moment.
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
-		return errors.New("更新脚本没有启动起来，可能被安全软件拦截了。请到 GitHub 或 Gitee 下载安装包覆盖安装")
+		return errors.New("更新脚本没有启动起来，可能被安全软件拦截了。请到 GitHub 下载安装包覆盖安装")
 	}
 	return cmd.Process.Release()
+}
+
+func (p *Pending) applyMac(relaunch bool) error {
+	dirs := p.dirs
+	script := filepath.Join(dirs.Cache, "apply_update.sh")
+	if err := os.WriteFile(script, []byte(macApplyScript), 0o700); err != nil {
+		return err
+	}
+	cmd := exec.Command("/bin/sh", script)
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("TOLK_UPDATE_PID=%d", os.Getpid()),
+		"TOLK_UPDATE_NEW="+p.newApp,
+		"TOLK_UPDATE_TARGET="+p.target,
+		"TOLK_UPDATE_BACKUP="+filepath.Join(dirs.Backup, filepath.Base(p.target)),
+		"TOLK_UPDATE_LOG="+filepath.Join(dirs.State, "update.log"),
+		"TOLK_UPDATE_RESULT="+filepath.Join(dirs.State, "last_update_result.json"),
+		"TOLK_UPDATE_VERSION="+p.Info.Version,
+		"TOLK_UPDATE_RELAUNCH="+map[bool]string{true: "1", false: "0"}[relaunch],
+	)
+	if err := os.MkdirAll(dirs.Backup, 0o700); err != nil {
+		return err
+	}
+	return startDetached(cmd)
 }
 
 // waitGrow waits until the file at path is larger than before.
@@ -157,52 +273,6 @@ func bundlePath(exe string) (string, error) {
 		}
 	}
 	return "", errors.New("当前程序不在 .app 包里，无法自动更新")
-}
-
-func installMac(zipPath string, info *Info, dirs Dirs, exe string) error {
-	app, err := bundlePath(exe)
-	if err != nil {
-		return err
-	}
-	if err := writable(filepath.Dir(app)); err != nil {
-		return fmt.Errorf("应用所在的文件夹不可写：%s。请把应用放到「应用程序」文件夹后再更新", filepath.Dir(app))
-	}
-	dest := filepath.Join(dirs.Cache, "mac_update_"+sanitize(info.Version))
-	if err := os.RemoveAll(dest); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dest, 0o700); err != nil {
-		return err
-	}
-	// ditto keeps resource forks, symlinks and permissions inside the bundle.
-	if out, err := exec.Command("/usr/bin/ditto", "-x", "-k", zipPath, dest).CombinedOutput(); err != nil {
-		return fmt.Errorf("解压更新包失败：%v %s", err, strings.TrimSpace(string(out)))
-	}
-	newApp, err := findApp(dest)
-	if err != nil {
-		return err
-	}
-	if err := sameRequirement(app, newApp); err != nil {
-		return err
-	}
-	script := filepath.Join(dirs.Cache, "apply_update.sh")
-	if err := os.WriteFile(script, []byte(macApplyScript), 0o700); err != nil {
-		return err
-	}
-	cmd := exec.Command("/bin/sh", script)
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("TOLK_UPDATE_PID=%d", os.Getpid()),
-		"TOLK_UPDATE_NEW="+newApp,
-		"TOLK_UPDATE_TARGET="+app,
-		"TOLK_UPDATE_BACKUP="+filepath.Join(dirs.Backup, filepath.Base(app)),
-		"TOLK_UPDATE_LOG="+filepath.Join(dirs.State, "update.log"),
-		"TOLK_UPDATE_RESULT="+filepath.Join(dirs.State, "last_update_result.json"),
-		"TOLK_UPDATE_VERSION="+info.Version,
-	)
-	if err := os.MkdirAll(dirs.Backup, 0o700); err != nil {
-		return err
-	}
-	return startDetached(cmd)
 }
 
 func findApp(dir string) (string, error) {
@@ -252,4 +322,59 @@ func sameRequirement(running, update string) error {
 		return errors.New("新版本的签名身份与当前版本不同，为了保住已有的系统授权，已取消自动更新。请到发布页手动下载安装")
 	}
 	return nil
+}
+
+// installedDir reports whether dir is where the installer put Tolk: Tolk's
+// own uninstall entry names it, and the uninstaller sits there. Any other
+// folder holding Tolk.exe (Downloads, a tools folder shared with other
+// programs) is not swapped wholesale.
+func installedDir(dir string) bool {
+	return ownedBy(dir, installLocation())
+}
+
+// uninstallKey is Tolk's entry under HKCU\...\Uninstall (the AppId kept from
+// 大佐翻译官).
+const uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1`
+
+func ownedBy(dir, location string) bool {
+	if location == "" || !strings.EqualFold(resolved(dir), resolved(location)) {
+		return false
+	}
+	m, _ := filepath.Glob(filepath.Join(dir, "unins*.exe"))
+	return len(m) > 0
+}
+
+// resolved is path with links (a junction the installer went through)
+// followed, so the recorded and the running path compare alike.
+func resolved(path string) string {
+	path = filepath.Clean(path)
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		return r
+	}
+	return path
+}
+
+// foreignFiles lists what is in the install folder target that neither the
+// new package (source) nor the installer's uninstaller accounts for; at most
+// a few names.
+func foreignFiles(target, source string) []string {
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return nil
+	}
+	var extra []string
+	for _, e := range entries {
+		name := e.Name()
+		if m, _ := filepath.Match("unins*", strings.ToLower(name)); m {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(source, name)); err == nil {
+			continue
+		}
+		extra = append(extra, name)
+		if len(extra) == 3 {
+			break
+		}
+	}
+	return extra
 }

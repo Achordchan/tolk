@@ -137,11 +137,31 @@ begin
   end;
 end;
 
+// 桌面快捷方式：旧版装的 Tolk 快捷方式指向旧主程序。这次没勾“创建桌面快捷方式”
+// 时安装器不会碰它，旧主程序一删它就打不开了，所以只要它在就指到新主程序。
+procedure RetargetDesktopShortcut;
+var
+  Lnk: String;
+begin
+  Lnk := ExpandConstant('{autodesktop}\{#MyAppName}.lnk');
+  if not FileExists(Lnk) then
+    Exit;
+  try
+    CreateShellLink(Lnk, '{#MyAppName}', ExpandConstant('{app}\{#MyAppExeName}'), '',
+      ExpandConstant('{app}'), ExpandConstant('{app}\{#MyAppExeName}'), 0, SW_SHOWNORMAL);
+  except
+    Log('桌面快捷方式没改成：' + GetExceptionMessage);
+  end;
+end;
+
 // 装好后先修开机自启，再清掉旧版：只在旧目录确实是旧版的（里面有旧主程序）且不是这次的目录时。
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
     MoveStartupShortcut;
+    RetargetDesktopShortcut;
+  end;
   if (CurStep = ssPostInstall) and (OldDir <> '') and
      (CompareText(OldDir, RemoveBackslashUnlessRoot(ExpandConstant('{app}'))) <> 0) and
      FileExists(AddBackslash(OldDir) + '{#OldExeName}') then

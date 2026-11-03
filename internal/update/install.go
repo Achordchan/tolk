@@ -86,6 +86,12 @@ func (c *Checker) Prepare(ctx context.Context, info *Info, dirs Dirs, progress f
 		if err := writable(p.target); err != nil {
 			return nil, errors.New("当前安装目录没有写入权限，无法静默替换更新。请先用安装包安装到用户目录，之后即可使用静默更新")
 		}
+		// The swap makes the folder exactly the package (plus the
+		// uninstaller), so it must be a folder the installer made for Tolk,
+		// not wherever a copy of the exe happens to sit (Downloads…).
+		if !installedDir(p.target) {
+			return nil, errors.New("Tolk 没有用安装包安装（所在文件夹里没有卸载程序），不能自动更新。请用安装包安装一次，之后就能自动更新")
+		}
 		if p.plan, err = PrepareWindows(path, dirs.Cache, info.Version, filepath.Base(exe)); err != nil {
 			return nil, err
 		}
@@ -295,4 +301,11 @@ func sameRequirement(running, update string) error {
 		return errors.New("新版本的签名身份与当前版本不同，为了保住已有的系统授权，已取消自动更新。请到发布页手动下载安装")
 	}
 	return nil
+}
+
+// installedDir reports whether dir is an install made by the installer: the
+// Inno Setup uninstaller sits beside the program.
+func installedDir(dir string) bool {
+	m, _ := filepath.Glob(filepath.Join(dir, "unins*.exe"))
+	return len(m) > 0
 }

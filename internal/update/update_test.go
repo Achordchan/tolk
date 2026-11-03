@@ -266,3 +266,14 @@ func TestMacCheckPrefersArchiveAttachedToSameRelease(t *testing.T) {
 		t.Fatalf("%+v %v", info, err)
 	}
 }
+
+func TestInstalledDirNeedsUninstaller(t *testing.T) {
+	dir := t.TempDir()
+	if installedDir(dir) {
+		t.Fatal("a folder without the uninstaller is not an install")
+	}
+	os.WriteFile(filepath.Join(dir, "unins000.exe"), nil, 0o600)
+	if !installedDir(dir) {
+		t.Fatal("the uninstaller marks an install")
+	}
+}

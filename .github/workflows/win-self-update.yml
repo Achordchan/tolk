@@ -103,7 +103,17 @@ jobs:
           $oldLnk = Join-Path $startup "大佐翻译官.lnk"
           $newLnk = Join-Path $startup "Tolk.lnk"
           $sh = New-Object -ComObject WScript.Shell
-          $s = $sh.CreateShortcut($oldLnk); $s.TargetPath = (Join-Path $old "大佐翻译官.exe"); $s.Save()
+          # 先在别处建好再拷进去，并把真实的错误打出来。
+          $tmpLnk = Join-Path $env:RUNNER_TEMP "old-autostart.lnk"
+          try {
+            $s = $sh.CreateShortcut($tmpLnk)
+            $s.TargetPath = Join-Path $old "大佐翻译官.exe"
+            $s.Save()
+            Copy-Item -LiteralPath $tmpLnk -Destination $oldLnk -Force
+          } catch {
+            Write-Host "建旧快捷方式失败：$($_.Exception | Format-List -Force | Out-String)"
+            throw
+          }
           $approved = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder"
           New-Item -Force $approved | Out-Null
           $off = [byte[]](3,0,0,0,0,0,0,0,0,0,0,0)

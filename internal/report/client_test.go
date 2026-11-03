@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -32,7 +33,7 @@ func TestSendFallsBackOnlyWhenRelayIsUnreachable(t *testing.T) {
 
 	old := Endpoints
 	defer func() { Endpoints = old }()
-	r := Report{Kind: Manual, Title: "t", InstallID: "ab", Version: "2.2.3"}.Clean()
+	r := Report{Kind: Manual, Title: "t", InstallID: "ab", Version: "2.2.3", Contact: "me@example.com"}.Clean()
 
 	Endpoints = []string{blocked.URL, good.URL}
 	res, err := Send(context.Background(), nil, r)
@@ -41,6 +42,10 @@ func TestSendFallsBackOnlyWhenRelayIsUnreachable(t *testing.T) {
 	}
 	if got["body"] == "" || got["kind"] != Manual {
 		t.Fatalf("payload %v", got)
+	}
+	// The relay re-scrubs the body, so the contact must travel beside it.
+	if got["contact"] != "me@example.com" || strings.Contains(got["body"].(string), "me@example.com") {
+		t.Fatalf("contact handling: %v", got)
 	}
 
 	Endpoints = []string{refusing.URL, good.URL}

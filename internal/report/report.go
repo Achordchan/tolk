@@ -55,9 +55,10 @@ type Report struct {
 // Limits keep a report inside what a GitHub issue can hold (65 536
 // characters) with room for the relay's own lines.
 const (
-	maxAttachment = 24000
-	maxBody       = 60000
-	maxTitle      = 120
+	maxAttachment  = 24000
+	maxBody        = 60000
+	maxTitle       = 120
+	maxDescription = 8000
 )
 
 var (
@@ -104,7 +105,7 @@ func Scrub(s string) string {
 // Clean scrubs every field and trims the report to the size limits.
 func (r Report) Clean() Report {
 	r.Title = truncate(oneLine(Scrub(r.Title)), maxTitle)
-	r.Description = Scrub(r.Description)
+	r.Description = truncate(Scrub(r.Description), maxDescription)
 	r.Contact = truncate(oneLine(r.Contact), 100)
 	env := make([]Field, len(r.Env))
 	for i, f := range r.Env {
@@ -149,10 +150,28 @@ func (r Report) Markdown() string {
 	if r.Fingerprint != "" {
 		row("错误指纹", "`"+r.Fingerprint+"`")
 	}
+	// The description and environment always stay; when everything does not
+	// fit, each attachment gives up its oldest lines to an equal share.
+	const wrap = 80 // <details> markup around each attachment
+	room := maxBody - b.Len()
+	total := 0
 	for _, a := range r.Attachments {
-		fmt.Fprintf(&b, "\n<details><summary>%s</summary>\n\n```text\n%s\n```\n\n</details>\n", a.Name, strings.ReplaceAll(a.Body, "```", "ˋˋˋ"))
+		total += len(a.Body) + wrap + len(a.Name)
 	}
-	return Tail(b.String(), maxBody)
+	share := 0
+	if total > room && len(r.Attachments) > 0 {
+		share = room/len(r.Attachments) - wrap - 40
+	}
+	for _, a := range r.Attachments {
+		body := a.Body
+		if share > 0 {
+			body = Tail(body, share)
+		} else if share < 0 || (total > room && share == 0) {
+			continue
+		}
+		fmt.Fprintf(&b, "\n<details><summary>%s</summary>\n\n```text\n%s\n```\n\n</details>\n", a.Name, strings.ReplaceAll(body, "```", "ˋˋˋ"))
+	}
+	return b.String()
 }
 
 func kindName(k string) string {
@@ -173,18 +192,31 @@ func kindName(k string) string {
 func IssueURL(repo string, r Report) string {
 	const budget = 7000
 	base := "https://github.com/" + repo + "/issues/new?title=" + url.QueryEscape(r.Title) + "&body="
+	fits := func(body string) (string, bool) {
+		u := base + url.QueryEscape(body)
+		return u, len(u) <= budget
+	}
 	short := r
 	short.Attachments = append([]Attachment(nil), r.Attachments...)
-	for limit := maxAttachment; ; limit /= 2 {
+	for limit := maxAttachment; limit >= 400; limit /= 2 {
 		for i := range short.Attachments {
 			short.Attachments[i].Body = Tail(r.Attachments[i].Body, limit)
 		}
-		body := short.Markdown()
-		if limit < 400 {
-			short.Attachments = nil
-			body = short.Markdown() + "\n_日志太长，已复制到剪贴板，请粘贴到这里。_\n"
+		if u, ok := fits(short.Markdown()); ok {
+			return u
 		}
-		if u := base + url.QueryEscape(body); len(u) <= budget || short.Attachments == nil {
+	}
+	// No room for logs; then shorten the description too. The full report
+	// is on the clipboard either way.
+	short.Attachments = nil
+	const note = "\n_完整内容（含日志）已复制到剪贴板，请粘贴到这里。_\n"
+	desc := []rune(r.Description)
+	for n := len(desc); ; n = n * 2 / 3 {
+		short.Description = string(desc[:n])
+		if n < len(desc) {
+			short.Description += "…"
+		}
+		if u, ok := fits(short.Markdown() + note); ok || n == 0 {
 			return u
 		}
 	}

@@ -94,3 +94,33 @@ func TestReserveLimits(t *testing.T) {
 		t.Fatal("no install id")
 	}
 }
+
+func TestMarkdownKeepsHeaderWhenLogsAreHuge(t *testing.T) {
+	r := Report{Kind: Crash, Description: "上一次运行异常退出", Version: "2.2.3", Env: []Field{{"系统版本", "Windows 11"}}, Attachments: []Attachment{
+		{"崩溃信息", strings.Repeat("c\n", 30000)}, {"运行日志", strings.Repeat("l\n", 30000)}, {"更新日志", strings.Repeat("u\n", 30000)},
+	}}.Clean()
+	md := r.Markdown()
+	if len(md) > maxBody {
+		t.Errorf("body %d bytes", len(md))
+	}
+	for _, want := range []string{"### 问题描述", "上一次运行异常退出", "Windows 11", "崩溃信息", "运行日志", "更新日志"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("lost %q", want)
+		}
+	}
+}
+
+func TestIssueURLLongDescription(t *testing.T) {
+	r := Report{Kind: Manual, Title: "t", Description: strings.Repeat("很长的描述", 600)}.Clean()
+	if u := IssueURL(Repo, r); len(u) > 7000 {
+		t.Fatalf("url %d bytes", len(u))
+	}
+}
+
+func TestReserveRefusedWhenStateCannotBeSaved(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir + "/missing/\x00bad")
+	if s.Reserve("a", time.Now()) {
+		t.Fatal("an unsaved reservation must be refused")
+	}
+}

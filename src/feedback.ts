@@ -78,8 +78,12 @@ async function submit() {
   busy = true;
   showError("");
   const send = $<HTMLButtonElement>("#fb-send");
+  const cancel = $<HTMLButtonElement>("#fb-cancel");
   send.disabled = true;
   send.textContent = "正在提交…";
+  // Closing now would leave the request finishing unseen, and a reopened
+  // dialog could send a second one and get the first one's answer.
+  cancel.disabled = true;
   try {
     const r = await Tolk.submitFeedback(...fields());
     if (r.sent) {
@@ -103,6 +107,7 @@ async function submit() {
     showError(message(e));
   } finally {
     busy = false;
+    cancel.disabled = false;
     if (!send.hidden) {
       send.disabled = false;
       send.textContent = "重试";
@@ -121,7 +126,9 @@ export function openFeedback(text = "") {
 export function initFeedback() {
   dlg = $<HTMLDialogElement>("#feedback-dialog");
   $("#fb-send").addEventListener("click", submit);
-  $("#fb-cancel").addEventListener("click", () => dlg.close());
+  $("#fb-cancel").addEventListener("click", () => {
+    if (!busy) dlg.close();
+  });
   $("#fb-github").addEventListener("click", () => {
     if (fallback) void Tolk.openLink(fallback);
   });

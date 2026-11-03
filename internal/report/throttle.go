@@ -91,9 +91,13 @@ func (s *Store) Get() State {
 // Reserve records an automatic report of fp at now, or says no when the
 // switch is off or the limits are reached. Recording before sending means a
 // relay that is down costs one attempt, not one per error.
+//
+// A reservation that cannot be saved is refused: with an unwritable state
+// file the limits could not hold, and the app would report the same error
+// again and again.
 func (s *Store) Reserve(fp string, now time.Time) bool {
 	ok := false
-	_, _ = s.Update(func(st *State) {
+	_, err := s.Update(func(st *State) {
 		if st.AutoDisabled {
 			return
 		}
@@ -116,7 +120,7 @@ func (s *Store) Reserve(fp string, now time.Time) bool {
 		st.Count++
 		ok = true
 	})
-	return ok
+	return ok && err == nil
 }
 
 func newID() string {

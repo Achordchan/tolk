@@ -111,6 +111,12 @@ func (c *Checker) Prepare(ctx context.Context, info *Info, dirs Dirs, progress f
 		if p.plan, err = PrepareWindows(path, dirs.Cache, info.Version, filepath.Base(exe)); err != nil {
 			return nil, err
 		}
+		// The swap mirrors the package over the folder; anything else in
+		// it (Tolk installed into a folder shared with other things) would
+		// be deleted, so such a folder is not swapped automatically.
+		if extra := foreignFiles(p.target, p.plan.SourceDir); len(extra) > 0 {
+			return nil, fmt.Errorf("%w：安装目录 %s 里还有不属于 Tolk 的文件（%s），自动更新会删掉它们。请用安装包更新，或把 Tolk 装到单独的文件夹", ErrCannotInstall, p.target, strings.Join(extra, "、"))
+		}
 		return p, nil
 	}
 	dest := filepath.Join(dirs.Cache, "mac_update_"+sanitize(info.Version))
@@ -341,4 +347,29 @@ func resolved(path string) string {
 		return r
 	}
 	return path
+}
+
+// foreignFiles lists what is in the install folder target that neither the
+// new package (source) nor the installer's uninstaller accounts for; at most
+// a few names.
+func foreignFiles(target, source string) []string {
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		return nil
+	}
+	var extra []string
+	for _, e := range entries {
+		name := e.Name()
+		if m, _ := filepath.Match("unins*", strings.ToLower(name)); m {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(source, name)); err == nil {
+			continue
+		}
+		extra = append(extra, name)
+		if len(extra) == 3 {
+			break
+		}
+	}
+	return extra
 }

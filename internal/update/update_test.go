@@ -287,3 +287,20 @@ func TestOwnedByNeedsTolksEntryAndUninstaller(t *testing.T) {
 		t.Fatal("the uninstaller must be there too")
 	}
 }
+
+func TestForeignFilesInInstallFolder(t *testing.T) {
+	target, source := t.TempDir(), t.TempDir()
+	for _, n := range []string{"Tolk.exe", "LICENSE"} {
+		os.WriteFile(filepath.Join(source, n), nil, 0o600)
+		os.WriteFile(filepath.Join(target, n), nil, 0o600)
+	}
+	os.WriteFile(filepath.Join(target, "unins000.exe"), nil, 0o600)
+	os.WriteFile(filepath.Join(target, "unins000.dat"), nil, 0o600)
+	if extra := foreignFiles(target, source); len(extra) != 0 {
+		t.Fatalf("only Tolk's own files: %v", extra)
+	}
+	os.WriteFile(filepath.Join(target, "notes.txt"), nil, 0o600)
+	if extra := foreignFiles(target, source); len(extra) != 1 || extra[0] != "notes.txt" {
+		t.Fatalf("a file of someone else's: %v", extra)
+	}
+}

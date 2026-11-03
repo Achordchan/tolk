@@ -182,6 +182,10 @@ func checkUpdate() (UpdateState, error) {
 func startDownload(info *update.Info, install bool) {
 	upd.mu.Lock()
 	if upd.downloading || upd.applied {
+		// One is already on its way: an install request rides along.
+		if install && upd.downloading {
+			upd.installNow = true
+		}
 		upd.mu.Unlock()
 		return
 	}

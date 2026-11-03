@@ -39,7 +39,9 @@ func shortcutPath() (string, error) {
 }
 
 // Rename moves an entry made by 2.2.2 or older to the Tolk name, so Windows
-// shows Tolk among the startup apps. It does nothing when there is none.
+// shows Tolk among the startup apps. The shortcut file itself is renamed, so
+// its target and properties stay as they were. It does nothing when there is
+// no old entry.
 func Rename() error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -51,17 +53,18 @@ func Rename() error {
 	if _, err := os.Stat(old); err != nil {
 		return nil
 	}
-	if err := set(true); err != nil {
-		return err
-	}
-	// Turning a startup app off in Settings or Task Manager keeps the shortcut
-	// and records the choice by file name; carry it over to the new name. If
-	// that fails, keep the old entry so a switched-off app stays off.
-	if err := carryApproval(oldShortcutName, shortcutName); err != nil {
-		_ = os.Remove(filepath.Join(dir, shortcutName))
-		return err
-	}
-	if err := os.Remove(old); err != nil {
+	lnk := filepath.Join(dir, shortcutName)
+	if _, err := os.Stat(lnk); err != nil {
+		// Turning a startup app off in Settings or Task Manager keeps the
+		// shortcut and records the choice by file name; carry it over first so
+		// a switched-off app stays off.
+		if err := carryApproval(oldShortcutName, shortcutName); err != nil {
+			return err
+		}
+		if err := os.Rename(old, lnk); err != nil {
+			return err
+		}
+	} else if err := os.Remove(old); err != nil {
 		return err
 	}
 	dropApproval(oldShortcutName)

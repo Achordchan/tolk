@@ -119,12 +119,15 @@ type FeedbackResult struct {
 	Error    string `json:"error"`
 }
 
-// SubmitFeedback sends a report from the 提交问题 dialog.
-func (Tolk) SubmitFeedback(description, contact string, withLogs bool) FeedbackResult {
+// SubmitFeedback sends a report from the 提交问题 dialog. submissionID is the
+// same for every attempt from one opening of the dialog, so a retry after a
+// lost reply cannot file the report twice.
+func (Tolk) SubmitFeedback(description, contact string, withLogs bool, submissionID string) FeedbackResult {
 	if strings.TrimSpace(description) == "" {
 		return FeedbackResult{Error: "请先描述一下遇到的问题"}
 	}
 	r := manualReport(description, contact, withLogs)
+	r.SubmissionID = submissionID
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	res, err := report.Send(ctx, nil, r)

@@ -57,6 +57,10 @@ type Report struct {
 	Contact     string       `json:"contact,omitempty"`
 	Fingerprint string       `json:"fingerprint,omitempty"`
 	InstallID   string       `json:"installId"`
+	// SubmissionID names one submission: the relay answers a repeat (another
+	// endpoint after a lost reply, the 重试 button) with the first result
+	// instead of filing it twice.
+	SubmissionID string `json:"submissionId"`
 	Version     string       `json:"version"`
 	OS          string       `json:"os"`
 	Arch        string       `json:"arch"`
@@ -83,8 +87,10 @@ var (
 	}
 	// Home folders give away the account name: /Users/name, C:\Users\name, /home/name.
 	homeRes = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)([A-Z]:\\\\?Users\\\\?)[^\\/\s"'<>|]+`),
-		regexp.MustCompile(`(/Users/|/home/)[^/\s"'<>]+`),
+		// The account name runs to the next separator and may hold spaces
+		// ("Jane Doe"); JSON doubles the backslashes.
+		regexp.MustCompile(`(?i)([A-Z]:(?:\\{1,2}|/)Users(?:\\{1,2}|/))[^\\/"'<>|\r\n]+`),
+		regexp.MustCompile(`(/Users/|/home/)[^/"'<>\r\n]+`),
 	}
 )
 
@@ -92,6 +98,7 @@ var (
 // that leaves the machine.
 func Scrub(s string) string {
 	if home, err := os.UserHomeDir(); err == nil && len(home) > 3 {
+		s = strings.ReplaceAll(s, strings.ReplaceAll(home, `\`, `\\`), "~") // JSON-escaped
 		s = strings.ReplaceAll(s, home, "~")
 		s = strings.ReplaceAll(s, filepath.ToSlash(home), "~")
 	}

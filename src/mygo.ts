@@ -393,9 +393,13 @@ export const Tolk = {
   setMini(on: boolean): Promise<void> {
     return call("Tolk.SetMini", on);
   },
-  /** SubmitFeedback sends a report from the 提交问题 dialog. */
-  submitFeedback(description: string, contact: string, withLogs: boolean): Promise<FeedbackResult> {
-    return call("Tolk.SubmitFeedback", description, contact, withLogs);
+  /**
+   * SubmitFeedback sends a report from the 提交问题 dialog. submissionID is the
+   * same for every attempt from one opening of the dialog, so a retry after a
+   * lost reply cannot file the report twice.
+   */
+  submitFeedback(description: string, contact: string, withLogs: boolean, submissionID: string): Promise<FeedbackResult> {
+    return call("Tolk.SubmitFeedback", description, contact, withLogs, submissionID);
   },
   /** Translate runs the engine chosen in the legacy config. */
   translate(text: string, source: string, target: string): Promise<TranslateResult> {

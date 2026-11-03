@@ -41,6 +41,9 @@ func Send(ctx context.Context, client *http.Client, r Report) (Result, error) {
 	// The relay scrubs the body once more, which would also blank an e-mail
 	// the user typed as contact on purpose; the contact travels on its own
 	// and the relay puts it back under the description.
+	if r.SubmissionID == "" {
+		r.SubmissionID = newID()
+	}
 	noContact := r
 	noContact.Contact = ""
 	payload, err := json.Marshal(struct {

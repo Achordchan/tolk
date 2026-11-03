@@ -20,7 +20,11 @@ func TestSendFallsBackOnlyWhenRelayIsUnreachable(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true,"number":7,"url":"https://github.com/x/y/issues/7"}`))
 	}))
 	defer good.Close()
+	var blockedID string
 	blocked := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		blockedID, _ = p["submissionId"].(string)
 		w.WriteHeader(403)
 		_, _ = w.Write([]byte("<html>blocked</html>"))
 	}))
@@ -42,6 +46,10 @@ func TestSendFallsBackOnlyWhenRelayIsUnreachable(t *testing.T) {
 	}
 	if got["body"] == "" || got["kind"] != Manual {
 		t.Fatalf("payload %v", got)
+	}
+	// Both endpoints see the same submission, so the relay can tell a repeat.
+	if id, _ := got["submissionId"].(string); id == "" || id != blockedID {
+		t.Fatalf("submission id %q vs %q", got["submissionId"], blockedID)
 	}
 	// The relay re-scrubs the body, so the contact must travel beside it.
 	if got["contact"] != "me@example.com" || strings.Contains(got["body"].(string), "me@example.com") {

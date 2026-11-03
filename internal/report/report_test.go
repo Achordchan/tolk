@@ -142,3 +142,19 @@ func TestCrashAttachmentKeepsItsBeginning(t *testing.T) {
 		t.Fatalf("Head split a rune: %q", got)
 	}
 }
+
+func TestScrubHomeWithSpacesAndJSONEscapes(t *testing.T) {
+	for _, in := range []string{
+		`{"log_path":"C:\\Users\\Jane Doe\\.dzfyq\\update_state\\update.log"}`,
+		`C:\Users\Jane Doe\AppData\Local\Tolk`,
+		`/Users/Jane Doe/Library/Logs`,
+	} {
+		out := Scrub(in)
+		if strings.Contains(out, "Jane") || strings.Contains(out, "Doe") {
+			t.Errorf("account name left in %q", out)
+		}
+		if !strings.Contains(out, "***") {
+			t.Errorf("nothing redacted in %q", out)
+		}
+	}
+}

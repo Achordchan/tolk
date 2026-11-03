@@ -12,12 +12,22 @@ let dlg: HTMLDialogElement;
 let busy = false;
 let fallback = "";
 
+// One id per opening of the dialog: 重试 after a lost reply is recognised by
+// the relay instead of filing the report twice.
+let submissionId = "";
+const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+
+function setFieldsEnabled(on: boolean) {
+  $<HTMLTextAreaElement>("#fb-desc").disabled = !on;
+  $<HTMLInputElement>("#fb-contact").disabled = !on;
+  $<HTMLInputElement>("#fb-logs").disabled = !on;
+}
+
 function reset() {
   busy = false;
+  submissionId = newId();
   fallback = "";
-  $<HTMLTextAreaElement>("#fb-desc").disabled = false;
-  $<HTMLInputElement>("#fb-contact").disabled = false;
-  $<HTMLInputElement>("#fb-logs").disabled = false;
+  setFieldsEnabled(true);
   $("#fb-error").hidden = true;
   $("#fb-done").hidden = true;
   $("#fb-github").hidden = true;
@@ -97,13 +107,13 @@ async function submit() {
   // Closing now would leave the request finishing unseen, and a reopened
   // dialog could send a second one and get the first one's answer.
   cancel.disabled = true;
+  // What is sent is what is on screen: no edits while the request runs.
+  setFieldsEnabled(false);
+  let sent = false;
   try {
-    const r = await Tolk.submitFeedback(...fields());
+    const r = await Tolk.submitFeedback(...fields(), submissionId);
     if (r.sent) {
-      $<HTMLTextAreaElement>("#fb-desc").value = "";
-      $<HTMLTextAreaElement>("#fb-desc").disabled = true;
-      $<HTMLInputElement>("#fb-contact").disabled = true;
-      $<HTMLInputElement>("#fb-logs").disabled = true;
+      sent = true;
       send.hidden = true;
       $("#fb-cancel").textContent = "完成";
       showDone(r.url);
@@ -121,6 +131,7 @@ async function submit() {
   } finally {
     busy = false;
     cancel.disabled = false;
+    if (!sent) setFieldsEnabled(true);
     if (!send.hidden) {
       send.disabled = false;
       send.textContent = "重试";

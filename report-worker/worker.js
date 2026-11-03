@@ -47,7 +47,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 // The issue body: scrubbed report, the contact under the description, a footer.
 export function issueBody(r, version, os) {
   let body = clip(scrub(r.body), MAX_BODY);
-  const contact = String(r.contact || "").replace(/\s+/g, " ").trim().slice(0, 100).replace(/[<>`|*_[\]]/g, "");
+  // Shown exactly as typed: Markdown characters are escaped, never dropped
+  // (an address like first_last@example.com must stay intact).
+  const contact = String(r.contact || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100)
+    .replace(/[\\`*_[\]|~#!()]/g, "\\$&")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
   if (contact) {
     const line = `**联系方式：** ${contact}\n\n`;
     const at = body.indexOf("### 环境");
@@ -80,7 +88,7 @@ export class Coordinator {
   async bump(key, limit) {
     const day = today();
     if ((await this.storage.get("day")) !== day) {
-      for (const prefix of ["rl:", "seen:"]) {
+      for (const prefix of ["rl:", "seen:", "sub:"]) {
         const keys = [...(await this.storage.list({ prefix })).keys()];
         // delete() takes at most 128 keys a call.
         for (let i = 0; i < keys.length; i += 128) await this.storage.delete(keys.slice(i, i + 128));
@@ -120,6 +128,18 @@ export class Coordinator {
     }
     if (kind !== "manual" && !fp) return [400, { ok: false, error: "missing fingerprint" }];
 
+    // A repeat of a submission already handled gets the same answer.
+    const sub = String(r.submissionId || "").replace(/[^0-9a-f]/gi, "").slice(0, 40);
+    if (sub) {
+      const done = await this.storage.get(`sub:${sub}`);
+      if (done) return [200, done];
+    }
+    const [status, data] = await this.file(ip, r, kind, install, fp, version);
+    if (sub && status === 200) await this.storage.put(`sub:${sub}`, data);
+    return [status, data];
+  }
+
+  async file(ip, r, kind, install, fp, version) {
     if (!(await this.bump(`ip:${ip}`, LIMITS.ipPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
     if (!(await this.bump(`in:${install}`, LIMITS.installPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
     if (kind === "manual" && !(await this.bump(`man:${install}`, LIMITS.manualPerInstallPerDay))) {
@@ -134,7 +154,11 @@ export class Coordinator {
     if (fp) {
       const known = await this.storage.get(`fp:${fp}`);
       if (known) {
-        const issue = await this.gh("GET", `/issues/${known}`).catch(() => null);
+        // Only a missing issue (deleted or transferred) counts as gone; any
+        // other failure is passed on, or a GitHub hiccup would open a duplicate.
+        const issue = await this.gh("GET", `/issues/${known}`).catch((e) =>
+          /GitHub (404|410)/.test(String(e.message)) ? null : Promise.reject(e),
+        );
         if (issue && issue.state === "open") {
           const merged = [200, { ok: true, number: issue.number, url: issue.html_url, merged: true }];
           // One comment per install per day, and a cap per issue.

@@ -51,21 +51,21 @@ func (a Attachment) Cut(max int) string {
 
 // Report is what reaches the relay. Everything in it has gone through Scrub.
 type Report struct {
-	Kind        string       `json:"kind"`
-	Title       string       `json:"title"`
-	Description string       `json:"description"`
-	Contact     string       `json:"contact,omitempty"`
-	Fingerprint string       `json:"fingerprint,omitempty"`
-	InstallID   string       `json:"installId"`
+	Kind        string `json:"kind"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Contact     string `json:"contact,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	InstallID   string `json:"installId"`
 	// SubmissionID names one submission: the relay answers a repeat (another
 	// endpoint after a lost reply, the 重试 button) with the first result
 	// instead of filing it twice.
-	SubmissionID string `json:"submissionId"`
-	Version     string       `json:"version"`
-	OS          string       `json:"os"`
-	Arch        string       `json:"arch"`
-	Env         []Field      `json:"env"`
-	Attachments []Attachment `json:"attachments"`
+	SubmissionID string       `json:"submissionId"`
+	Version      string       `json:"version"`
+	OS           string       `json:"os"`
+	Arch         string       `json:"arch"`
+	Env          []Field      `json:"env"`
+	Attachments  []Attachment `json:"attachments"`
 }
 
 // Limits keep a report inside what a GitHub issue can hold (65 536
@@ -78,12 +78,20 @@ const (
 )
 
 var (
-	extraSecrets = []*regexp.Regexp{
+	// secretKey names a setting whose value is a credential.
+	secretKey    = `(?i)((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)["']?\s*[:=]\s*`
+	extraSecrets = []struct {
+		re   *regexp.Regexp
+		with string
+	}{
 		// DeepL keys look like a UUID with ":fx"; Azure and others are long hex.
-		regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:fx)?\b`),
-		regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`),
-		regexp.MustCompile(`(?i)((?:\b|_)(?:token|secret|password|passwd|authkey|key)["']?\s*[:=]\s*["']?)[^\s"'&,}]{6,}`),
-		regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`),
+		{regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:fx)?\b`), "***-uuid-***"},
+		{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`), "${1}_***"},
+		// A quoted value goes whole, spaces included ("my secret passphrase").
+		{regexp.MustCompile(secretKey + `")[^"\r\n]*"`), `${1}***"`},
+		{regexp.MustCompile(secretKey + `')[^'\r\n]*'`), `${1}***'`},
+		{regexp.MustCompile(secretKey + `)[^\s"'&,}]{3,}`), "${1}***"},
+		{regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`), "***@***"},
 	}
 	// Home folders give away the account name: /Users/name, C:\Users\name, /home/name.
 	homeRes = []*regexp.Regexp{
@@ -103,17 +111,8 @@ func Scrub(s string) string {
 		s = strings.ReplaceAll(s, filepath.ToSlash(home), "~")
 	}
 	s = logbuf.Scrub(s)
-	for i, re := range extraSecrets {
-		switch i {
-		case 0:
-			s = re.ReplaceAllString(s, "***-uuid-***")
-		case 1:
-			s = re.ReplaceAllString(s, "${1}_***")
-		case 2:
-			s = re.ReplaceAllString(s, "${1}***")
-		default:
-			s = re.ReplaceAllString(s, "***@***")
-		}
+	for _, x := range extraSecrets {
+		s = x.re.ReplaceAllString(s, x.with)
 	}
 	for _, re := range homeRes {
 		s = re.ReplaceAllString(s, "${1}***")

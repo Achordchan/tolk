@@ -28,6 +28,9 @@ const TOO_MANY = "今天提交得太多了，请明天再试";
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8" } });
 
+// A setting whose value is a credential, up to the start of the value.
+const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)["']?\s*[:=]\s*`;
+
 // Same idea as the app's scrubber, in case an old or modified client sends
 // something it should not. The contact the user typed is added afterwards:
 // they asked for it to be shown.
@@ -37,7 +40,10 @@ export function scrub(s) {
     .replace(/\bsk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
     .replace(/\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}/g, "$1_***")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:fx)?\b/gi, "***-uuid-***")
-    .replace(/((?:\b|_)(?:api[_-]?key|token|secret|password|authkey|key)["']?\s*[:=]\s*["']?)[^\s"'&,}]{6,}/gi, "$1***")
+    // A quoted value goes whole, spaces included ("my secret passphrase").
+    .replace(new RegExp(SECRET_KEY + `")[^"\\r\\n]*"`, "gi"), '$1***"')
+    .replace(new RegExp(SECRET_KEY + `')[^'\\r\\n]*'`, "gi"), "$1***'")
+    .replace(new RegExp(SECRET_KEY + `)[^\\s"'&,}]{3,}`, "gi"), "$1***")
     .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g, "***@***");
 }
 
@@ -185,6 +191,31 @@ export class Coordinator {
   }
 }
 
+// The body as text, or null once it passes max bytes (reading stops there).
+async function readCapped(request, max) {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -193,8 +224,13 @@ export default {
     if (request.method !== "POST") return json({ ok: false, error: "method not allowed" }, 405);
     if (!env.GITHUB_TOKEN || !env.COORD) return json({ ok: false, error: "relay not configured" }, 503);
     if (request.headers.get("x-tolk-report") !== "1") return json({ ok: false, error: "bad client" }, 400);
-    const raw = await request.text();
-    if (raw.length > MAX_PAYLOAD) return json({ ok: false, error: "report too large" }, 413);
+    // Refuse an oversized body before holding it in memory: by its declared
+    // length, and while reading for a body that does not declare one.
+    if (Number(request.headers.get("content-length") || 0) > MAX_PAYLOAD) {
+      return json({ ok: false, error: "report too large" }, 413);
+    }
+    const raw = await readCapped(request, MAX_PAYLOAD);
+    if (raw === null) return json({ ok: false, error: "report too large" }, 413);
     let report;
     try {
       report = JSON.parse(raw);

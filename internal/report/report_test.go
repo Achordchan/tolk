@@ -17,9 +17,13 @@ func TestScrub(t *testing.T) {
 		`C:\Users\张三\AppData\Local\Tolk\Tolk.exe`,
 		`/Users/achord/Library/Logs`,
 		`Authorization: Bearer abcdefghijklmnop`,
+		`password: "my secret passphrase"`,
+		`{"apiKey":"ab cd ef"}`,
+		`token='x y z'`,
+		`passwd=abc`,
 	}, "\n")
 	out := Scrub(in)
-	for _, leak := range []string{"444455556666", "abcdefghijklmnop1234", "sk-abcdefghijklmnopqrst", "hunter2", "someone@", "张三", "achord", "Bearer abcdefghijklmnop"} {
+	for _, leak := range []string{"444455556666", "abcdefghijklmnop1234", "sk-abcdefghijklmnopqrst", "hunter2", "someone@", "张三", "achord", "Bearer abcdefghijklmnop", "my secret", "passphrase", "ab cd ef", "x y z", "=abc"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("leaked %q in:\n%s", leak, out)
 		}

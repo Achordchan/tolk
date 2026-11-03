@@ -144,7 +144,11 @@ func checkUpdate() (UpdateState, error) {
 	pending := upd.pending
 	upd.mu.Unlock()
 	if pending != nil && (err != nil || info == nil || update.CompareVersions(pending.Info.Version, info.Version) >= 0) {
-		// The downloaded one is still the newest we know of.
+		// The downloaded one is still the newest we know of; 重启更新 must
+		// install it, not go after a release that failed to download.
+		upd.mu.Lock()
+		upd.info = pending.Info
+		upd.mu.Unlock()
 		s := UpdateState{State: "ready", Version: pending.Info.Version, Notes: pending.Info.Notes, Force: pending.Info.Force, Source: pending.Info.Source}
 		setUpdate(s)
 		return s, nil

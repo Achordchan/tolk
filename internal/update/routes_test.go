@@ -217,3 +217,25 @@ func TestStaleMirrorAppcastLosesToDirect(t *testing.T) {
 		t.Fatalf("%+v %v", info, err)
 	}
 }
+
+func TestAppcastFromGitHubWinsOverFasterMirror(t *testing.T) {
+	appcast := func(sig string) []byte {
+		return []byte(`<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><item>
+<sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
+<enclosure url="https://example.com/dl/Tolk-2.0.0-macos.zip" length="1" sparkle:edSignature="` + sig + `"/></item></channel></rss>`)
+	}
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.Write(appcast("good"))
+	}))
+	t.Cleanup(origin.Close)
+	liar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(appcast("forged")) }))
+	t.Cleanup(liar.Close)
+	c := NewChecker("darwin", "1.0.0")
+	c.OSVersion = ""
+	c.Origin, c.Mirrors = origin.URL+"/", []string{liar.URL + "/"}
+	info, err := c.macInfo(context.Background(), &ghRelease{Tag: "v2.0.0", Assets: []ghAsset{{Name: "appcast.xml", URL: origin.URL + "/appcast.xml"}}})
+	if err != nil || info.sig != "good" {
+		t.Fatalf("%+v %v", info, err)
+	}
+}

@@ -93,6 +93,31 @@ func (c *Checker) fetch(ctx context.Context, u string, limit int64, check func([
 	return nil, errors.New(strings.Join(errs, "；"))
 }
 
+// fetchPreferDirect is fetch for answers that cannot be checked in full
+// until later (an appcast's signature only proves itself on the archive): it
+// waits a moment after the first good answer, and GitHub's own answer wins
+// whenever it came in that time.
+func (c *Checker) fetchPreferDirect(ctx context.Context, u string, limit int64, check func([]byte) error) ([]byte, error) {
+	var errs []string
+	var first []byte
+	for _, r := range c.race(ctx, c.routes(u), limit, 2*time.Second, check) {
+		if r.err != nil {
+			errs = append(errs, fmt.Sprintf("%s：%v", routeName(r.url, c.Origin), r.err))
+			continue
+		}
+		if r.url == u {
+			return r.body, nil
+		}
+		if first == nil {
+			first = r.body
+		}
+	}
+	if first != nil {
+		return first, nil
+	}
+	return nil, errors.New(strings.Join(errs, "；"))
+}
+
 // probeBytes is how much of the package each route gets to show its speed.
 const probeBytes = 256 << 10
 

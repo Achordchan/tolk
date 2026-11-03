@@ -402,7 +402,7 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 		}
 		return nil
 	}
-	b, err := c.fetch(ctx, a.URL, 1<<20, valid)
+	b, err := c.fetchPreferDirect(ctx, a.URL, 1<<20, valid)
 	if err != nil {
 		return nil, fmt.Errorf("下载 appcast 失败：%w", err)
 	}

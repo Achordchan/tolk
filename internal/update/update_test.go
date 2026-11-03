@@ -279,6 +279,9 @@ func TestOwnedByNeedsTolksEntryAndUninstaller(t *testing.T) {
 	if !ownedBy(dir, dir+string(filepath.Separator)) {
 		t.Fatal("Tolk's entry names this folder")
 	}
+	if link := filepath.Join(t.TempDir(), "via"); os.Symlink(dir, link) == nil && !ownedBy(dir, link) {
+		t.Fatal("an entry naming the folder through a link is the same folder")
+	}
 	os.Remove(filepath.Join(dir, "unins000.exe"))
 	if ownedBy(dir, dir) {
 		t.Fatal("the uninstaller must be there too")

@@ -289,6 +289,11 @@ func applyUpdate(relaunch bool) {
 	}
 	if err := p.Apply(relaunch); err != nil {
 		Logs.Errorf("安装更新失败：%v", err)
+		if !relaunch {
+			// Tolk is quitting and no swap script will report: leave the
+			// reason for the next launch.
+			writeUpdateFailure(p.Info.Version, err)
+		}
 		upd.mu.Lock()
 		upd.applied = false
 		upd.mu.Unlock()
@@ -308,6 +313,18 @@ func applyUpdate(relaunch bool) {
 // starting Tolk again.
 func installOnQuit() {
 	mygo.App.OnQuit(func() { applyUpdate(false) })
+}
+
+// writeUpdateFailure records, in the file the swap scripts write, that the
+// update promised for quitting did not start.
+func writeUpdateFailure(version string, err error) {
+	dirs, derr := update.DefaultDirs()
+	if derr != nil {
+		return
+	}
+	b, _ := json.Marshal(map[string]string{"status": "failed", "message": err.Error(), "expected_version": version})
+	_ = os.MkdirAll(dirs.State, 0o700)
+	_ = os.WriteFile(filepath.Join(dirs.State, "last_update_result.json"), b, 0o600)
 }
 
 // UpdateNotice reports, once, how the update that just ran went: "" when

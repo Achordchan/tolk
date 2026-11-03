@@ -326,9 +326,19 @@ func installedDir(dir string) bool {
 const uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1`
 
 func ownedBy(dir, location string) bool {
-	if location == "" || !strings.EqualFold(filepath.Clean(dir), filepath.Clean(location)) {
+	if location == "" || !strings.EqualFold(resolved(dir), resolved(location)) {
 		return false
 	}
 	m, _ := filepath.Glob(filepath.Join(dir, "unins*.exe"))
 	return len(m) > 0
+}
+
+// resolved is path with links (a junction the installer went through)
+// followed, so the recorded and the running path compare alike.
+func resolved(path string) string {
+	path = filepath.Clean(path)
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		return r
+	}
+	return path
 }

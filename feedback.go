@@ -34,8 +34,7 @@ var fb struct {
 
 	// The update that ran before this start, as last_update_result.json
 	// said, read at once: the page's UpdateNotice deletes the file.
-	lastUpdate   string
-	lastUpdateAt string // its modification time, which update failure was reported
+	lastUpdate string
 
 	mu    sync.Mutex
 	first *logbuf.Entry // first error of the burst being collected
@@ -60,11 +59,7 @@ func init() {
 	}
 	fb.dir = dir
 	fb.store = report.NewStore(dir)
-	path := filepath.Join(dir, "last_update_result.json")
-	if info, err := os.Stat(path); err == nil {
-		fb.lastUpdate = strings.TrimPrefix(readHead(path, 64<<10), "\xef\xbb\xbf")
-		fb.lastUpdateAt = info.ModTime().UTC().Format(time.RFC3339)
-	}
+	fb.lastUpdate = keepUpdateFailure(dir)
 	setupCrashOutput(dir)
 	Logs.OnError(onErrorLine)
 	go func() {
@@ -281,23 +276,63 @@ func reportPreviousRun() {
 			func() { _ = os.Remove(pending) })
 		fb.crash = ""
 	}
-	var res struct {
-		Status   string `json:"status"`
-		Message  string `json:"message"`
-		Expected string `json:"expected_version"`
-	}
-	if json.Unmarshal([]byte(fb.lastUpdate), &res) != nil || res.Status != "failed" {
+	pending := filepath.Join(fb.dir, updatePending)
+	info, err := os.Stat(pending)
+	if err != nil {
 		return
 	}
-	stamp := fb.lastUpdateAt
-	if fb.store.Get().UpdateResultAt == stamp {
+	res, ok := updateFailed(readHead(pending, 64<<10))
+	stamp := info.ModTime().UTC().Format(time.RFC3339)
+	if !ok || fb.store.Get().UpdateResultAt == stamp {
+		_ = os.Remove(pending)
 		return
 	}
-	// Marked as handled once the report has been tried, so one held back by
-	// the daily cap (or cut short by quitting) is tried again on a later run.
+	// The copy stays until the report has been tried (or the user turned
+	// reports off), so one held back by the daily cap or cut short by
+	// quitting is tried again on a later run.
 	sendAutoThen(report.Update, fmt.Sprintf("[更新失败] v%s → v%s：%s", Version, res.Expected, res.Message),
 		fmt.Sprintf("更新到 v%s 失败：%s", res.Expected, res.Message), res.Message, nil,
-		func() { _, _ = fb.store.Update(func(st *report.State) { st.UpdateResultAt = stamp }) })
+		func() {
+			_, _ = fb.store.Update(func(st *report.State) { st.UpdateResultAt = stamp })
+			_ = os.Remove(pending)
+		})
+}
+
+// updatePending holds a failed update's result until its report has been
+// tried: the page's UpdateNotice deletes last_update_result.json right
+// after start.
+const updatePending = "update_failure.pending.json"
+
+type updateResult struct {
+	Status   string `json:"status"`
+	Message  string `json:"message"`
+	Expected string `json:"expected_version"`
+}
+
+func updateFailed(raw string) (updateResult, bool) {
+	var res updateResult
+	err := json.Unmarshal([]byte(raw), &res)
+	return res, err == nil && res.Status == "failed"
+}
+
+// keepUpdateFailure returns what last_update_result.json says (or, with
+// none, a failure still waiting to be reported) and, for a failure, copies
+// it to updatePending with the same time, which tells one failure from the
+// next.
+func keepUpdateFailure(dir string) string {
+	path := filepath.Join(dir, "last_update_result.json")
+	info, err := os.Stat(path)
+	if err != nil {
+		return readHead(filepath.Join(dir, updatePending), 64<<10) // still unreported
+	}
+	raw := strings.TrimPrefix(readHead(path, 64<<10), "\xef\xbb\xbf")
+	if _, ok := updateFailed(raw); ok {
+		pending := filepath.Join(dir, updatePending)
+		if os.WriteFile(pending, []byte(raw), 0o600) == nil {
+			_ = os.Chtimes(pending, info.ModTime(), info.ModTime())
+		}
+	}
+	return raw
 }
 
 func crashLine(l string) bool {

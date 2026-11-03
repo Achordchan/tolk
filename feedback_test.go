@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCrashHead(t *testing.T) {
@@ -111,5 +112,39 @@ func TestHugeCrashReadsOnlyHead(t *testing.T) {
 	// Moved aside whole, not rewritten.
 	if fi, err := os.Stat(filepath.Join(dir, crashPending)); err != nil || fi.Size() != int64(len(dump)) {
 		t.Fatalf("pending file: %v", err)
+	}
+}
+
+func TestUpdateFailureOutlivesNotice(t *testing.T) {
+	dir := t.TempDir()
+	result := filepath.Join(dir, "last_update_result.json")
+	failed := `{"status":"failed","message":"swap blocked","expected_version":"2.2.4"}`
+	if err := os.WriteFile(result, []byte("\xef\xbb\xbf"+failed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+	_ = os.Chtimes(result, when, when)
+	if got := keepUpdateFailure(dir); got != failed {
+		t.Fatalf("snapshot %q", got)
+	}
+	_ = os.Remove(result) // what UpdateNotice does
+	pending := filepath.Join(dir, updatePending)
+	info, err := os.Stat(pending)
+	if err != nil || !info.ModTime().Equal(when) {
+		t.Fatalf("pending copy: %v", err)
+	}
+	// Closed before the report went out: the next start still has it.
+	if got := keepUpdateFailure(dir); got != failed {
+		t.Fatalf("lost after a short run: %q", got)
+	}
+	if res, ok := updateFailed(failed); !ok || res.Expected != "2.2.4" {
+		t.Fatal("not read as a failure")
+	}
+	// A success is not kept for reporting.
+	_ = os.Remove(pending)
+	_ = os.WriteFile(result, []byte(`{"status":"success","expected_version":"2.2.4"}`), 0o600)
+	keepUpdateFailure(dir)
+	if _, err := os.Stat(pending); err == nil {
+		t.Fatal("a success was queued as a failure")
 	}
 }

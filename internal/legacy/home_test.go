@@ -1,10 +1,10 @@
 package legacy
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 )
 
@@ -71,139 +71,6 @@ func TestHomeFallsBackWhenMoveFails(t *testing.T) {
 	}
 }
 
-func TestCopyKeepsSymlinks(t *testing.T) {
-	root := t.TempDir()
-	src, dst := filepath.Join(root, "old"), filepath.Join(root, "new")
-	os.MkdirAll(src, 0o700)
-	synced := filepath.Join(root, "synced.json")
-	os.WriteFile(synced, []byte("{}"), 0o600)
-	if err := os.Symlink(synced, filepath.Join(src, "config.json")); err != nil {
-		t.Skip("symlinks unavailable:", err)
-	}
-	if err := copyTree(src, dst, true); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := os.Readlink(filepath.Join(dst, "config.json")); err != nil || got != synced {
-		t.Fatalf("link not kept: %q %v", got, err)
-	}
-}
-
-func TestMigrateRepointsLinksIntoOldFolder(t *testing.T) {
-	root := t.TempDir()
-	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
-	os.MkdirAll(filepath.Join(old, "profiles"), 0o700)
-	os.WriteFile(filepath.Join(old, "profiles", "work.json"), []byte(`{"a":1}`), 0o600)
-	if err := os.Symlink(filepath.Join(old, "profiles", "work.json"), filepath.Join(old, "config.json")); err != nil {
-		t.Skip("symlinks unavailable:", err)
-	}
-	if moved, err := migrate(old, dest); !moved || err != nil {
-		t.Fatal(moved, err)
-	}
-	b, err := os.ReadFile(filepath.Join(dest, "config.json"))
-	if err != nil || string(b) != `{"a":1}` {
-		t.Fatalf("link does not lead to the moved file: %q %v", b, err)
-	}
-}
-
-func TestMigrateRollsBackWhenRelinkFails(t *testing.T) {
-	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
-		t.Skip("needs a folder this user cannot write to: not on Windows, not as root")
-	}
-	root := t.TempDir()
-	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
-	sub := filepath.Join(old, "sub")
-	os.MkdirAll(sub, 0o700)
-	os.WriteFile(filepath.Join(old, "work.json"), []byte("{}"), 0o600)
-	if err := os.Symlink(filepath.Join(old, "work.json"), filepath.Join(sub, "config.json")); err != nil {
-		t.Skip("symlinks unavailable:", err)
-	}
-	// A link earlier in the walk is rewritten before the one in sub fails;
-	// it must be put back too.
-	os.MkdirAll(filepath.Join(old, "a"), 0o700)
-	os.Symlink(filepath.Join(old, "work.json"), filepath.Join(old, "a", "config.json"))
-	os.Chmod(sub, 0o500) // the new link cannot be made here
-	t.Cleanup(func() { os.Chmod(sub, 0o700); os.Chmod(filepath.Join(dest, "sub"), 0o700) })
-	moved, err := migrate(old, dest)
-	if moved || err == nil {
-		t.Fatalf("want a rolled-back failure, got %v %v", moved, err)
-	}
-	if got, err := os.Readlink(filepath.Join(sub, "config.json")); err != nil || got != filepath.Join(old, "work.json") {
-		t.Fatalf("old link changed: %q %v", got, err)
-	}
-	if got, err := os.Readlink(filepath.Join(old, "a", "config.json")); err != nil || got != filepath.Join(old, "work.json") {
-		t.Fatalf("rewritten link not put back: %q %v", got, err)
-	}
-	if _, err := os.Lstat(dest); err == nil {
-		t.Fatal("the new folder must not stay behind")
-	}
-}
-
-func TestMigrateLinkedOldFolder(t *testing.T) {
-	root := t.TempDir()
-	synced := filepath.Join(root, "synced")
-	os.MkdirAll(synced, 0o700)
-	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
-	if err := os.Symlink(synced, old); err != nil {
-		t.Skip("symlinks unavailable:", err)
-	}
-	os.WriteFile(filepath.Join(synced, "work.json"), []byte("{}"), 0o600)
-	os.Symlink(filepath.Join(old, "work.json"), filepath.Join(synced, "config.json"))
-	if moved, err := migrate(old, dest); !moved || err != nil {
-		t.Fatal(moved, err)
-	}
-	if b, err := os.ReadFile(filepath.Join(dest, "config.json")); err != nil || string(b) != "{}" {
-		t.Fatalf("settings not readable through the new folder: %q %v", b, err)
-	}
-}
-
-func TestMigrateRepointsRelativeLinksThroughOldName(t *testing.T) {
-	root := t.TempDir()
-	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
-	os.MkdirAll(filepath.Join(old, "profiles"), 0o700)
-	os.WriteFile(filepath.Join(old, "profiles", "work.json"), []byte("{}"), 0o600)
-	if err := os.Symlink("../.dzfyq/profiles/work.json", filepath.Join(old, "config.json")); err != nil {
-		t.Skip("symlinks unavailable:", err)
-	}
-	os.Symlink("profiles/work.json", filepath.Join(old, "inside.json"))
-	if moved, err := migrate(old, dest); !moved || err != nil {
-		t.Fatal(moved, err)
-	}
-	for _, n := range []string{"config.json", "inside.json"} {
-		if b, err := os.ReadFile(filepath.Join(dest, n)); err != nil || string(b) != "{}" {
-			t.Fatalf("%s: %q %v", n, b, err)
-		}
-	}
-	if got, _ := os.Readlink(filepath.Join(dest, "inside.json")); filepath.ToSlash(got) != "profiles/work.json" {
-		t.Fatalf("a link within the folder was changed: %q", got)
-	}
-}
-
-func TestUnderFoldsCaseOnlyWhenTold(t *testing.T) {
-	dir := filepath.Join(string(filepath.Separator)+"home", ".dzfyq")
-	if rest, ok := under(filepath.Join(dir, "a.json"), dir, false); !ok || rest != string(filepath.Separator)+"a.json" {
-		t.Fatal(rest, ok)
-	}
-	if _, ok := under(dir+"-old", dir, true); ok {
-		t.Fatal("a sibling folder is not inside")
-	}
-	upper := filepath.Join(string(filepath.Separator)+"HOME", ".DZFYQ", "a.json")
-	if _, ok := under(upper, dir, false); ok {
-		t.Fatal("a case-sensitive file system: .DZFYQ is another folder")
-	}
-	if _, ok := under(upper, dir, true); !ok {
-		t.Fatal("a case-insensitive file system: .DZFYQ is the same folder")
-	}
-}
-
-func TestFoldsCaseAsksTheFileSystem(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "probe")
-	os.MkdirAll(dir, 0o700)
-	_, err := os.Stat(strings.ToUpper(dir))
-	if got, want := foldsCase(dir), err == nil; got != want {
-		t.Fatalf("foldsCase = %v, but the upper-case spelling exists = %v", got, want)
-	}
-}
-
 func TestMigrateKeepsOldFolderWhenUnreadable(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a folder this user cannot enter: not on Windows, not as root")
@@ -218,19 +85,31 @@ func TestMigrateKeepsOldFolderWhenUnreadable(t *testing.T) {
 	}
 }
 
-func TestMigrateCleansAbsoluteLinkTargets(t *testing.T) {
+func TestMigrateLeavesLinkedSettingsInPlace(t *testing.T) {
 	root := t.TempDir()
-	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
-	os.MkdirAll(filepath.Join(old, "profiles"), 0o700)
-	os.WriteFile(filepath.Join(old, "profiles", "work.json"), []byte("{}"), 0o600)
-	winding := old + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Join(".dzfyq", "profiles", "work.json")
-	if err := os.Symlink(winding, filepath.Join(old, "config.json")); err != nil {
+	synced := filepath.Join(root, "synced")
+	os.MkdirAll(synced, 0o700)
+	os.WriteFile(filepath.Join(synced, "work.json"), []byte("{}"), 0o600)
+
+	inside := filepath.Join(root, "a", ".dzfyq")
+	os.MkdirAll(inside, 0o700)
+	if err := os.Symlink(filepath.Join(synced, "work.json"), filepath.Join(inside, "config.json")); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
-	if moved, err := migrate(old, dest); !moved || err != nil {
-		t.Fatal(moved, err)
-	}
-	if b, err := os.ReadFile(filepath.Join(dest, "config.json")); err != nil || string(b) != "{}" {
-		t.Fatalf("%q %v", b, err)
+	whole := filepath.Join(root, "b", ".dzfyq")
+	os.MkdirAll(filepath.Dir(whole), 0o700)
+	os.Symlink(synced, whole)
+
+	for _, old := range []string{inside, whole} {
+		dest := filepath.Join(filepath.Dir(old), ".tolk")
+		if moved, err := migrate(old, dest); moved || !errors.Is(err, errHasLinks) {
+			t.Fatalf("%s: want it left in place, got %v %v", old, moved, err)
+		}
+		if _, err := os.Lstat(dest); err == nil {
+			t.Fatalf("%s: no new folder may appear", old)
+		}
+		if b, err := os.ReadFile(filepath.Join(old, "config.json")); old == inside && (err != nil || string(b) != "{}") {
+			t.Fatalf("settings no longer readable: %q %v", b, err)
+		}
 	}
 }

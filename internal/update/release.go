@@ -362,10 +362,43 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 	if a == nil {
 		return nil, errors.New("最新版本没有 appcast.xml")
 	}
+	// pick finds the newest signed item this Mac can run. It runs on every
+	// route's answer at once, so it only reads. A route counts only with an
+	// appcast whose item is this very release: a mirror's stale copy must
+	// not beat the direct answer.
+	want := tagVersion(r)
+	pick := func(b []byte) (*appcast, int, error) {
+		var ac appcast
+		if xml.Unmarshal(b, &ac) != nil || len(ac.Items) == 0 {
+			return nil, -1, errors.New("appcast 格式无效")
+		}
+		best, tooOld := -1, false
+		for i, it := range ac.Items {
+			if it.Enclosure.URL == "" || it.Enclosure.Sig == "" {
+				continue
+			}
+			if c.OSVersion != "" && it.MinOS != "" && CompareVersions(c.OSVersion, it.MinOS) < 0 {
+				tooOld = true
+				continue
+			}
+			if best < 0 || CompareVersions(it.Short, ac.Items[best].Short) > 0 {
+				best = i
+			}
+		}
+		if best < 0 && tooOld {
+			return &ac, -1, errOSTooOld
+		}
+		if best < 0 {
+			return nil, -1, errors.New("appcast 里没有带签名的更新项")
+		}
+		if v := NormalizeVersion(ac.Items[best].Short); v != "" && want != "" && v != want {
+			return nil, -1, fmt.Errorf("appcast 是 %s 的，不是 %s", v, want)
+		}
+		return &ac, best, nil
+	}
 	valid := func(b []byte) error {
-		var x appcast
-		if xml.Unmarshal(b, &x) != nil || len(x.Items) == 0 {
-			return errors.New("appcast 格式无效")
+		if _, _, err := pick(b); err != nil && !errors.Is(err, errOSTooOld) {
+			return err
 		}
 		return nil
 	}
@@ -373,28 +406,9 @@ func (c *Checker) macInfo(ctx context.Context, r *ghRelease) (*Info, error) {
 	if err != nil {
 		return nil, fmt.Errorf("下载 appcast 失败：%w", err)
 	}
-	var ac appcast
-	if err := xml.Unmarshal(b, &ac); err != nil {
-		return nil, errors.New("appcast 格式无效")
-	}
-	best, tooOld := -1, false
-	for i, it := range ac.Items {
-		if it.Enclosure.URL == "" || it.Enclosure.Sig == "" {
-			continue
-		}
-		if c.OSVersion != "" && it.MinOS != "" && CompareVersions(c.OSVersion, it.MinOS) < 0 {
-			tooOld = true
-			continue
-		}
-		if best < 0 || CompareVersions(it.Short, ac.Items[best].Short) > 0 {
-			best = i
-		}
-	}
-	if best < 0 && tooOld {
-		return nil, errOSTooOld
-	}
-	if best < 0 {
-		return nil, errors.New("appcast 里没有带签名的更新项")
+	ac, best, err := pick(b)
+	if err != nil {
+		return nil, err
 	}
 	it := ac.Items[best]
 	v := NormalizeVersion(it.Short)

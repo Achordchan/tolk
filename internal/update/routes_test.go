@@ -195,3 +195,25 @@ func TestLatestPrefersGitHubOverMirrorClaims(t *testing.T) {
 		t.Fatalf("%+v %q %v", r, from, err)
 	}
 }
+
+func TestStaleMirrorAppcastLosesToDirect(t *testing.T) {
+	appcast := func(v string) []byte {
+		return []byte(`<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel><item>
+<sparkle:shortVersionString>` + v + `</sparkle:shortVersionString>
+<enclosure url="https://example.com/dl/Tolk-` + v + `-macos.zip" length="1" sparkle:edSignature="c2ln"/></item></channel></rss>`)
+	}
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.Write(appcast("2.0.0"))
+	}))
+	t.Cleanup(origin.Close)
+	stale := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(appcast("1.9.0")) }))
+	t.Cleanup(stale.Close)
+	c := NewChecker("darwin", "1.0.0")
+	c.OSVersion = ""
+	c.Origin, c.Mirrors = origin.URL+"/", []string{stale.URL + "/"}
+	info, err := c.macInfo(context.Background(), &ghRelease{Tag: "v2.0.0", Assets: []ghAsset{{Name: "appcast.xml", URL: origin.URL + "/appcast.xml"}}})
+	if err != nil || info.Version != "2.0.0" {
+		t.Fatalf("%+v %v", info, err)
+	}
+}

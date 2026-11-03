@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <!-- Menu bar (macOS template) version of icon.svg: black on transparent, macOS tints it. -->
+  <defs>
+    <mask id="t">
+      <rect width="36" height="36" fill="#fff"/>
+      <path d="M8.5 17.2h9.8v2.6h-3.5v8.4h-2.8v-8.4h-3.5z" fill="#000"/>
+    </mask>
+  </defs>
+  <path fill="none" stroke="#000" stroke-width="2.6" d="M17 12.5V8.6a4.3 4.3 0 0 1 4.3-4.3h8.2a4.3 4.3 0 0 1 4.3 4.3v6.1a4.3 4.3 0 0 1-4.3 4.3h-1.5"/>
+  <path fill="#000" mask="url(#t)" d="M6.3 13.2h14.4a4.3 4.3 0 0 1 4.3 4.3v8.2a4.3 4.3 0 0 1-4.3 4.3H11l-5.2 4v-4.1a4.3 4.3 0 0 1-3.8-4.2v-8.2a4.3 4.3 0 0 1 4.3-4.3z"/>
+</svg>

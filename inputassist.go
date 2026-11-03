@@ -3,6 +3,7 @@ package main
 import (
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo"
 
@@ -45,6 +46,8 @@ func (Tolk) SetInputAssist(s inputassist.Config) (InputAssistState, error) {
 	if err := inputassist.Validate(s); err != nil {
 		return InputAssistState{}, err
 	}
+	iaMu.Lock()
+	defer iaMu.Unlock()
 	p, err := legacy.DefaultPath()
 	if err != nil {
 		return InputAssistState{}, err
@@ -53,8 +56,36 @@ func (Tolk) SetInputAssist(s inputassist.Config) (InputAssistState, error) {
 		return InputAssistState{}, err
 	}
 	pushInputAssist()
+	go refreshTray()
 	return inputAssistState(), nil
 }
+
+// setInputAssistEnabled switches 输入助手 on or off (the menu bar / tray),
+// touching only that flag in one locked update so a settings save made at the
+// same moment keeps its other fields.
+// It tells an open settings page the stored value afterwards, still in order
+// with every other change.
+func setInputAssistEnabled(on bool) error {
+	iaMu.Lock()
+	defer iaMu.Unlock()
+	p, err := legacy.DefaultPath()
+	if err != nil {
+		return err
+	}
+	if err := legacy.Update(p, func(m map[string]any) {
+		legacy.Sub(legacy.Sub(m, "tolk"), inputassist.Key)["enabled"] = on
+	}); err != nil {
+		return err
+	}
+	pushInputAssist()
+	go refreshTray()
+	_ = InputAssistChanged.Broadcast(loadInputAssist().Enabled)
+	return nil
+}
+
+// iaMu orders the 输入助手 saves, their push to the helper and the notice to
+// the settings page, so an older change never lands after a newer one.
+var iaMu sync.Mutex
 
 // InputAssistTrigger does what the shortcut does (the settings page's 测试).
 func (Tolk) InputAssistTrigger() error { return triggerInputAssist() }

@@ -282,13 +282,6 @@ export const Tolk = {
   macGuide(): Promise<void> {
     return call("Tolk.MacGuide");
   },
-  /**
-   * MacImportLegacy copies the old Mac app's settings and API key into Tolk.
-   * It returns notes about anything that did not carry over.
-   */
-  macImportLegacy(): Promise<string[]> {
-    return call("Tolk.MacImportLegacy");
-  },
   /** MacRequestPermission asks macOS for "accessibility" or "screenRecording". */
   macRequestPermission(kind: string): Promise<void> {
     return call("Tolk.MacRequestPermission", kind);
@@ -390,4 +383,14 @@ export const events = {
   copied: event<string>("copied"),
   /** MiniUpdate carries MiniState to the bubble window. */
   mini: event<MiniState>("mini"),
+  /**
+   * MenuCommand asks the main window to open a part of its UI: "settings" or
+   * "update" (settings → 关于, then check for updates).
+   */
+  menuCommand: event<string>("menuCommand"),
+  /**
+   * InputAssistChanged tells an open settings page that the menu switched
+   * 输入助手 on or off, so saving the page does not switch it back.
+   */
+  inputAssistChanged: event<boolean>("inputAssistChanged"),
 } as const;

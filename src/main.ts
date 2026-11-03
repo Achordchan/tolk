@@ -81,7 +81,12 @@ function showTheme(theme: string) {
   themeBtn.title = `主题：${name}（点击切换）`;
 }
 showTheme(prefs.theme);
-events.prefsChanged.on((p) => showTheme(p.theme));
+// The tray / menu bar can switch Mini mode too.
+events.prefsChanged.on((p) => {
+  prefs = p;
+  showTheme(p.theme);
+  showMini();
+});
 themeBtn.addEventListener("click", async () => {
   const order = THEMES.map(([id]) => id);
   const next = order[(order.indexOf(prefs.theme) + 1) % order.length]!;
@@ -229,7 +234,7 @@ events.copied.on((text) => {
 events.macNotice.on((m) => toast(m));
 
 for (const id of ["#s-engine", "#s-vendor", "#s-dc-ms", "#ia-shortcut", "#ia-scope", "#c-level"]) enhanceSelect($<HTMLSelectElement>(id));
-initSettings({
+const settings = initSettings({
   os: about.os,
   toast,
   mac: about.os === "darwin" ? macPane(toast, () => $("#s-cancel").click()) : undefined,
@@ -241,6 +246,15 @@ initSettings({
     await refreshSettings();
     schedule(0);
   },
+});
+
+// From the tray / menu bar / Dock menu.
+events.menuCommand.on(async (c) => {
+  if (c === "settings") await settings.open();
+  else if (c === "update") {
+    await settings.open("about");
+    $<HTMLButtonElement>("#a-check").click();
+  }
 });
 
 showEmpty(true);

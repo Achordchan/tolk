@@ -38,16 +38,6 @@ Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
-; 老版本（Python / Nuitka）留下的运行库，换成新程序后用不上了。只删这些已知的名字，不碰安装目录里的其他东西。
-[InstallDelete]
-Type: files; Name: "{app}\*.dll"
-Type: files; Name: "{app}\*.pyd"
-Type: filesandordirs; Name: "{app}\PyQt5"
-Type: filesandordirs; Name: "{app}\qtawesome"
-Type: filesandordirs; Name: "{app}\engines"
-Type: filesandordirs; Name: "{app}\src"
-Type: filesandordirs; Name: "{app}\certifi"
-
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: ignoreversion
 

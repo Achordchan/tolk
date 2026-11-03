@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/egoist/mygo"
 
@@ -53,6 +54,32 @@ func applyNativeTheme(theme string) {
 	default:
 		mygo.Theme.SetSource(mygo.ThemeSystem)
 	}
+	tintTitleBar(theme == "pink")
+}
+
+// mainWindow is the main window once created; its title bar follows the
+// pink theme, which the system light/dark title bars cannot show.
+var mainWindow atomic.Pointer[mygo.Window]
+
+const (
+	mainBackground = "light-dark(#ececec, #2b2b2b)"
+	pinkBackground = "#fff4f7" // --bg of the pink theme (src/style.css)
+	pinkTitle      = 0x4a3039  // --fg of the pink theme
+)
+
+// tintTitleBar paints the main window's title bar in the pink theme's
+// background (on: true) or gives it back to the system.
+func tintTitleBar(on bool) {
+	w := mainWindow.Load()
+	if w == nil {
+		return
+	}
+	bg := mainBackground
+	if on {
+		bg = pinkBackground
+	}
+	_ = w.SetBackgroundColor(bg)
+	nativeTitleBar(w, on, 0xfff4f7, pinkTitle)
 }
 
 func clampFont(n int) int {
@@ -191,6 +218,7 @@ func setTolkPref(fn func(t map[string]any)) error {
 		return err
 	}
 	loadPrefs()
+	go refreshTray()
 	return nil
 }
 

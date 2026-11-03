@@ -20,7 +20,6 @@ import (
 	"tolk/internal/helper"
 	"tolk/internal/inputassist"
 	"tolk/internal/legacy"
-	"tolk/internal/macmigrate"
 )
 
 type helloInfo struct {
@@ -149,18 +148,9 @@ func superviseHelper() {
 	}
 }
 
-// firstRun imports the old Mac app's settings once and shows the permission
-// guide when neither permission is granted yet (an upgrade keeps its grants).
+// firstRun shows the permission guide when neither permission is granted
+// yet (an update keeps its grants).
 func firstRun() {
-	if p, err := legacy.DefaultPath(); err == nil {
-		if cfg, err := legacy.Load(p); err != nil || !macmigrate.Imported(cfg) {
-			if _, err := macImport(false); err != nil {
-				Logs.Warnf("导入旧版 Mac 设置：%v", err)
-			}
-		}
-		repairDoubleCopy()
-		importInputAssist()
-	}
 	st := macStatus()
 	if st.Running && !st.Accessibility && !st.ScreenRecording {
 		if err := macSimple("permissions.guide", nil); err != nil {
@@ -481,115 +471,6 @@ func macAppleDownload(target string) error {
 	}
 	_, err := appleCall(ctx, []string{sample}, source, target)
 	return err
-}
-
-// macImport reads the old app's data through the helper and merges it into
-// the shared config. manual calls may ask for the helper; the automatic one
-// quietly skips when it is not running.
-func macImport(manual bool) ([]string, error) {
-	c, _ := current()
-	if c == nil {
-		return nil, errors.New("原生助手没有运行")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // a Keychain prompt may be waiting
-	defer cancel()
-	var data macmigrate.Data
-	if err := c.Call(ctx, "legacy.read", nil, &data); err != nil {
-		return nil, err
-	}
-	p, err := legacy.DefaultPath()
-	if err != nil {
-		return nil, err
-	}
-	var notes []string
-	if err := legacy.Update(p, func(m map[string]any) { notes = macmigrate.Apply(m, data) }); err != nil {
-		return nil, err
-	}
-	loadPrefs()
-	macApplyHotkeys() // the imported preferences may enable the system hotkeys
-	macPushInputAssist()
-	Logs.Infof("已导入旧版 Mac 设置（%d 项设置，%d 个 API Key）", len(data.Defaults), len(data.Keys))
-	for _, n := range notes {
-		Logs.Warnf("%s", n)
-	}
-	_ = PrefsChanged.Broadcast(currentPrefs())
-	return notes, nil
-}
-
-// repairDoubleCopy fixes a config imported before double copy followed the old
-// app's global mode (see macmigrate.Repair). The old app's settings are read
-// again so the repair only touches configs that really came from that mode.
-func repairDoubleCopy() {
-	p, err := legacy.DefaultPath()
-	if err != nil {
-		return
-	}
-	cfg, err := legacy.Load(p)
-	if err != nil {
-		return // no config yet: nothing to repair
-	}
-	if !macmigrate.RepairPending(cfg) {
-		if !macmigrate.RepairDone(cfg) {
-			// Nothing to fix; record that so a later deliberate choice is never "repaired".
-			_ = legacy.Update(p, func(m map[string]any) { macmigrate.Repair(m, macmigrate.Data{}) })
-		}
-		return
-	}
-	c, _ := current()
-	if c == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	var data macmigrate.Data
-	if err := c.Call(ctx, "legacy.read", nil, &data); err != nil {
-		return // try again next launch; the marker is only set once it ran
-	}
-	repaired := false
-	if err := legacy.Update(p, func(m map[string]any) { repaired = macmigrate.Repair(m, data) }); err != nil {
-		Logs.Warnf("修正双击复制设置：%v", err)
-		return
-	}
-	if repaired {
-		loadPrefs()
-		macApplyHotkeys()
-		_ = PrefsChanged.Broadcast(currentPrefs())
-	}
-}
-
-// importInputAssist is the one-time import of the old app's 输入助手 settings
-// for configs that ran the main import before they existed. Like
-// repairDoubleCopy it checks the local config first, because legacy.read
-// touches the Keychain, and only sets its marker once the read worked.
-func importInputAssist() {
-	p, err := legacy.DefaultPath()
-	if err != nil {
-		return
-	}
-	cfg, err := legacy.Load(p)
-	if err != nil || !macmigrate.InputAssistPending(cfg) {
-		return
-	}
-	c, _ := current()
-	if c == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	var data macmigrate.Data
-	if err := c.Call(ctx, "legacy.read", nil, &data); err != nil {
-		return // try again next launch
-	}
-	applied := false
-	if err := legacy.Update(p, func(m map[string]any) { applied = macmigrate.ApplyInputAssist(m, data) }); err != nil {
-		Logs.Warnf("导入旧版输入助手设置：%v", err)
-		return
-	}
-	if applied {
-		Logs.Infof("已导入旧版输入助手设置")
-		loadPrefs()
-		macPushInputAssist()
-	}
 }
 
 // macWatchMouse turns the helper's system-wide mouse-down events on or off;

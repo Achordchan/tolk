@@ -42,10 +42,17 @@ foreach ($d in $dirs) {
     $path = $f.FullName
     if ($d.Rename -and $f.BaseName -eq '大佐翻译官') {
       $new = Join-Path $f.DirectoryName 'Tolk.lnk'
-      if (Test-Path -LiteralPath $new) { Remove-Item -LiteralPath $path -Force; $changed++; continue }
-      Rename-Item -LiteralPath $path -NewName 'Tolk.lnk'
-      $path = $new
-      $changed++
+      if (Test-Path -LiteralPath $new) {
+        # A Tolk.lnk that starts this same program makes the old one a
+        # duplicate; one that starts another copy of Tolk is left alone, and
+        # so is the old one.
+        $t = $shell.CreateShortcut($new).TargetPath
+        if ($t -and [string]::Compare($t, $exe, $true) -eq 0) { Remove-Item -LiteralPath $path -Force; $changed++; continue }
+      } else {
+        Rename-Item -LiteralPath $path -NewName 'Tolk.lnk'
+        $path = $new
+        $changed++
+      }
     }
     $s = $shell.CreateShortcut($path)
     if ($s.IconLocation -ne "$exe,0") {

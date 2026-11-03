@@ -196,16 +196,18 @@ export function initSettings(h: Hooks) {
 
   // The dialog in update.ts does the talking; 关于 only says where things stand.
   function drawUpdate(s: Update) {
-    check.disabled = s.state === "checking" || s.state === "downloading" || s.state === "installing";
-    check.textContent = s.state === "available" ? "查看更新" : "检查更新";
+    check.disabled = s.state === "checking" || s.state === "installing";
+    const found = ["available", "downloading", "ready"].includes(s.state);
+    check.textContent = found ? "查看更新" : "检查更新";
     aStatus.textContent =
       {
         checking: "正在检查更新…",
         latest: "已是最新版本",
-        available: `发现新版本 v${s.version}`,
-        downloading: `正在下载 v${s.version}　${s.percent}%`,
+        available: `发现新版本 v${s.version}，准备下载`,
+        downloading: `正在后台下载 v${s.version}　${s.percent}%`,
+        ready: `v${s.version} 已下载好，重启或退出 Tolk 时安装`,
         installing: "正在重启安装…",
-        error: `检查更新失败：${s.error}`,
+        error: s.version ? `下载 v${s.version} 失败：${s.error}` : `检查更新失败：${s.error}`,
       }[s.state] ?? "";
     aStatus.hidden = !aStatus.textContent;
     aStatus.classList.toggle("error", s.state === "error");
@@ -217,10 +219,10 @@ export function initSettings(h: Hooks) {
     if (dlg.open) sMini.checked = p.miniMode;
   });
   check.addEventListener("click", async () => {
-    if ((await Tolk.updateStatus()).state === "available") return openUpdate();
+    if (["available", "downloading", "ready"].includes((await Tolk.updateStatus()).state)) return openUpdate();
     try {
       const s = (await Tolk.checkUpdate()) as Update;
-      if (s.state === "available") openUpdate();
+      if (["available", "downloading", "ready"].includes(s.state)) openUpdate();
     } catch (e) {
       h.toast(message(e));
     }

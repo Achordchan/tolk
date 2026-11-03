@@ -41,41 +41,6 @@ func TestGetDoesNotRetryRefusals(t *testing.T) {
 	}
 }
 
-func TestGetAssetFallsBackToProxy(t *testing.T) {
-	var asked string
-	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		asked = r.URL.Path
-		w.Write([]byte("sig"))
-	}))
-	defer proxy.Close()
-	old := GitHubProxy
-	GitHubProxy = proxy.URL + "/"
-	defer func() { GitHubProxy = old }()
-	// github.com itself cannot be reached; the proxy can.
-	direct := "https://github.com/x/y/releases/download/v1/a.sig.json"
-	c := &Checker{Client: &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if addr == "github.com:443" {
-				return nil, errRefused
-			}
-			return dialer.DialContext(ctx, network, addr)
-		},
-	}}}
-	b, err := c.getAsset(context.Background(), direct, 10)
-	if err != nil || string(b) != "sig" || asked != "/"+direct {
-		t.Fatalf("got %q, %v; proxy asked for %q", b, err, asked)
-	}
-}
-
-func TestProxiedOnlyGitHub(t *testing.T) {
-	if proxied("https://gitee.com/a/b") != "" {
-		t.Fatal("gitee links must not go through the GitHub proxy")
-	}
-	if got := proxied("https://github.com/a/b"); got != GitHubProxy+"https://github.com/a/b" {
-		t.Fatalf("got %q", got)
-	}
-}
-
 var (
 	dialer     net.Dialer
 	errRefused = errors.New("refused")

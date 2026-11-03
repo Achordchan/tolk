@@ -10,5 +10,5 @@ func Enabled() bool { return mygo.App.OpenAtLogin() }
 // Set adds or removes the login item.
 func Set(on bool) error { return mygo.App.SetOpenAtLogin(on) }
 
-// Rename does nothing outside Windows.
-func Rename() error { return nil }
+// Migrate does nothing outside Windows.
+func Migrate() error { return nil }

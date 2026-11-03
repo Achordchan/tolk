@@ -19,19 +19,17 @@ import (
 	"tolk/internal/update"
 )
 
-// winpack writes the full-update ZIP in the layout the old updater verifies:
-// the program under its legacy name, update_manifest.json and the resource
-// directory marker src/ziyuan/logo.ico.
+// winpack writes the full-update ZIP the client checks: the program as
+// Tolk.exe and update_manifest.json.
 func winpack(args []string) error {
 	fs := flag.NewFlagSet("winpack", flag.ExitOnError)
 	exe := fs.String("exe", "", "新版 Windows 可执行文件")
-	icon := fs.String("icon", "", "logo.ico")
 	version := fs.String("version", "", "版本号")
 	out := fs.String("out", "dist", "输出目录")
 	extra := fs.String("extra", "", "额外文件，逗号分隔，放在包根目录（许可证等）")
 	fs.Parse(args)
-	if *exe == "" || *icon == "" || *version == "" {
-		return errors.New("需要 -exe -icon -version")
+	if *exe == "" || *version == "" {
+		return errors.New("需要 -exe -version")
 	}
 	v := update.NormalizeVersion(*version)
 	if err := os.MkdirAll(*out, 0o755); err != nil {
@@ -53,9 +51,8 @@ func winpack(args []string) error {
 		src  string
 		body []byte
 	}{
-		{update.LegacyExeName, *exe, nil},
+		{update.ExeName, *exe, nil},
 		{"update_manifest.json", "", append(manifest, '\n')},
-		{"src/ziyuan/logo.ico", *icon, nil},
 	}
 	for _, e := range strings.Split(*extra, ",") {
 		if e = strings.TrimSpace(e); e != "" {
@@ -121,16 +118,9 @@ func winsign(args []string) error {
 	fs := flag.NewFlagSet("winsign", flag.ExitOnError)
 	zipPath := fs.String("zip", "", "全量包 zip")
 	version := fs.String("version", "", "版本号")
-	keyFile := fs.String("key", "", "私钥 PEM 文件（默认读环境变量 DZFYQ_UPDATE_PRIVATE_KEY_PEM）")
-	pub := fs.String("pub", "", "用于自检的公钥（默认是 Tolk 内置公钥；-legacy 时是旧版客户端的公钥）")
-	legacy := fs.Bool("legacy", false, "给旧版客户端的桥接版本签名：用旧版公钥自检")
+	keyFile := fs.String("key", "", "私钥 PEM 文件（默认读环境变量 TOLK_UPDATE_PRIVATE_KEY_PEM）")
+	pub := fs.String("pub", update.WindowsPublicKeyB64, "用于自检的公钥（默认是 Tolk 内置公钥）")
 	fs.Parse(args)
-	if *pub == "" {
-		*pub = update.WindowsPublicKeyB64
-		if *legacy {
-			*pub = update.LegacyWindowsPublicKeyB64
-		}
-	}
 	if *zipPath == "" || *version == "" {
 		return errors.New("需要 -zip -version")
 	}
@@ -141,10 +131,10 @@ func winsign(args []string) error {
 			return err
 		}
 		pemBytes = b
-	} else if v := strings.TrimSpace(os.Getenv("DZFYQ_UPDATE_PRIVATE_KEY_PEM")); v != "" {
+	} else if v := strings.TrimSpace(os.Getenv("TOLK_UPDATE_PRIVATE_KEY_PEM")); v != "" {
 		pemBytes = []byte(v)
 	} else {
-		return errors.New("缺少私钥：设置环境变量 DZFYQ_UPDATE_PRIVATE_KEY_PEM 或传 -key")
+		return errors.New("缺少私钥：设置环境变量 TOLK_UPDATE_PRIVATE_KEY_PEM 或传 -key")
 	}
 	priv, err := loadEd25519(pemBytes)
 	if err != nil {
@@ -163,11 +153,9 @@ func winsign(args []string) error {
 	if err := update.VerifyPayload(*pub, p, sig); err != nil {
 		return fmt.Errorf("签名与客户端内置公钥不匹配，已拒绝输出：%w", err)
 	}
-	markers := []string{"DZFYQ-SIG-WINDOWS:" + sig, "DZFYQ-SIG:" + sig}
 	out := map[string]any{
 		"app_version": p.AppVersion, "package_type": p.PackageType, "platform": p.Platform,
 		"filename": p.Filename, "size_bytes": p.SizeBytes, "sha256": p.SHA256, "signature": sig,
-		"release_notes_marker": markers[0], "release_notes_markers": markers,
 	}
 	b, _ := json.MarshalIndent(out, "", "  ")
 	dest := *zipPath + ".sig.json"

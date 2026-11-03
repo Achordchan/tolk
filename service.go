@@ -90,7 +90,7 @@ func runEngine(eng engine.Engine, api, text, source, target string) (TranslateRe
 		}
 		return TranslateResult{Text: res.Text, Detected: res.Detected, Engine: api, DurationMs: time.Since(start).Milliseconds()}, nil
 	}
-	token := fmt.Sprintf("[[DZFYQ_NL_%x]]", time.Now().UnixNano())
+	token := fmt.Sprintf("[[TOLK_NL_%x]]", time.Now().UnixNano())
 	res, err := eng.Translate(ctx, strings.ReplaceAll(text, "\n", " "+token+" "), source, target)
 	if err != nil {
 		return TranslateResult{}, err

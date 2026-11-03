@@ -8,6 +8,9 @@ LOG="$TOLK_UPDATE_LOG"
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG"; }
 result() { printf '{"status":"%s","message":"%s","expected_version":"%s"}\n' "$1" "$2" "$TOLK_UPDATE_VERSION" > "$TOLK_UPDATE_RESULT"; }
 
+# TOLK_UPDATE_RELAUNCH=0 when the user is quitting: do not open the app again.
+open_app() { [ "$TOLK_UPDATE_RELAUNCH" = "0" ] || open "$TOLK_UPDATE_TARGET"; }
+
 log "Update started."
 i=0
 while kill -0 "$TOLK_UPDATE_PID" 2>/dev/null; do
@@ -26,7 +29,7 @@ restore() {
   rm -rf "$TOLK_UPDATE_TARGET"
   if mv "$TOLK_UPDATE_BACKUP" "$TOLK_UPDATE_TARGET"; then
     result failed "$1"
-    open "$TOLK_UPDATE_TARGET"
+    open_app
   else
     log "Restore failed; backup stays at $TOLK_UPDATE_BACKUP"
     result failed "$1（旧版本备份保存在 $TOLK_UPDATE_BACKUP）"
@@ -38,7 +41,7 @@ rm -rf "$TOLK_UPDATE_BACKUP"
 if ! mv "$TOLK_UPDATE_TARGET" "$TOLK_UPDATE_BACKUP"; then
   log "Could not move the old app away; nothing was changed."
   result failed "无法替换当前应用，请确认应用所在文件夹可写"
-  open "$TOLK_UPDATE_TARGET"
+  open_app
   exit 1
 fi
 if ! ditto "$TOLK_UPDATE_NEW" "$TOLK_UPDATE_TARGET"; then
@@ -50,6 +53,6 @@ if ! codesign --verify --deep --strict "$TOLK_UPDATE_TARGET" 2>>"$LOG"; then
 fi
 log "Update completed."
 result success "Update completed."
-open "$TOLK_UPDATE_TARGET"
+open_app
 exit 0
 `

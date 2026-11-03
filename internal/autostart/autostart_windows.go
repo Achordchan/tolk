@@ -38,13 +38,40 @@ func shortcutPath() (string, error) {
 	return filepath.Join(dir, shortcutName), err
 }
 
-// Rename moves an entry made by 2.2.2 or older to the Tolk name, so Windows
-// shows Tolk among the startup apps. The shortcut file itself is renamed, so
-// its target and properties stay as they were. It does nothing when there is
-// no old entry.
-func Rename() error {
+// oldExeName is the program name of installs up to 2.2.2; 2.2.3 moved them to
+// Tolk.exe in a Tolk folder.
+const oldExeName = "大佐翻译官.exe"
+
+// Migrate brings an entry made by 2.2.2 or older up to date: renamed to Tolk,
+// so Windows lists Tolk among the startup apps, and pointed at this program
+// when it still points at the old one, which the 2.2.3 installer removed.
+func Migrate() error {
 	mu.Lock()
 	defer mu.Unlock()
+	if err := rename(); err != nil {
+		return err
+	}
+	lnk, err := shortcutPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(lnk); err != nil {
+		return nil
+	}
+	target, err := run(`(New-Object -ComObject WScript.Shell).CreateShortcut($env:TOLK_LNK).TargetPath`, "TOLK_LNK="+lnk)
+	if err != nil || !strings.EqualFold(filepath.Base(target), oldExeName) {
+		return nil
+	}
+	if _, err := os.Stat(target); err == nil {
+		return nil // that old program is still there
+	}
+	return set(true)
+}
+
+// rename moves an entry made by 2.2.2 or older to the Tolk name. The shortcut
+// file itself is renamed, so its target and properties stay as they were. It
+// does nothing when there is no old entry.
+func rename() error {
 	dir, err := startupDir()
 	if err != nil {
 		return err

@@ -61,6 +61,10 @@ jobs:
           New-Item -ItemType Directory -Force $install | Out-Null
           Copy-Item (Join-Path $env:ROOT "v0.0.1\Tolk.exe") (Join-Path $install "Tolk.exe")
           Set-Content (Join-Path $install "unins000.exe") "uninstaller"
+          # Tolk 只替换自己的安装目录：安装器在卸载项里记下的那个。
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1"
+          New-Item -Force $key | Out-Null
+          New-ItemProperty -Force $key -Name InstallLocation -Value "$install\" | Out-Null
           Publish-Version "9.9.9"
           $log = Invoke-Update -Install $install -Relaunch "0"
           if (-not ($log -match "从 中转 ")) { throw "源站被放慢了，应该选中转下载" }

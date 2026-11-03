@@ -313,9 +313,22 @@ func sameRequirement(running, update string) error {
 	return nil
 }
 
-// installedDir reports whether dir is an install made by the installer: the
-// Inno Setup uninstaller sits beside the program.
+// installedDir reports whether dir is where the installer put Tolk: Tolk's
+// own uninstall entry names it, and the uninstaller sits there. Any other
+// folder holding Tolk.exe (Downloads, a tools folder shared with other
+// programs) is not swapped wholesale.
 func installedDir(dir string) bool {
+	return ownedBy(dir, installLocation())
+}
+
+// uninstallKey is Tolk's entry under HKCU\...\Uninstall (the AppId kept from
+// 大佐翻译官).
+const uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1`
+
+func ownedBy(dir, location string) bool {
+	if location == "" || !strings.EqualFold(filepath.Clean(dir), filepath.Clean(location)) {
+		return false
+	}
 	m, _ := filepath.Glob(filepath.Join(dir, "unins*.exe"))
 	return len(m) > 0
 }

@@ -267,13 +267,20 @@ func TestMacCheckPrefersArchiveAttachedToSameRelease(t *testing.T) {
 	}
 }
 
-func TestInstalledDirNeedsUninstaller(t *testing.T) {
+func TestOwnedByNeedsTolksEntryAndUninstaller(t *testing.T) {
 	dir := t.TempDir()
-	if installedDir(dir) {
-		t.Fatal("a folder without the uninstaller is not an install")
-	}
 	os.WriteFile(filepath.Join(dir, "unins000.exe"), nil, 0o600)
-	if !installedDir(dir) {
-		t.Fatal("the uninstaller marks an install")
+	if ownedBy(dir, "") {
+		t.Fatal("no uninstall entry: not Tolk's install")
+	}
+	if ownedBy(dir, filepath.Join(dir, "other")) {
+		t.Fatal("an uninstaller of something else in the folder is not enough")
+	}
+	if !ownedBy(dir, dir+string(filepath.Separator)) {
+		t.Fatal("Tolk's entry names this folder")
+	}
+	os.Remove(filepath.Join(dir, "unins000.exe"))
+	if ownedBy(dir, dir) {
+		t.Fatal("the uninstaller must be there too")
 	}
 }

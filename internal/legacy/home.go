@@ -46,6 +46,19 @@ func migrate(old, dest string) (bool, error) {
 	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
 		return false, nil
 	}
+	// The old folder is itself a link (to a synced folder): the new one
+	// becomes a link to the same place. The old link stays, so links inside
+	// that lead through it keep working.
+	if fi, err := os.Lstat(old); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(old)
+		if err != nil {
+			return false, err
+		}
+		if err := os.Symlink(target, dest); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 	if err := os.Rename(old, dest); err == nil {
 		if err := relink(old, dest, dest); err != nil {
 			// Put the folder back so this run and the next keep working

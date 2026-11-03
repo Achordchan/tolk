@@ -136,3 +136,21 @@ func TestMigrateRollsBackWhenRelinkFails(t *testing.T) {
 		t.Fatal("the new folder must not stay behind")
 	}
 }
+
+func TestMigrateLinkedOldFolder(t *testing.T) {
+	root := t.TempDir()
+	synced := filepath.Join(root, "synced")
+	os.MkdirAll(synced, 0o700)
+	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
+	if err := os.Symlink(synced, old); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	os.WriteFile(filepath.Join(synced, "work.json"), []byte("{}"), 0o600)
+	os.Symlink(filepath.Join(old, "work.json"), filepath.Join(synced, "config.json"))
+	if moved, err := migrate(old, dest); !moved || err != nil {
+		t.Fatal(moved, err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dest, "config.json")); err != nil || string(b) != "{}" {
+		t.Fatalf("settings not readable through the new folder: %q %v", b, err)
+	}
+}

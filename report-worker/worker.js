@@ -21,6 +21,9 @@ const LIMITS = {
   manualPerInstallPerDay: 6,
   commentsPerIssuePerDay: 30, // repeats added to one issue a day
 };
+// Pages of 100 read when looking for an interrupted attempt's issue or
+// comment; a Worker may make only so many requests per call.
+const RECONCILE_PAGES = 20;
 const KINDS = new Set(["manual", "error", "crash", "update"]);
 const LABELS = { manual: ["用户反馈"], error: ["自动上报"], crash: ["自动上报", "崩溃"], update: ["自动上报", "更新"] };
 const TOO_MANY = "今天提交得太多了，请明天再试";
@@ -33,11 +36,20 @@ const json = (data, status = 200) =>
 const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]\s*`;
 // Quoted values go whole, spaces and escaped quotes included: first JSON
 // inside a string (\"secret\", where an escaped quote is \\\"), then "…" and '…'.
+// Escaped twice, a backslash in such a value is \\\\\\\\, a quote \\\\\", another
+// escape \\\\n; \\n is a character escaped once. No two alternatives match
+// the same text, so the first \" left over ends the value and an
+// unterminated one fails without backtracking.
+// Parts are bounded (RFC 5321 sizes): unbounded ones cost quadratic time on
+// a long run of letters with no @ in it.
+const EMAIL = /[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}/g;
 const SECRET_VALUES = [
-  [new RegExp(SECRET_KEY + String.raw`\\")(?:\\\\\\"|\\\\|\\[^"]|[^\\\r\n])*?\\"`, "gi"), '$1***\\"'],
+  [new RegExp(SECRET_KEY + String.raw`\\")(?:\\\\\\\\|\\\\\\"|\\\\[^"\\]|\\[^"\\]|[^\\"\r\n])*\\"`, "gi"), '$1***\\"'],
   [new RegExp(SECRET_KEY + String.raw`")(?:[^"\\\r\n]|\\.)*"`, "gi"), '$1***"'],
   [new RegExp(SECRET_KEY + String.raw`')(?:[^'\\\r\n]|\\.)*'`, "gi"), "$1***'"],
   [new RegExp(SECRET_KEY + String.raw`)[^\s"'&,}\\]{3,}`, "gi"), "$1***"],
+  // A value cut off before its closing quote (a log line cut short).
+  [new RegExp(SECRET_KEY + String.raw`\\?["'])[^\\"'\r\n]{3,}`, "gi"), "$1***"],
 ];
 
 // Same idea as the app's scrubber, in case an old or modified client sends
@@ -51,7 +63,7 @@ export function scrub(s) {
     .replace(/\bsk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
     .replace(/\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}/g, "$1_***")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:fx)?\b/gi, "***-uuid-***")
-    .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g, "***@***");
+    .replace(EMAIL, "***@***");
 }
 
 // Hidden in every issue and comment the relay writes, so a retry can tell
@@ -176,26 +188,48 @@ export class Coordinator {
   }
 
   // Finds the issue or comment an interrupted attempt created, by the
-  // marker every write carries.
+  // marker every write carries. Every page written since the attempt is
+  // read: "not found" has to mean it did not get through, or the retry
+  // files a duplicate.
   async reconcile(sub, pend, fp, install) {
     const mark = marker(sub);
+    const cutoff = pend.at - 60e3;
     if (pend.issue) {
-      const since = new Date(pend.at - 60e3).toISOString();
-      const comments = await this.gh("GET", `/issues/${pend.issue}/comments?since=${since}&per_page=100`);
-      if (comments.some((c) => String(c.body || "").includes(mark))) {
-        await this.storage.put(`seen:${fp}:${install}`, 1);
-        return { ok: true, number: pend.issue, url: pend.url, merged: true };
-      }
-      return null;
+      const since = new Date(cutoff).toISOString();
+      const hit = await this.scan(`/issues/${pend.issue}/comments?since=${since}`, () => false, (c) =>
+        String(c.body || "").includes(mark),
+      );
+      if (!hit) return null;
+      await this.storage.put(`seen:${fp}:${install}`, 1);
+      return { ok: true, number: pend.issue, url: pend.url, merged: true };
     }
-    const issues = await this.gh("GET", "/issues?state=all&sort=created&direction=desc&per_page=50");
-    const hit = issues.find((i) => !i.pull_request && String(i.body || "").includes(mark));
+    // Newest first, so the pages end once they reach issues older than the attempt.
+    const hit = await this.scan(
+      "/issues?state=all&sort=created&direction=desc",
+      (i) => Date.parse(i.created_at) < cutoff,
+      (i) => !i.pull_request && String(i.body || "").includes(mark),
+    );
     if (!hit) return null;
     if (fp) {
       await this.storage.put(`fp:${fp}`, hit.number);
       await this.storage.put(`seen:${fp}:${install}`, 1);
     }
     return { ok: true, number: hit.number, url: hit.html_url, merged: false };
+  }
+
+  // Pages through a GitHub list until match finds an item, past says the
+  // rest is too old, or the list ends. Too many pages to read is an error,
+  // not "not found": the client retries later instead of filing twice.
+  async scan(path, past, match) {
+    for (let page = 1; page <= RECONCILE_PAGES; page++) {
+      const items = await this.gh("GET", `${path}&per_page=100&page=${page}`);
+      for (const it of items) {
+        if (match(it)) return it;
+        if (past(it)) return null;
+      }
+      if (items.length < 100) return null;
+    }
+    throw new Error("too many items to check for an earlier attempt");
   }
 
   async file(ip, r, kind, install, fp, version, sub) {

@@ -73,3 +73,27 @@ func TestSendFallsBackOnlyWhenRelayIsUnreachable(t *testing.T) {
 		t.Fatalf("a refusal must not be retried elsewhere: %v", err)
 	}
 }
+
+func TestPayloadFitsAfterEscaping(t *testing.T) {
+	// Control characters become \u00XX in JSON: six bytes each.
+	noisy := strings.Repeat("\x01\x02\\\"", 6000)
+	r := Report{Kind: Crash, Title: "t", InstallID: "ab", Version: "2.2.3", Fingerprint: "ff", SubmissionID: "aa",
+		Description: strings.Repeat("说明\\", 2000),
+		Attachments: []Attachment{{Name: "a", Body: noisy}, {Name: "b", Body: noisy}, {Name: "c", Body: noisy, KeepHead: true}}}
+	payload, err := encode(r)
+	if err != nil || len(payload) > MaxPayload {
+		t.Fatalf("payload %d bytes, %v", len(payload), err)
+	}
+	var p map[string]any
+	if err := json.Unmarshal(payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"attachments", "description", "env"} {
+		if _, ok := p[k]; ok {
+			t.Fatalf("%s sent twice", k)
+		}
+	}
+	if !strings.Contains(p["body"].(string), "<summary>a</summary>") {
+		t.Fatal("logs dropped although a shorter cut fits")
+	}
+}

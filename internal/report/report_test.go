@@ -165,3 +165,16 @@ func TestScrubHomeWithSpacesAndJSONEscapes(t *testing.T) {
 		}
 	}
 }
+
+func TestScrubDoubleEscapedValues(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"cfg":"{\"password\": \"a b\\\"c\\\\\", \"x\": 1}"}`: `{"cfg":"{\"password\": \"***\", \"x\": 1}"}`,
+		`{"cfg":"{\"token\": \"line\\nnext\", \"x\": 1}"}`:     `{"cfg":"{\"token\": \"***\", \"x\": 1}"}`,
+		`{"cfg":"{\"token\": \"abc`:                            `{"cfg":"{\"token\": \"***`,
+		`password: \"` + strings.Repeat(`\`, 5000):             `password: \"` + strings.Repeat(`\`, 5000),
+	} {
+		if got := Scrub(in); got != want {
+			t.Errorf("Scrub(%.60q) = %.60q, want %.60q", in, got, want)
+		}
+	}
+}

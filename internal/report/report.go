@@ -90,12 +90,17 @@ var (
 		{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`), "${1}_***"},
 		// Quoted values go whole, spaces and escaped quotes included:
 		// first JSON inside a string (\"secret\"), then "…" and '…'.
-		// Inside such a value an escaped quote is \\\" and a backslash \\\\.
-		{regexp.MustCompile(secretKey + `\\")(?:\\\\\\"|\\\\|\\[^"]|[^\\\r\n])*?\\"`), `${1}***\"`},
+		// Inside such a value, escaped twice, a backslash is \\\\\\\\, a quote
+		// \\\\\", another escape \\\\n; \\n is a character escaped once. No two
+		// alternatives match the same text, so the first \" left over ends it
+		// and nothing has to be retried.
+		{regexp.MustCompile(secretKey + `\\")(?:\\\\\\\\|\\\\\\"|\\\\[^"\\]|\\[^"\\]|[^\\"\r\n])*\\"`), `${1}***\"`},
 		{regexp.MustCompile(secretKey + `")(?:[^"\\\r\n]|\\.)*"`), `${1}***"`},
 		{regexp.MustCompile(secretKey + `')(?:[^'\\\r\n]|\\.)*'`), `${1}***'`},
 		{regexp.MustCompile(secretKey + `)[^\s"'&,}\\]{3,}`), "${1}***"},
-		{regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`), "***@***"},
+		// A value cut off before its closing quote (a log line cut short).
+		{regexp.MustCompile(secretKey + `\\?["'])[^\\"'\r\n]{3,}`), "${1}***"},
+		{regexp.MustCompile(`[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}`), "***@***"}, // same as the relay's
 	}
 	// Home folders give away the account name: /Users/name, C:\Users\name, /home/name.
 	homeRes = []*regexp.Regexp{

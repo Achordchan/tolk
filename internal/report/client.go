@@ -38,18 +38,10 @@ var ErrRejected = errors.New("report rejected")
 
 // Send delivers r (call Clean first) to the first relay that answers.
 func Send(ctx context.Context, client *http.Client, r Report) (Result, error) {
-	// The relay scrubs the body once more, which would also blank an e-mail
-	// the user typed as contact on purpose; the contact travels on its own
-	// and the relay puts it back under the description.
 	if r.SubmissionID == "" {
 		r.SubmissionID = newID()
 	}
-	noContact := r
-	noContact.Contact = ""
-	payload, err := json.Marshal(struct {
-		Report
-		Body string `json:"body"`
-	}{r, noContact.Markdown()})
+	payload, err := encode(r)
 	if err != nil {
 		return Result{}, err
 	}
@@ -68,6 +60,51 @@ func Send(ctx context.Context, client *http.Client, r Report) (Result, error) {
 		}
 	}
 	return Result{}, last
+}
+
+// MaxPayload stays under the relay's 200 KiB limit on the request.
+const MaxPayload = 180 << 10
+
+// wire is what the relay reads: the issue body already rendered, and only
+// the fields it checks or files. The structured parts are not sent again.
+type wire struct {
+	Kind         string `json:"kind"`
+	Title        string `json:"title"`
+	Contact      string `json:"contact,omitempty"`
+	Fingerprint  string `json:"fingerprint,omitempty"`
+	InstallID    string `json:"installId"`
+	SubmissionID string `json:"submissionId"`
+	Version      string `json:"version"`
+	OS           string `json:"os"`
+	Body         string `json:"body"`
+}
+
+// encode builds the request and, measured after JSON escaping (backslashes
+// and control characters can grow several times), cuts the logs until it
+// fits: a report that is too large would be refused for good.
+func encode(r Report) ([]byte, error) {
+	// The relay scrubs the body once more, which would also blank an e-mail
+	// the user typed as contact on purpose; the contact travels on its own
+	// and the relay puts it back under the description.
+	body := r
+	body.Contact = ""
+	body.Attachments = append([]Attachment(nil), r.Attachments...)
+	w := wire{r.Kind, r.Title, r.Contact, r.Fingerprint, r.InstallID, r.SubmissionID, r.Version, r.OS, ""}
+	for limit := maxAttachment; ; limit /= 2 {
+		w.Body = body.Markdown()
+		payload, err := json.Marshal(w)
+		if err != nil || len(payload) <= MaxPayload {
+			return payload, err
+		}
+		if limit < 200 {
+			body.Attachments = nil
+			body.Description = string([]rune(body.Description)[:len([]rune(body.Description))/2])
+			continue
+		}
+		for i := range body.Attachments {
+			body.Attachments[i].Body = r.Attachments[i].Cut(limit)
+		}
+	}
 }
 
 func post(ctx context.Context, client *http.Client, endpoint string, payload []byte) (Result, error) {

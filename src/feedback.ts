@@ -107,6 +107,9 @@ async function submit() {
   // Closing now would leave the request finishing unseen, and a reopened
   // dialog could send a second one and get the first one's answer.
   cancel.disabled = true;
+  // Filing it on GitHub by hand while the retry runs could file it twice.
+  const github = $<HTMLButtonElement>("#fb-github");
+  github.disabled = true;
   // What is sent is what is on screen: no edits while the request runs.
   setFieldsEnabled(false);
   let sent = false;
@@ -114,6 +117,9 @@ async function submit() {
     const r = await Tolk.submitFeedback(...fields(), submissionId);
     if (r.sent) {
       sent = true;
+      // Filed: the GitHub link of an earlier failed try would file it again.
+      fallback = "";
+      github.hidden = true;
       send.hidden = true;
       $("#fb-cancel").textContent = "完成";
       showDone(r.url);
@@ -122,7 +128,7 @@ async function submit() {
     if (r.issueUrl) {
       fallback = r.issueUrl;
       showError(`暂时连不上提交服务（${r.error}）。完整内容已复制到剪贴板，可以改用 GitHub 提交：打开后如果日志不全，把剪贴板内容粘贴进去即可。`);
-      $("#fb-github").hidden = false;
+      github.hidden = false;
     } else {
       showError(r.error || "提交失败");
     }
@@ -131,6 +137,7 @@ async function submit() {
   } finally {
     busy = false;
     cancel.disabled = false;
+    github.disabled = false;
     if (!sent) setFieldsEnabled(true);
     if (!send.hidden) {
       send.disabled = false;
@@ -154,7 +161,7 @@ export function initFeedback() {
     if (!busy) dlg.close();
   });
   $("#fb-github").addEventListener("click", () => {
-    if (fallback) void Tolk.openLink(fallback);
+    if (fallback && !busy) void Tolk.openLink(fallback);
   });
   $("#fb-preview-box").addEventListener("toggle", refreshPreview);
   $("#fb-logs").addEventListener("change", refreshPreview);

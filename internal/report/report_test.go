@@ -192,7 +192,11 @@ func TestScrubDoubleEscapedValues(t *testing.T) {
 		`PASSWORD=&A7secret! next`:   `PASSWORD=*** next`,
 		`token=ab,cd&ef}\gh` + "\nx": `token=***` + "\nx",
 		`api_key: ,leading`:          `api_key: ***`,
-		`password:` + "\n" + `next`:  `password:` + "\n" + `next`,
+		// The value may start on the next line; over-blanking beats a leak.
+		`password:` + "\n" + `next`:                        `password:` + "\n" + `***`,
+		`"password":` + "\n  " + `"private value", "x": 1`: `"password":` + "\n  " + `"***", "x": 1`,
+		`PASSWORD =` + "\r\n\t" + `&secret rest`:           `PASSWORD =` + "\r\n\t" + `*** rest`,
+		`{"l":"{\n  \"token\":\n    \"abc def\"\n}"}`:      `{"l":"{\n  \"token\":\n    \"***\"\n}"}`,
 	} {
 		if got := Scrub(in); got != want {
 			t.Errorf("Scrub(%.60q) = %.60q, want %.60q", in, got, want)

@@ -80,7 +80,7 @@ const (
 var (
 	// secretKey names a setting whose value is a credential, up to the
 	// value. The name may be quoted, also JSON-escaped (\"password\").
-	secretKey    = `(?i)((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?[ \t]*[:=][ \t]*`
+	secretKey    = `(?i)((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]`
 	extraSecrets = []struct {
 		re   *regexp.Regexp
 		with string
@@ -90,9 +90,8 @@ var (
 		{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`), "${1}_***"},
 		{regexp.MustCompile(`[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}`), "***@***"}, // same as the relay's
 	}
-	// secretAssign is a credential setting up to its value, and the quote
-	// the value opens with if any: "…", '…', or \"…\" (JSON in a JSON string).
-	secretAssign = regexp.MustCompile(secretKey + `)(\\?["'])?`)
+	// secretAssign is a credential setting up to its = or :.
+	secretAssign = regexp.MustCompile(secretKey + `)`)
 	// Home folders give away the account name: /Users/name, C:\Users\name, /home/name.
 	homeRes = []*regexp.Regexp{
 		// The account name runs to the next separator and may hold spaces
@@ -136,10 +135,11 @@ func scrubSecrets(s string) string {
 		if m == nil {
 			break
 		}
-		start := pos + m[1]
+		start := valueStart(s, pos+m[1])
 		var end int
-		if m[4] >= 0 {
-			end = quotedEnd(s, start, s[pos+m[4]:pos+m[5]])
+		if open := opener(s, start); open != "" {
+			start += len(open)
+			end = quotedEnd(s, start, open)
 		} else {
 			end = start
 			for end < len(s) && !strings.ContainsRune(" \t\r\n", rune(s[end])) {
@@ -154,6 +154,35 @@ func scrubSecrets(s string) string {
 	}
 	b.WriteString(s[pos:])
 	return b.String()
+}
+
+// valueStart skips what may stand between a setting's = or : and its value:
+// spaces and line breaks, also JSON-escaped ones (\n, \r, \t) in a log
+// that holds pretty-printed JSON.
+func valueStart(s string, i int) int {
+	for i < len(s) {
+		switch {
+		case strings.IndexByte(" \t\r\n", s[i]) >= 0:
+			i++
+		case s[i] == '\\' && i+1 < len(s) && strings.IndexByte("nrt", s[i+1]) >= 0:
+			i += 2
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+// opener is the quote a value at i opens with: ", ', \" or \' (JSON in a
+// JSON string), or "" for an unquoted value.
+func opener(s string, i int) string {
+	switch {
+	case i < len(s) && (s[i] == '"' || s[i] == '\''):
+		return s[i : i+1]
+	case i+1 < len(s) && s[i] == '\\' && (s[i+1] == '"' || s[i+1] == '\''):
+		return s[i : i+2]
+	}
+	return ""
 }
 
 // quotedEnd is where the value starting at i, opened by open, ends: at its

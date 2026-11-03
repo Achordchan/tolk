@@ -38,13 +38,32 @@ const json = (data, status = 200) =>
 
 // A setting whose value is a credential, up to the value. The name may be
 // quoted, also JSON-escaped (\"password\").
-const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?[ \t]*[:=][ \t]*`;
+const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]`;
 // Parts are bounded (RFC 5321 sizes): unbounded ones cost quadratic time on
 // a long run of letters with no @ in it.
 const EMAIL = /[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}/g;
-// A credential setting up to its value, and the quote the value opens with
-// if any: "…", '…', or \"…\" (JSON inside a JSON string).
-const SECRET_ASSIGN = new RegExp(SECRET_KEY + String.raw`)(\\?["'])?`, "gi");
+// A credential setting up to its = or :.
+const SECRET_ASSIGN = new RegExp(SECRET_KEY + ")", "gi");
+
+// Skips what may stand between a setting's = or : and its value: spaces and
+// line breaks, also JSON-escaped ones (\n, \r, \t) in a log that holds
+// pretty-printed JSON.
+function valueStart(s, i) {
+  while (i < s.length) {
+    if (" \t\r\n".includes(s[i])) i++;
+    else if (s[i] === "\\" && i + 1 < s.length && "nrt".includes(s[i + 1])) i += 2;
+    else break;
+  }
+  return i;
+}
+
+// The quote a value at i opens with: ", ', \" or \' (JSON in a JSON string),
+// or "" for an unquoted value.
+function opener(s, i) {
+  if (s[i] === '"' || s[i] === "'") return s[i];
+  if (s[i] === "\\" && (s[i + 1] === '"' || s[i + 1] === "'")) return s.slice(i, i + 2);
+  return "";
+}
 
 // Blanks the whole value of every credential setting. A quoted value goes
 // up to its closing quote, escaped quotes and backslashes included, or for a
@@ -57,10 +76,13 @@ function scrubSecrets(s) {
   let pos = 0;
   SECRET_ASSIGN.lastIndex = 0;
   for (let m; (m = SECRET_ASSIGN.exec(s)); ) {
-    const start = m.index + m[0].length;
+    let start = valueStart(s, m.index + m[0].length);
+    const open = opener(s, start);
     let end = start;
-    if (m[2]) end = quotedEnd(s, start, m[2]);
-    else while (end < s.length && !" \t\r\n".includes(s[end])) end++;
+    if (open) {
+      start += open.length;
+      end = quotedEnd(s, start, open);
+    } else while (end < s.length && !" \t\r\n".includes(s[end])) end++;
     out += s.slice(pos, start) + (end > start ? "***" : "");
     pos = end;
     SECRET_ASSIGN.lastIndex = Math.max(end, start);

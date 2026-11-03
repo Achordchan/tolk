@@ -176,3 +176,18 @@ func TestMigrateRepointsRelativeLinksThroughOldName(t *testing.T) {
 		t.Fatalf("a link within the folder was changed: %q", got)
 	}
 }
+
+func TestUnderMatchesCaseWhereNamesIgnoreIt(t *testing.T) {
+	dir := filepath.Join(string(filepath.Separator)+"home", ".dzfyq")
+	if rest, ok := under(filepath.Join(dir, "a.json"), dir); !ok || rest != string(filepath.Separator)+"a.json" {
+		t.Fatal(rest, ok)
+	}
+	if _, ok := under(dir+"-old", dir); ok {
+		t.Fatal("a sibling folder is not inside")
+	}
+	upper := filepath.Join(string(filepath.Separator)+"HOME", ".DZFYQ", "a.json")
+	_, ok := under(upper, dir)
+	if want := runtime.GOOS == "windows" || runtime.GOOS == "darwin"; ok != want {
+		t.Fatalf("case-insensitive match on %s: got %v", runtime.GOOS, ok)
+	}
+}

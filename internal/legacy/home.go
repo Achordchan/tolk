@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -93,7 +94,6 @@ func migrate(old, dest string) (bool, error) {
 // alone. Each new link is made beside the old one and then put in its place,
 // so a link that cannot be made leaves the old one as it was.
 func relink(old, dir, final string) error {
-	prefix := old + string(filepath.Separator)
 	type change struct{ path, was string }
 	var done []change
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -113,10 +113,11 @@ func relink(old, dir, final string) error {
 		if !filepath.IsAbs(target) {
 			abs = filepath.Clean(filepath.Join(old, rel, target))
 		}
-		if abs != old && !strings.HasPrefix(abs, prefix) {
+		rest, ok := under(abs, old)
+		if !ok {
 			return nil // somewhere else: unaffected by the move
 		}
-		moved := final + strings.TrimPrefix(abs, old)
+		moved := final + rest
 		want := moved
 		if !filepath.IsAbs(target) {
 			// A relative link stays relative; it only changes when it
@@ -211,4 +212,22 @@ func copyFile(from, to string) error {
 		return err
 	}
 	return w.Close()
+}
+
+// under reports whether p is dir or inside it, and the part after dir.
+// Windows and macOS file names ignore case, so a link may spell the folder
+// .DZFYQ or the home folder differently.
+func under(p, dir string) (string, bool) {
+	same := func(a, b string) bool { return a == b }
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		same = strings.EqualFold
+	}
+	if len(p) < len(dir) || !same(p[:len(dir)], dir) {
+		return "", false
+	}
+	rest := p[len(dir):]
+	if rest != "" && rest[0] != filepath.Separator {
+		return "", false // a sibling such as .dzfyq-old
+	}
+	return rest, true
 }

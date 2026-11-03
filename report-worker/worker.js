@@ -321,10 +321,11 @@ export class Coordinator {
     // Repeats of an automatic report go on the issue already open for it.
     if (fp) {
       let known = await this.storage.get(`fp:${fp}`);
-      // A creation for this error whose answer was lost: whoever reports
-      // the error next (any install) first checks whether it went through,
-      // so the error does not get a second issue.
-      const pending = known ? null : await this.storage.get(`pfp:${fp}`);
+      // A creation for this error whose answer was lost (a new issue, or the
+      // replacement of a closed one): whoever reports the error next (any
+      // install) first checks whether it went through, so the error does not
+      // get a second issue.
+      const pending = await this.storage.get(`pfp:${fp}`);
       if (pending) {
         const hit = await this.findIssue(pending.sub, pending.at);
         if (hit) {

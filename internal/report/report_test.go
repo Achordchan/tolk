@@ -95,13 +95,13 @@ func TestReserveLimits(t *testing.T) {
 	if s.Reserve("zz", now.Add(25*time.Hour)) {
 		t.Fatal("daily cap not applied")
 	}
-	if !s.CapReached(now.Add(26*time.Hour)) || s.CapReached(now.Add(49*time.Hour)) {
-		t.Fatal("CapReached should hold for the capped day only")
+	if s.TryReserve("zz", now.Add(26*time.Hour)) != Later {
+		t.Fatal("daily cap should mean try later")
 	}
 	if _, err := s.Update(func(st *State) { st.AutoDisabled = true }); err != nil {
 		t.Fatal(err)
 	}
-	if s.Reserve("new", now.Add(72*time.Hour)) {
+	if s.TryReserve("new", now.Add(72*time.Hour)) != Declined {
 		t.Fatal("switch off must stop auto reports")
 	}
 	if s.Get().InstallID == "" {
@@ -134,7 +134,7 @@ func TestIssueURLLongDescription(t *testing.T) {
 func TestReserveRefusedWhenStateCannotBeSaved(t *testing.T) {
 	dir := t.TempDir()
 	s := NewStore(dir + "/missing/\x00bad")
-	if s.Reserve("a", time.Now()) {
+	if s.TryReserve("a", time.Now()) != Later {
 		t.Fatal("an unsaved reservation must be refused")
 	}
 }

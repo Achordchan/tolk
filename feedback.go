@@ -296,16 +296,18 @@ func sendAuto(kind, title, description, fpText string, extra []report.Attachment
 
 // sendAutoThen is sendAuto with done run once the report has been tried,
 // sent or not, or is not to be sent at all (switched off, sent lately). A
-// report held back by the daily cap leaves done for a later run.
+// report held back by the daily cap or an unsaved state file leaves done for
+// a later run.
 func sendAutoThen(kind, title, description, fpText string, extra []report.Attachment, done func()) {
 	if done == nil {
 		done = func() {}
 	}
 	fp := report.Fingerprint(kind, fpText)
-	if !fb.store.Reserve(fp, time.Now()) {
-		if !fb.store.CapReached(time.Now()) {
-			done()
-		}
+	switch fb.store.TryReserve(fp, time.Now()) {
+	case report.Declined:
+		done()
+		return
+	case report.Later: // daily cap, or the state file could not be saved
 		return
 	}
 	r := baseReport(kind, title, description, true)

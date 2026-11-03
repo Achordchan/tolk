@@ -120,12 +120,14 @@ func (s *Store) Finished(fp string, now time.Time) {
 	})
 }
 
-// CapReached says Reserve refuses because today's automatic reports are used
-// up (not because they are off): worth trying again another day.
-func (s *Store) CapReached(now time.Time) bool {
-	st := s.Get()
-	return !st.AutoDisabled && st.Day == now.Format("2006-01-02") && st.Count >= MaxAutoPerDay
-}
+// Verdict is TryReserve's answer.
+type Verdict int
+
+const (
+	Reserved Verdict = iota // go ahead and send
+	Declined                // not to be sent: switched off, or sent lately
+	Later                   // not now, worth another go: daily cap, or state not saved
+)
 
 // Reserve records an automatic report of fp at now, or says no when the
 // switch is off or the limits are reached. Recording before sending means a
@@ -137,8 +139,12 @@ func (s *Store) CapReached(now time.Time) bool {
 //
 // A fingerprint reserved by an earlier run whose upload never finished (the
 // app quit first) is let through again: Finished was never recorded for it.
-func (s *Store) Reserve(fp string, now time.Time) bool {
+func (s *Store) Reserve(fp string, now time.Time) bool { return s.TryReserve(fp, now) == Reserved }
+
+// TryReserve is Reserve, saying why it refuses.
+func (s *Store) TryReserve(fp string, now time.Time) Verdict {
 	ok := false
+	why := Declined
 	_, err := s.Update(func(st *State) {
 		if st.AutoDisabled {
 			return
@@ -153,6 +159,7 @@ func (s *Store) Reserve(fp string, now time.Time) bool {
 			return
 		}
 		if st.Count >= MaxAutoPerDay {
+			why = Later
 			return
 		}
 		for k, t := range st.Sent { // forget old fingerprints
@@ -173,12 +180,18 @@ func (s *Store) Reserve(fp string, now time.Time) bool {
 		s.inflight[fp] = true
 		ok = true
 	})
-	if ok && err != nil {
-		s.mu.Lock()
-		delete(s.inflight, fp)
-		s.mu.Unlock()
+	switch {
+	case err != nil:
+		if ok {
+			s.mu.Lock()
+			delete(s.inflight, fp)
+			s.mu.Unlock()
+		}
+		return Later // the limits could not be recorded
+	case ok:
+		return Reserved
 	}
-	return ok && err == nil
+	return why
 }
 
 func newID() string {

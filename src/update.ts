@@ -11,6 +11,9 @@ let last: Update = { state: "idle", version: "", notes: "", force: false, percen
 // The version the user answered 稍后 to: not asked again until the next launch
 // (it installs when Tolk quits).
 let dismissed = "";
+// The version the user asked to install while it was still downloading: it
+// restarts by itself once the download is done.
+let queued = "";
 
 /** The changelog section as a list; its headings repeat what the dialog already says. */
 function drawNotes(notes: string) {
@@ -27,7 +30,6 @@ function drawNotes(notes: string) {
 }
 
 function draw(s: Update) {
-  const busy = s.state === "downloading" || s.state === "installing";
   $("#ud-title").textContent =
     {
       available: `发现新版本 v${s.version}`,
@@ -48,8 +50,14 @@ function draw(s: Update) {
   // forced update or the restart itself cannot be waved away.
   $("#ud-later").hidden = s.state === "installing" || (s.force && s.state !== "error");
   $("#ud-later").textContent = s.state === "error" || s.state === "downloading" ? "关闭" : "稍后";
-  $("#ud-install").hidden = busy;
-  $("#ud-install").textContent = { ready: "重启更新", error: "重试" }[s.state] ?? "立即更新";
+  // While downloading, 立即更新 asks for a restart as soon as it is done.
+  const install = $<HTMLButtonElement>("#ud-install");
+  const waiting = s.state === "downloading" && queued === s.version;
+  install.hidden = s.state === "installing" || (s.state === "downloading" && s.force); // a forced one restarts anyway
+  install.disabled = waiting;
+  install.textContent = waiting
+    ? "下载完自动重启"
+    : ({ ready: "重启更新", error: "重试", downloading: "下载完立即更新" }[s.state] ?? "立即更新");
 }
 
 /** Show the dialog for the update found last, whatever the user answered before. */
@@ -86,6 +94,10 @@ export async function initUpdate(toast: (m: string) => void) {
   $("#ud-install").addEventListener("click", async () => {
     try {
       await Tolk.installUpdate();
+      if (last.state === "downloading") {
+        queued = last.version;
+        draw(last);
+      }
     } catch (e) {
       draw({ ...last, state: "error", error: message(e) });
     }

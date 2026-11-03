@@ -87,6 +87,7 @@ var upd struct {
 	state       UpdateState
 	info        *update.Info    // newest version found
 	pending     *update.Pending // downloaded, verified, waiting to go in
+	checking    bool            // a check is under way
 	downloading bool
 	installNow  bool // the user asked to install while it was downloading
 	applied     bool // a swap script is running; nothing more to do
@@ -121,12 +122,20 @@ func (Tolk) CheckUpdate() (UpdateState, error) { return checkUpdate() }
 
 func checkUpdate() (UpdateState, error) {
 	upd.mu.Lock()
-	if upd.downloading || upd.applied {
+	// One check at a time: two at once (startup and 检查更新) could each pick
+	// a release, and the second would lose to the first one's download.
+	if upd.checking || upd.downloading || upd.applied {
 		s := upd.state
 		upd.mu.Unlock()
 		return s, nil
 	}
+	upd.checking = true
 	upd.mu.Unlock()
+	defer func() {
+		upd.mu.Lock()
+		upd.checking = false
+		upd.mu.Unlock()
+	}()
 	setUpdate(UpdateState{State: "checking"})
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -185,7 +194,17 @@ func downloadUpdate(info *update.Info, install bool) {
 	if err == nil {
 		upd.pending = pending
 	}
+	// A newer release turned up while this one downloaded: get that instead.
+	newer := upd.info
+	if newer == nil || update.CompareVersions(newer.Version, info.Version) <= 0 {
+		newer = nil
+	}
 	upd.mu.Unlock()
+	if newer != nil {
+		Logs.Infof("下载期间发现更新的 v%s，改下这个", newer.Version)
+		startDownload(newer, install || newer.Force)
+		return
+	}
 	if err != nil {
 		Logs.Errorf("下载更新失败：%v", err)
 		setUpdate(UpdateState{State: "error", Version: info.Version, Notes: info.Notes, Force: info.Force, Error: err.Error()})

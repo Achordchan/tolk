@@ -85,3 +85,20 @@ func TestCopyKeepsSymlinks(t *testing.T) {
 		t.Fatalf("link not kept: %q %v", got, err)
 	}
 }
+
+func TestMigrateRepointsLinksIntoOldFolder(t *testing.T) {
+	root := t.TempDir()
+	old, dest := filepath.Join(root, ".dzfyq"), filepath.Join(root, ".tolk")
+	os.MkdirAll(filepath.Join(old, "profiles"), 0o700)
+	os.WriteFile(filepath.Join(old, "profiles", "work.json"), []byte(`{"a":1}`), 0o600)
+	if err := os.Symlink(filepath.Join(old, "profiles", "work.json"), filepath.Join(old, "config.json")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if moved, err := migrate(old, dest); !moved || err != nil {
+		t.Fatal(moved, err)
+	}
+	b, err := os.ReadFile(filepath.Join(dest, "config.json"))
+	if err != nil || string(b) != `{"a":1}` {
+		t.Fatalf("link does not lead to the moved file: %q %v", b, err)
+	}
+}

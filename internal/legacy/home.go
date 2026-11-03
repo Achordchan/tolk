@@ -2,8 +2,10 @@ package legacy
 
 import (
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // oldHomeName is the folder versions up to 2.2.2 used, in the home folder.
@@ -31,7 +33,7 @@ func MigrateHome() (bool, error) {
 	}
 	old := filepath.Join(home, oldHomeName)
 	moved, err := migrate(old, filepath.Join(home, ".tolk"))
-	if err != nil {
+	if err != nil && !moved {
 		fallbackHome = old
 	}
 	return moved, err
@@ -45,7 +47,7 @@ func migrate(old, dest string) (bool, error) {
 		return false, nil
 	}
 	if err := os.Rename(old, dest); err == nil {
-		return true, nil
+		return true, relink(old, dest)
 	}
 	tmp := dest + ".partial"
 	_ = os.RemoveAll(tmp)
@@ -57,7 +59,27 @@ func migrate(old, dest string) (bool, error) {
 		_ = os.RemoveAll(tmp)
 		return false, err
 	}
-	return true, nil
+	return true, relink(old, dest)
+}
+
+// relink points links that named a file inside the old folder by its full
+// path at the same file in the new one; after the move they would lead
+// nowhere. Relative links and links elsewhere are left alone.
+func relink(old, dest string) error {
+	prefix := old + string(filepath.Separator)
+	return filepath.WalkDir(dest, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.Type()&os.ModeSymlink == 0 {
+			return err
+		}
+		target, err := os.Readlink(path)
+		if err != nil || !filepath.IsAbs(target) || (target != old && !strings.HasPrefix(target, prefix)) {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		return os.Symlink(dest+strings.TrimPrefix(target, old), path)
+	})
 }
 
 func copyTree(src, dst string, top bool) error {

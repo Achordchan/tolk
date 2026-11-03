@@ -246,3 +246,29 @@ func TestReleaseKeepsSubmissionForRetry(t *testing.T) {
 		t.Fatal("a released upload should go again with the same submission")
 	}
 }
+
+func TestScrubMultilineSecrets(t *testing.T) {
+	key := "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\nVJTUt9Us8cKjMzEfYyjiWA4R4ypbPyz\nA1sKeyMaterialEnd=="
+	for _, in := range []string{
+		"PRIVATE_KEY=\"-----BEGIN PRIVATE KEY-----\n" + key + "\n-----END PRIVATE KEY-----\"\nnext",
+		"pasted:\n-----BEGIN RSA PRIVATE KEY-----\n" + key + "\n-----END RSA PRIVATE KEY-----\nnext",
+		`{"k":"-----BEGIN PRIVATE KEY-----\n` + strings.ReplaceAll(key, "\n", `\n`) + `\n-----END PRIVATE KEY-----"} next`,
+		"cut off: -----BEGIN OPENSSH PRIVATE KEY-----\n" + key,
+		"password: \"first line\nsecond line A1sKeyMaterialEnd\" next",
+	} {
+		out := Scrub(in)
+		for _, part := range []string{"MIIEvQ", "VJTUt9", "A1sKeyMaterialEnd"} {
+			if strings.Contains(out, part) {
+				t.Errorf("%q survived in %q", part, out)
+			}
+		}
+		if strings.HasSuffix(in, "next") && !strings.HasSuffix(out, "next") {
+			t.Errorf("text after the value was lost: %q", out)
+		}
+	}
+	// A quote left open with none nearby: only the rest of its line goes.
+	in := "password: \"cut\n" + strings.Repeat("log line\n", 2000) + "end \"quoted\""
+	if out := Scrub(in); !strings.HasPrefix(out, "password: \"***\nlog line\n") {
+		t.Errorf("unclosed value took the log: %.60q", out)
+	}
+}

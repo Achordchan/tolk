@@ -97,12 +97,27 @@ function scrubSecrets(s) {
 
 const nl = (c) => c === "\r" || c === "\n";
 
-// Where the value starting at i, opened by open, ends: its closing quote,
-// the end of the line, or the end of s.
+// How far a quoted value may run over line breaks.
+const MAX_QUOTED_SPAN = 8192;
+// A PEM block (a private key pasted in), its body over any number of lines,
+// also JSON-escaped ones, up to its END line or, cut off, the end of the
+// text. Same as pemBlock in internal/report/report.go.
+const PEM_BLOCK = /-----BEGIN ([A-Z0-9 ]{1,40})-----[\s\S]*?(?:-----END [A-Z0-9 ]{1,40}-----|$)/g;
+
+// Where the value starting at i, opened by open, ends: its closing quote
+// (within MAX_QUOTED_SPAN, across lines), the end of the line, or the end
+// of s.
 function quotedEnd(s, i, open) {
   const q = open[open.length - 1];
   if (open.length === 1) {
-    // "…" or '…': \x is an escape
+    // "…" or '…': \x is an escape. A value pasted over several lines (a PEM
+    // key in quotes) goes whole when its closing quote is near; otherwise it
+    // was cut off, and only the rest of its line goes.
+    for (let j = i; j < s.length && j < i + MAX_QUOTED_SPAN; ) {
+      if (s[j] === "\\") j += 2;
+      else if (s[j] === q) return j;
+      else j++;
+    }
     while (i < s.length) {
       const c = s[i];
       if (c === "\\") {
@@ -136,7 +151,7 @@ function quotedEnd(s, i, open) {
 // something it should not. The contact the user typed is added afterwards:
 // they asked for it to be shown.
 export function scrub(s) {
-  return scrubSecrets(String(s ?? ""))
+  return scrubSecrets(String(s ?? "").replace(PEM_BLOCK, "-----BEGIN $1----- *** -----END $1-----"))
     .replace(/(bearer\s+)[A-Za-z0-9._\-]{8,}/gi, "$1***")
     .replace(/\bsk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
     .replace(/\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}/g, "$1_***")

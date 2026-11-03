@@ -90,6 +90,10 @@ var (
 		{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`), "${1}_***"},
 		{regexp.MustCompile(`[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}`), "***@***"}, // same as the relay's
 	}
+	// pemBlock is a PEM block (a private key pasted in), its body over any
+	// number of lines, also JSON-escaped ones, up to its END line or, cut
+	// off, the end of the text. Same as the relay's.
+	pemBlock = regexp.MustCompile(`-----BEGIN ([A-Z0-9 ]{1,40})-----[\s\S]*?(?:-----END [A-Z0-9 ]{1,40}-----|$)`)
 	// secretAssign is a credential setting up to its = or :.
 	secretAssign = regexp.MustCompile(secretKey + `)`)
 	// Home folders give away the account name: /Users/name, C:\Users\name, /home/name.
@@ -110,6 +114,7 @@ func Scrub(s string) string {
 		s = strings.ReplaceAll(s, filepath.ToSlash(home), "~")
 	}
 	s = logbuf.Scrub(s)
+	s = pemBlock.ReplaceAllString(s, "-----BEGIN ${1}----- *** -----END ${1}-----")
 	s = scrubSecrets(s)
 	for _, x := range extraSecrets {
 		s = x.re.ReplaceAllString(s, x.with)
@@ -185,12 +190,29 @@ func opener(s string, i int) string {
 	return ""
 }
 
+// maxQuotedSpan is how far a quoted value may run over line breaks.
+const maxQuotedSpan = 8192
+
 // quotedEnd is where the value starting at i, opened by open, ends: at its
-// closing quote, the end of the line, or the end of s.
+// closing quote (within maxQuotedSpan, across lines), the end of the line,
+// or the end of s.
 func quotedEnd(s string, i int, open string) int {
 	q := open[len(open)-1]
 	nl := func(c byte) bool { return c == '\r' || c == '\n' }
 	if len(open) == 1 { // "…" or '…': \x is an escape
+		// A value pasted over several lines (a PEM key in quotes) goes whole
+		// when its closing quote is near; otherwise it was cut off, and only
+		// the rest of its line goes.
+		for j := i; j < len(s) && j < i+maxQuotedSpan; {
+			switch s[j] {
+			case '\\':
+				j += 2
+			case q:
+				return j
+			default:
+				j++
+			}
+		}
 		for i < len(s) {
 			switch c := s[i]; {
 			case c == '\\':

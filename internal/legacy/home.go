@@ -81,7 +81,9 @@ func migrate(old, dest string) (bool, error) {
 // so a link that cannot be made leaves the old one as it was.
 func relink(old, dir, final string) error {
 	prefix := old + string(filepath.Separator)
-	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	type change struct{ path, was string }
+	var done []change
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.Type()&os.ModeSymlink == 0 {
 			return err
 		}
@@ -89,17 +91,34 @@ func relink(old, dir, final string) error {
 		if err != nil || !filepath.IsAbs(target) || (target != old && !strings.HasPrefix(target, prefix)) {
 			return err
 		}
-		tmp := path + ".relink"
-		_ = os.Remove(tmp)
-		if err := os.Symlink(final+strings.TrimPrefix(target, old), tmp); err != nil {
+		if err := swapLink(path, final+strings.TrimPrefix(target, old)); err != nil {
 			return err
 		}
-		if err := os.Rename(tmp, path); err != nil {
-			_ = os.Remove(tmp)
-			return err
-		}
+		done = append(done, change{path, target})
 		return nil
 	})
+	if err != nil {
+		// Undo the links already changed, so the folder goes back as it was.
+		for i := len(done) - 1; i >= 0; i-- {
+			_ = swapLink(done[i].path, done[i].was)
+		}
+	}
+	return err
+}
+
+// swapLink points the link at path to target: the new link is made beside it
+// and then put in its place, so a failure leaves the old one as it was.
+func swapLink(path, target string) error {
+	tmp := path + ".relink"
+	_ = os.Remove(tmp)
+	if err := os.Symlink(target, tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func copyTree(src, dst string, top bool) error {

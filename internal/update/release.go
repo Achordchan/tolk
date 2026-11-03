@@ -181,12 +181,15 @@ func parseRelease(b []byte) (*ghRelease, error) {
 	return &r, nil
 }
 
-// latest reads the newest release: latest.json over every route at once,
-// taking the newest answer among those that arrive within a moment of the
-// first (a proxy may still hold an older copy), then the API.
+// latest reads the newest release: latest.json over every route at once.
+// GitHub's own answer wins whenever it arrives within a moment of the first;
+// only without it is the newest mirror answer taken (a mirror may still hold
+// an older copy). Then the API. What a mirror claims is bound later: the
+// Windows package's signed metadata names its version, and a macOS bundle
+// must carry the version it was offered as.
 func (c *Checker) latest(ctx context.Context) (*ghRelease, string, error) {
 	var errs []string
-	var best *ghRelease
+	var best, direct *ghRelease
 	from := ""
 	valid := func(b []byte) error { _, err := parseRelease(b); return err }
 	for _, r := range c.race(ctx, c.routes(c.Latest), 1<<20, 2*time.Second, valid) {
@@ -199,9 +202,15 @@ func (c *Checker) latest(ctx context.Context) (*ghRelease, string, error) {
 			errs = append(errs, fmt.Sprintf("%s：%v", routeName(r.url, c.Origin), err))
 			continue
 		}
+		if r.url == c.Latest {
+			direct = rel
+		}
 		if best == nil || CompareVersions(tagVersion(rel), tagVersion(best)) > 0 {
 			best, from = rel, routeName(r.url, c.Origin)
 		}
+	}
+	if direct != nil {
+		return direct, "GitHub", nil
 	}
 	if best != nil {
 		return best, from, nil

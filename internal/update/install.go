@@ -114,7 +114,25 @@ func (c *Checker) Prepare(ctx context.Context, info *Info, dirs Dirs, progress f
 	if err := sameRequirement(p.target, p.newApp); err != nil {
 		return nil, err
 	}
+	// The archive's signature says nothing about which version it is: an
+	// appcast from a mirror could pass off an older signed build as new.
+	if err := bundleVersion(p.newApp, info.Version); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// bundleVersion checks that the app bundle is the version it was offered as.
+func bundleVersion(app, want string) error {
+	out, err := exec.Command("/usr/bin/plutil", "-extract", "CFBundleShortVersionString", "raw", "-o", "-",
+		filepath.Join(app, "Contents", "Info.plist")).Output()
+	if err != nil {
+		return fmt.Errorf("读不到新版本的版本号：%v", err)
+	}
+	if got := NormalizeVersion(string(out)); got != NormalizeVersion(want) {
+		return fmt.Errorf("更新包里是 %s，不是发布信息说的 %s，已终止更新", got, want)
+	}
+	return nil
 }
 
 // Apply starts the script that swaps in the update once this process has

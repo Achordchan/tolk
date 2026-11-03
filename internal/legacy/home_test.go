@@ -116,6 +116,10 @@ func TestMigrateRollsBackWhenRelinkFails(t *testing.T) {
 	if err := os.Symlink(filepath.Join(old, "work.json"), filepath.Join(sub, "config.json")); err != nil {
 		t.Skip("symlinks unavailable:", err)
 	}
+	// A link earlier in the walk is rewritten before the one in sub fails;
+	// it must be put back too.
+	os.MkdirAll(filepath.Join(old, "a"), 0o700)
+	os.Symlink(filepath.Join(old, "work.json"), filepath.Join(old, "a", "config.json"))
 	os.Chmod(sub, 0o500) // the new link cannot be made here
 	t.Cleanup(func() { os.Chmod(sub, 0o700); os.Chmod(filepath.Join(dest, "sub"), 0o700) })
 	moved, err := migrate(old, dest)
@@ -124,6 +128,9 @@ func TestMigrateRollsBackWhenRelinkFails(t *testing.T) {
 	}
 	if got, err := os.Readlink(filepath.Join(sub, "config.json")); err != nil || got != filepath.Join(old, "work.json") {
 		t.Fatalf("old link changed: %q %v", got, err)
+	}
+	if got, err := os.Readlink(filepath.Join(old, "a", "config.json")); err != nil || got != filepath.Join(old, "work.json") {
+		t.Fatalf("rewritten link not put back: %q %v", got, err)
 	}
 	if _, err := os.Lstat(dest); err == nil {
 		t.Fatal("the new folder must not stay behind")

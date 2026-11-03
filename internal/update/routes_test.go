@@ -177,3 +177,21 @@ func TestSignatureFromMirrorMustVerify(t *testing.T) {
 		t.Fatal("took the badly signed metadata:", err)
 	}
 }
+
+func TestLatestPrefersGitHubOverMirrorClaims(t *testing.T) {
+	release := func(tag string) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{"tag_name": tag})
+		})
+	}
+	origin := httptest.NewServer(release("v2.0.0"))
+	defer origin.Close()
+	liar := httptest.NewServer(release("v9.9.9")) // a mirror claiming a version that does not exist
+	defer liar.Close()
+	c := &Checker{Client: &http.Client{Timeout: 5 * time.Second}, Origin: origin.URL + "/", Mirrors: []string{liar.URL + "/"}}
+	c.Latest = origin.URL + "/latest.json"
+	r, from, err := c.latest(context.Background())
+	if err != nil || r.Tag != "v2.0.0" || from != "GitHub" {
+		t.Fatalf("%+v %q %v", r, from, err)
+	}
+}

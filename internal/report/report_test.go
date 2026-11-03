@@ -21,9 +21,12 @@ func TestScrub(t *testing.T) {
 		`{"apiKey":"ab cd ef"}`,
 		`token='x y z'`,
 		`passwd=abc`,
+		`{"password":"first \"secret remainder\""}`,
+		`msg="{\"password\":\"secret-value\",\"user\":\"bob\"}"`,
+		`{\"token\":\"a \\\"quoted\\\" tail\"}`,
 	}, "\n")
 	out := Scrub(in)
-	for _, leak := range []string{"444455556666", "abcdefghijklmnop1234", "sk-abcdefghijklmnopqrst", "hunter2", "someone@", "张三", "achord", "Bearer abcdefghijklmnop", "my secret", "passphrase", "ab cd ef", "x y z", "=abc"} {
+	for _, leak := range []string{"444455556666", "abcdefghijklmnop1234", "sk-abcdefghijklmnopqrst", "hunter2", "someone@", "张三", "achord", "Bearer abcdefghijklmnop", "my secret", "passphrase", "ab cd ef", "x y z", "=abc", "remainder", "secret-value", "quoted", "tail"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("leaked %q in:\n%s", leak, out)
 		}

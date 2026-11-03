@@ -28,22 +28,29 @@ const TOO_MANY = "今天提交得太多了，请明天再试";
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8" } });
 
-// A setting whose value is a credential, up to the start of the value.
-const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)["']?\s*[:=]\s*`;
+// A setting whose value is a credential, up to the value. The name may be
+// quoted, also JSON-escaped (\"password\").
+const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]\s*`;
+// Quoted values go whole, spaces and escaped quotes included: first JSON
+// inside a string (\"secret\", where an escaped quote is \\\"), then "…" and '…'.
+const SECRET_VALUES = [
+  [new RegExp(SECRET_KEY + String.raw`\\")(?:\\\\\\"|\\\\|\\[^"]|[^\\\r\n])*?\\"`, "gi"), '$1***\\"'],
+  [new RegExp(SECRET_KEY + String.raw`")(?:[^"\\\r\n]|\\.)*"`, "gi"), '$1***"'],
+  [new RegExp(SECRET_KEY + String.raw`')(?:[^'\\\r\n]|\\.)*'`, "gi"), "$1***'"],
+  [new RegExp(SECRET_KEY + String.raw`)[^\s"'&,}\\]{3,}`, "gi"), "$1***"],
+];
 
 // Same idea as the app's scrubber, in case an old or modified client sends
 // something it should not. The contact the user typed is added afterwards:
 // they asked for it to be shown.
 export function scrub(s) {
-  return String(s ?? "")
+  let out = String(s ?? "");
+  for (const [re, w] of SECRET_VALUES) out = out.replace(re, w);
+  return out
     .replace(/(bearer\s+)[A-Za-z0-9._\-]{8,}/gi, "$1***")
     .replace(/\bsk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
     .replace(/\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}/g, "$1_***")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:fx)?\b/gi, "***-uuid-***")
-    // A quoted value goes whole, spaces included ("my secret passphrase").
-    .replace(new RegExp(SECRET_KEY + `")[^"\\r\\n]*"`, "gi"), '$1***"')
-    .replace(new RegExp(SECRET_KEY + `')[^'\\r\\n]*'`, "gi"), "$1***'")
-    .replace(new RegExp(SECRET_KEY + `)[^\\s"'&,}]{3,}`, "gi"), "$1***")
     .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g, "***@***");
 }
 

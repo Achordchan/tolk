@@ -84,13 +84,18 @@ func post(ctx context.Context, client *http.Client, endpoint string, payload []b
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	var res Result
-	jerr := json.Unmarshal(raw, &res)
-	switch {
-	case jerr != nil:
-		// Not the relay talking (a proxy or block page, an outage): worth
-		// trying the other address.
+	var shape struct {
+		OK *bool `json:"ok"`
+	}
+	if json.Unmarshal(raw, &shape) != nil || shape.OK == nil || resp.StatusCode >= 500 {
+		// Not a verdict from the relay (a proxy or block page, a gateway
+		// error, an outage): worth trying the other address.
 		return Result{}, fmt.Errorf("%s: HTTP %d", endpoint, resp.StatusCode)
-	case !res.OK && res.Skipped == "":
+	}
+	_ = json.Unmarshal(raw, &res)
+	if !res.OK && res.Skipped == "" {
+		// The relay looked at the report and refused it (bad fields, too
+		// large): the other address runs the same relay and would too.
 		if res.Error == "" {
 			res.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
 		}

@@ -158,8 +158,15 @@ export function initFeedback() {
   });
   $("#fb-preview-box").addEventListener("toggle", refreshPreview);
   $("#fb-logs").addEventListener("change", refreshPreview);
-  $("#fb-desc").addEventListener("input", refreshPreviewSoon);
-  $("#fb-contact").addEventListener("input", refreshPreviewSoon);
+  // Changed contents are a new submission: a retry must not be answered
+  // with the result of the earlier, different one.
+  const edited = () => {
+    submissionId = newId();
+    refreshPreviewSoon();
+  };
+  $("#fb-desc").addEventListener("input", edited);
+  $("#fb-contact").addEventListener("input", edited);
+  $("#fb-logs").addEventListener("change", () => (submissionId = newId()));
   // A request in flight would finish unseen; keep the dialog until it answers.
   dlg.addEventListener("cancel", (e) => {
     if (busy) e.preventDefault();

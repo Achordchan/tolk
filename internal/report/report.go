@@ -78,8 +78,9 @@ const (
 )
 
 var (
-	// secretKey names a setting whose value is a credential.
-	secretKey    = `(?i)((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)["']?\s*[:=]\s*`
+	// secretKey names a setting whose value is a credential, up to the
+	// value. The name may be quoted, also JSON-escaped (\"password\").
+	secretKey    = `(?i)((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]\s*`
 	extraSecrets = []struct {
 		re   *regexp.Regexp
 		with string
@@ -87,10 +88,13 @@ var (
 		// DeepL keys look like a UUID with ":fx"; Azure and others are long hex.
 		{regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:fx)?\b`), "***-uuid-***"},
 		{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`), "${1}_***"},
-		// A quoted value goes whole, spaces included ("my secret passphrase").
-		{regexp.MustCompile(secretKey + `")[^"\r\n]*"`), `${1}***"`},
-		{regexp.MustCompile(secretKey + `')[^'\r\n]*'`), `${1}***'`},
-		{regexp.MustCompile(secretKey + `)[^\s"'&,}]{3,}`), "${1}***"},
+		// Quoted values go whole, spaces and escaped quotes included:
+		// first JSON inside a string (\"secret\"), then "…" and '…'.
+		// Inside such a value an escaped quote is \\\" and a backslash \\\\.
+		{regexp.MustCompile(secretKey + `\\")(?:\\\\\\"|\\\\|\\[^"]|[^\\\r\n])*?\\"`), `${1}***\"`},
+		{regexp.MustCompile(secretKey + `")(?:[^"\\\r\n]|\\.)*"`), `${1}***"`},
+		{regexp.MustCompile(secretKey + `')(?:[^'\\\r\n]|\\.)*'`), `${1}***'`},
+		{regexp.MustCompile(secretKey + `)[^\s"'&,}\\]{3,}`), "${1}***"},
 		{regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`), "***@***"},
 	}
 	// Home folders give away the account name: /Users/name, C:\Users\name, /home/name.

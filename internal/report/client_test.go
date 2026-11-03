@@ -35,6 +35,12 @@ func TestSendFallsBackOnlyWhenRelayIsUnreachable(t *testing.T) {
 	}))
 	defer refusing.Close()
 
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(502)
+		_, _ = w.Write([]byte(`{"error":"bad gateway"}`))
+	}))
+	defer gateway.Close()
+
 	old := Endpoints
 	defer func() { Endpoints = old }()
 	r := Report{Kind: Manual, Title: "t", InstallID: "ab", Version: "2.2.3", Contact: "me@example.com"}.Clean()
@@ -54,6 +60,12 @@ func TestSendFallsBackOnlyWhenRelayIsUnreachable(t *testing.T) {
 	// The relay re-scrubs the body, so the contact must travel beside it.
 	if got["contact"] != "me@example.com" || strings.Contains(got["body"].(string), "me@example.com") {
 		t.Fatalf("contact handling: %v", got)
+	}
+
+	// A gateway's JSON error is not the relay's verdict: try the spare.
+	Endpoints = []string{gateway.URL, good.URL}
+	if res, err := Send(context.Background(), nil, r); err != nil || res.Number != 7 {
+		t.Fatalf("gateway error must fall back: %v %+v", err, res)
 	}
 
 	Endpoints = []string{refusing.URL, good.URL}

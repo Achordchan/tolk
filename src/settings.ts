@@ -212,6 +212,10 @@ export function initSettings(h: Hooks) {
     aStatus.classList.toggle("muted", s.state !== "error");
   }
   events.updateChanged.on(drawUpdate);
+  // Mini mode switched from the menu bar / tray while the sheet is open.
+  events.prefsChanged.on((p) => {
+    if (dlg.open) sMini.checked = p.miniMode;
+  });
   check.addEventListener("click", async () => {
     if ((await Tolk.updateStatus()).state === "available") return openUpdate();
     try {

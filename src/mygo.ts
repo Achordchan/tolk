@@ -388,4 +388,9 @@ export const events = {
    * "update" (settings → 关于, then check for updates).
    */
   menuCommand: event<string>("menuCommand"),
+  /**
+   * InputAssistChanged tells an open settings page that the menu switched
+   * 输入助手 on or off, so saving the page does not switch it back.
+   */
+  inputAssistChanged: event<boolean>("inputAssistChanged"),
 } as const;

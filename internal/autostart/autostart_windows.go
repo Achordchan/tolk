@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 // shortcutName is the Startup-folder entry; Windows lists it by this name
@@ -45,7 +47,29 @@ func Rename() error {
 	if err := Set(true); err != nil {
 		return err
 	}
+	// Turning a startup app off in Settings or Task Manager keeps the shortcut
+	// and records the choice by file name; carry it over to the new name.
+	carryApproval(oldShortcutName, shortcutName)
 	return os.Remove(old)
+}
+
+// approvedKey holds the on/off switch Windows shows for each Startup-folder
+// entry, as a binary value named after the shortcut file.
+const approvedKey = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder`
+
+func carryApproval(from, to string) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, approvedKey, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return // never switched: nothing recorded
+	}
+	defer k.Close()
+	v, _, err := k.GetBinaryValue(from)
+	if err != nil {
+		return
+	}
+	if k.SetBinaryValue(to, v) == nil {
+		_ = k.DeleteValue(from)
+	}
 }
 
 func run(script string, env ...string) (string, error) {

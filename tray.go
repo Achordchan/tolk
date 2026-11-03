@@ -25,6 +25,10 @@ var trayIconTemplate []byte
 // "update" (settings → 关于, then check for updates).
 var MenuCommand = mygo.NewEvent[string]("menuCommand")
 
+// InputAssistChanged tells an open settings page that the menu switched
+// 输入助手 on or off, so saving the page does not switch it back.
+var InputAssistChanged = mygo.NewEvent[bool]("inputAssistChanged")
+
 var trayState struct {
 	mu   sync.Mutex
 	tray *mygo.Tray
@@ -107,7 +111,9 @@ func trayMenu(withQuit bool) *mygo.Menu {
 				if _, err := (Tolk{}).SetInputAssist(s); err != nil {
 					Logs.Errorf("输入助手切换失败：%v", err)
 					refreshTray()
+					return
 				}
+				_ = InputAssistChanged.Broadcast(on)
 			}()
 		}},
 	}

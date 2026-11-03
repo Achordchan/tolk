@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/windows/registry"
@@ -28,6 +29,9 @@ func startupDir() (string, error) {
 	return filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup"), nil
 }
 
+// mu keeps the startup rename and the settings switch from interleaving.
+var mu sync.Mutex
+
 func shortcutPath() (string, error) {
 	dir, err := startupDir()
 	return filepath.Join(dir, shortcutName), err
@@ -36,6 +40,8 @@ func shortcutPath() (string, error) {
 // Rename moves an entry made by 2.2.2 or older to the Tolk name, so Windows
 // shows Tolk among the startup apps. It does nothing when there is none.
 func Rename() error {
+	mu.Lock()
+	defer mu.Unlock()
 	dir, err := startupDir()
 	if err != nil {
 		return err
@@ -44,7 +50,7 @@ func Rename() error {
 	if _, err := os.Stat(old); err != nil {
 		return nil
 	}
-	if err := Set(true); err != nil {
+	if err := set(true); err != nil {
 		return err
 	}
 	// Turning a startup app off in Settings or Task Manager keeps the shortcut
@@ -102,6 +108,12 @@ func Enabled() bool {
 
 // Set creates or removes the shortcut.
 func Set(on bool) error {
+	mu.Lock()
+	defer mu.Unlock()
+	return set(on)
+}
+
+func set(on bool) error {
 	lnk, err := shortcutPath()
 	if err != nil {
 		return err

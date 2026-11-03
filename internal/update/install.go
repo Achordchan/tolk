@@ -169,6 +169,11 @@ func (p *Pending) Apply(relaunch bool) error {
 
 func (p *Pending) applyWindows(relaunch bool) error {
 	dirs, plan := p.dirs, p.plan
+	// Checked again right before the swap: the update may have waited hours
+	// for Tolk to quit, and something may have been saved in the folder.
+	if extra := foreignFiles(p.target, plan.SourceDir); len(extra) > 0 {
+		return fmt.Errorf("%w：安装目录 %s 里有不属于 Tolk 的文件（%s），自动更新会删掉它们，已取消。请用安装包更新", ErrCannotInstall, p.target, strings.Join(extra, "、"))
+	}
 	script := filepath.Join(dirs.Cache, "apply_update.ps1")
 	// PowerShell 5 reads a BOM-less script in the ANSI code page, which would
 	// garble a non-ASCII path.

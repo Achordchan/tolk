@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -302,5 +303,16 @@ func TestForeignFilesInInstallFolder(t *testing.T) {
 	os.WriteFile(filepath.Join(target, "notes.txt"), nil, 0o600)
 	if extra := foreignFiles(target, source); len(extra) != 1 || extra[0] != "notes.txt" {
 		t.Fatalf("a file of someone else's: %v", extra)
+	}
+}
+
+func TestApplyRechecksForeignFiles(t *testing.T) {
+	target, source := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(source, "Tolk.exe"), nil, 0o600)
+	os.WriteFile(filepath.Join(target, "Tolk.exe"), nil, 0o600)
+	os.WriteFile(filepath.Join(target, "saved-later.txt"), nil, 0o600)
+	p := &Pending{goos: "windows", target: target, dirs: Dirs{Cache: t.TempDir(), State: t.TempDir()}, plan: &WindowsPlan{SourceDir: source}}
+	if err := p.Apply(false); !errors.Is(err, ErrCannotInstall) {
+		t.Fatalf("a file saved after preparing must stop the swap: %v", err)
 	}
 }

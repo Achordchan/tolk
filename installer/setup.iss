@@ -47,6 +47,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [InstallDelete]
 ; 选了和旧版同一个目录时，旧名字的主程序。
 Type: files; Name: "{app}\{#OldExeName}"
+; 旧版更新包带来的图标；新包里没有，留着会让自动更新以为目录里有别人的文件。
+Type: files; Name: "{app}\src\ziyuan\logo.ico"
+Type: dirifempty; Name: "{app}\src\ziyuan"
+Type: dirifempty; Name: "{app}\src"
 
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: ignoreversion

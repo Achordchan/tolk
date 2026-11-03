@@ -172,7 +172,7 @@ func TestMigrateRepointsRelativeLinksThroughOldName(t *testing.T) {
 			t.Fatalf("%s: %q %v", n, b, err)
 		}
 	}
-	if got, _ := os.Readlink(filepath.Join(dest, "inside.json")); got != "profiles/work.json" {
+	if got, _ := os.Readlink(filepath.Join(dest, "inside.json")); filepath.ToSlash(got) != "profiles/work.json" {
 		t.Fatalf("a link within the folder was changed: %q", got)
 	}
 }

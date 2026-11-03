@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptrace"
+	"sync/atomic"
 	"time"
 )
 
@@ -137,18 +138,25 @@ func post(ctx context.Context, client *http.Client, endpoint string, payload []b
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tolk-Report", "1")
-	// A failure before the whole request went out (no DNS, refused, TLS,
-	// blocked) filed nothing; one after it may have.
-	sent := false
+	// A failure is known to have filed nothing only when no connection was
+	// made (no DNS, refused, TLS, blocked) or writing the request failed.
+	// The transport reports the write from its own goroutine, possibly
+	// after Do has returned (a timeout mid-write): until it has, the
+	// report may have gone through.
+	var connected, wrote, writeFailed atomic.Bool
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
-		WroteRequest: func(i httptrace.WroteRequestInfo) { sent = sent || i.Err == nil },
+		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+		WroteRequest: func(i httptrace.WroteRequestInfo) {
+			writeFailed.Store(i.Err != nil)
+			wrote.Store(true)
+		},
 	}))
 	resp, err := client.Do(req)
 	if err != nil {
-		if sent {
-			return Result{}, fmt.Errorf("%w: %v", errUnsure, err)
+		if !connected.Load() || (wrote.Load() && writeFailed.Load()) {
+			return Result{}, err
 		}
-		return Result{}, err
+		return Result{}, fmt.Errorf("%w: %v", errUnsure, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))

@@ -1,6 +1,7 @@
 package report
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -147,5 +148,26 @@ func TestUnsureOutcomeIsPendingNotFallback(t *testing.T) {
 	Endpoints = []string{hang.URL, good.URL}
 	if res, err := Send(context.Background(), client, r); err != nil || res.Number != 9 {
 		t.Fatalf("the spare address settles it: %v %+v", err, res)
+	}
+}
+
+func TestTimeoutWhileWritingHasNoRace(t *testing.T) {
+	// The server takes the connection but never reads, so the client gives
+	// up mid-write and the transport reports the write from its own
+	// goroutine, possibly after post returns. Run with -race. A write that
+	// failed sent an incomplete request, which the relay cannot act on; one
+	// not yet reported counts as unsure. Either way, never a success.
+	release := make(chan struct{})
+	stall := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer stall.Close()
+	defer close(release)
+	client := &http.Client{Timeout: 200 * time.Millisecond}
+	big := bytes.Repeat([]byte("x"), 16<<20)
+	for i := 0; i < 3; i++ {
+		if _, err := post(context.Background(), client, stall.URL, big); err == nil {
+			t.Fatal("a stalled request cannot succeed")
+		}
 	}
 }

@@ -54,6 +54,10 @@ export function scrub(s) {
     .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g, "***@***");
 }
 
+// Hidden in every issue and comment the relay writes, so a retry can tell
+// whether an interrupted attempt already got through.
+const marker = (sub) => `<!-- tolk-submission:${sub} -->`;
+
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -101,11 +105,16 @@ export class Coordinator {
   async bump(key, limit) {
     const day = today();
     if ((await this.storage.get("day")) !== day) {
-      for (const prefix of ["rl:", "seen:", "sub:"]) {
-        const keys = [...(await this.storage.list({ prefix })).keys()];
-        // delete() takes at most 128 keys a call.
-        for (let i = 0; i < keys.length; i += 128) await this.storage.delete(keys.slice(i, i + 128));
+      const stale = [];
+      for (const prefix of ["rl:", "seen:"]) stale.push(...(await this.storage.list({ prefix })).keys());
+      // Submission records outlive the day: a retry just after midnight
+      // must still find the one filed just before. They go after a week.
+      const week = Date.now() - 7 * 86400e3;
+      for (const prefix of ["sub:", "pend:"]) {
+        for (const [k, v] of await this.storage.list({ prefix })) if (!(v && v.at > week)) stale.push(k);
       }
+      // delete() takes at most 128 keys a call.
+      for (let i = 0; i < stale.length; i += 128) await this.storage.delete(stale.slice(i, i + 128));
       await this.storage.put("day", day);
     }
     const n = (await this.storage.get("rl:" + key)) || 0;
@@ -145,14 +154,51 @@ export class Coordinator {
     const sub = String(r.submissionId || "").replace(/[^0-9a-f]/gi, "").slice(0, 40);
     if (sub) {
       const done = await this.storage.get(`sub:${sub}`);
-      if (done) return [200, done];
+      if (done) return [200, done.data];
+      // An earlier attempt reached GitHub but never saw the answer (the
+      // connection dropped): look for what it wrote before writing again.
+      const pend = await this.storage.get(`pend:${sub}`);
+      if (pend) {
+        const found = await this.reconcile(sub, pend, fp, install);
+        if (found) {
+          await this.storage.put(`sub:${sub}`, { at: Date.now(), data: found });
+          await this.storage.delete(`pend:${sub}`);
+          return [200, found];
+        }
+      }
     }
-    const [status, data] = await this.file(ip, r, kind, install, fp, version);
-    if (sub && status === 200) await this.storage.put(`sub:${sub}`, data);
+    const [status, data] = await this.file(ip, r, kind, install, fp, version, sub);
+    if (sub && status === 200) {
+      await this.storage.put(`sub:${sub}`, { at: Date.now(), data });
+      await this.storage.delete(`pend:${sub}`);
+    }
     return [status, data];
   }
 
-  async file(ip, r, kind, install, fp, version) {
+  // Finds the issue or comment an interrupted attempt created, by the
+  // marker every write carries.
+  async reconcile(sub, pend, fp, install) {
+    const mark = marker(sub);
+    if (pend.issue) {
+      const since = new Date(pend.at - 60e3).toISOString();
+      const comments = await this.gh("GET", `/issues/${pend.issue}/comments?since=${since}&per_page=100`);
+      if (comments.some((c) => String(c.body || "").includes(mark))) {
+        await this.storage.put(`seen:${fp}:${install}`, 1);
+        return { ok: true, number: pend.issue, url: pend.url, merged: true };
+      }
+      return null;
+    }
+    const issues = await this.gh("GET", "/issues?state=all&sort=created&direction=desc&per_page=50");
+    const hit = issues.find((i) => !i.pull_request && String(i.body || "").includes(mark));
+    if (!hit) return null;
+    if (fp) {
+      await this.storage.put(`fp:${fp}`, hit.number);
+      await this.storage.put(`seen:${fp}:${install}`, 1);
+    }
+    return { ok: true, number: hit.number, url: hit.html_url, merged: false };
+  }
+
+  async file(ip, r, kind, install, fp, version, sub) {
     if (!(await this.bump(`ip:${ip}`, LIMITS.ipPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
     if (!(await this.bump(`in:${install}`, LIMITS.installPerDay))) return [429, { ok: false, skipped: TOO_MANY }];
     if (kind === "manual" && !(await this.bump(`man:${install}`, LIMITS.manualPerInstallPerDay))) {
@@ -161,7 +207,7 @@ export class Coordinator {
 
     const os = String(r.os || "").replace(/[^a-z0-9]/gi, "").slice(0, 16);
     const title = clip(scrub(r.title || "问题反馈").replace(/\s+/g, " ").trim(), 140);
-    const body = issueBody(r, version, os);
+    const body = issueBody(r, version, os) + (sub ? "\n" + marker(sub) : "");
 
     // Repeats of an automatic report go on the issue already open for it.
     if (fp) {
@@ -177,6 +223,7 @@ export class Coordinator {
           // One comment per install per day, and a cap per issue.
           if (await this.storage.get(`seen:${fp}:${install}`)) return merged;
           if (!(await this.bump(`cm:${fp}`, LIMITS.commentsPerIssuePerDay))) return merged;
+          if (sub) await this.storage.put(`pend:${sub}`, { at: Date.now(), issue: issue.number, url: issue.html_url });
           await this.gh("POST", `/issues/${issue.number}/comments`, { body: `又出现了一次（v${version}，${os}）\n\n` + body });
           await this.storage.put(`seen:${fp}:${install}`, 1);
           return merged;
@@ -184,6 +231,7 @@ export class Coordinator {
       }
     }
 
+    if (sub) await this.storage.put(`pend:${sub}`, { at: Date.now() });
     const labels = [...LABELS[kind], os === "windows" ? "Windows" : os === "darwin" ? "macOS" : os].filter(Boolean);
     // A token without the right to create labels gets a 422 for a new label;
     // the issue matters more than its labels.

@@ -1,18 +1,20 @@
 package update
 
-// windowsApplyScript is the install-dir swap of dazuo-win's updater, kept
-// behaviorally identical: wait for the app to exit, mirror a backup, mirror the
-// new files over the install dir, keep the Inno Setup uninstaller, verify the
-// version, restart; on any failure restore the backup. It is read with
-// environment variables so no path is ever interpolated into script text.
-const windowsApplyScript = `$SourceDir = [string]$env:DZFYQ_UPDATE_SOURCE_DIR
-$TargetDir = [string]$env:DZFYQ_UPDATE_TARGET_DIR
-$ExeName = [string]$env:DZFYQ_UPDATE_EXE_NAME
-$ProcessId = [int]$env:DZFYQ_UPDATE_PROCESS_ID
-$BackupDir = [string]$env:DZFYQ_UPDATE_BACKUP_DIR
-$LogPath = [string]$env:DZFYQ_UPDATE_LOG_PATH
-$ResultPath = [string]$env:DZFYQ_UPDATE_RESULT_PATH
-$ExpectedVersion = [string]$env:DZFYQ_UPDATE_EXPECTED_VERSION
+// windowsApplyScript swaps the install dir: wait for the app to exit, mirror a
+// backup, mirror the new files over the install dir, keep the Inno Setup
+// uninstaller, verify the version, restart unless the user was quitting; on
+// any failure restore the backup. It reads environment variables so no path is
+// ever interpolated into script text.
+const windowsApplyScript = `$SourceDir = [string]$env:TOLK_UPDATE_SOURCE_DIR
+$TargetDir = [string]$env:TOLK_UPDATE_TARGET_DIR
+$ExeName = [string]$env:TOLK_UPDATE_EXE_NAME
+$ProcessId = [int]$env:TOLK_UPDATE_PROCESS_ID
+$BackupDir = [string]$env:TOLK_UPDATE_BACKUP_DIR
+$LogPath = [string]$env:TOLK_UPDATE_LOG_PATH
+$ResultPath = [string]$env:TOLK_UPDATE_RESULT_PATH
+$ExpectedVersion = [string]$env:TOLK_UPDATE_EXPECTED_VERSION
+# "0" when the user is quitting: swap the files but do not start the app again.
+$Relaunch = [string]$env:TOLK_UPDATE_RELAUNCH -ne "0"
 
 $ErrorActionPreference = "Stop"
 $backupCompleted = $false
@@ -110,8 +112,13 @@ try {
     Assert-ExpectedVersion -Directory $TargetDir -Phase "target"
 
     Write-UpdateResult -Status "success" -Message "Update completed."
-    Start-Process -FilePath $targetExe -WorkingDirectory $TargetDir -ArgumentList "--update-restart"
-    Write-UpdateLog "Update completed and app restarted."
+    if ($Relaunch) {
+        Start-Process -FilePath $targetExe -WorkingDirectory $TargetDir -ArgumentList "--update-restart"
+        Write-UpdateLog "Update completed and app restarted."
+    }
+    else {
+        Write-UpdateLog "Update completed."
+    }
     exit 0
 }
 catch {
@@ -132,7 +139,7 @@ catch {
         Write-UpdateLog "Restore failed: $($_.Exception.Message)"
         $restored = $false
     }
-    if ($restored) {
+    if ($restored -and $Relaunch) {
         Start-Process -FilePath (Join-Path $TargetDir $ExeName) -WorkingDirectory $TargetDir -ArgumentList "--update-restart"
         Write-UpdateLog "Restarted previous version."
     }

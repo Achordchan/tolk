@@ -180,7 +180,11 @@ export interface TranslateResult {
 
 /** UpdateState is what the update row of the About pane shows. */
 export interface UpdateState {
-  /** idle, checking, latest, available, downloading, installing, error */
+  /**
+   * idle, checking, latest, available (found, download about to start),
+   * downloading, ready (downloaded and verified; installs on restart or
+   * quit), installing, error
+   */
   state: string;
   version: string;
   notes: string;
@@ -218,7 +222,10 @@ export const Tolk = {
   autostart(): Promise<boolean> {
     return call("Tolk.Autostart");
   },
-  /** CheckUpdate asks the release sources whether a newer version exists. */
+  /**
+   * CheckUpdate asks GitHub whether a newer version exists, and starts
+   * downloading it if so.
+   */
   checkUpdate(): Promise<UpdateState> {
     return call("Tolk.CheckUpdate");
   },
@@ -263,9 +270,9 @@ export const Tolk = {
     return call("Tolk.InputAssistTrigger");
   },
   /**
-   * InstallUpdate downloads the update found by CheckUpdate and swaps it in. It
-   * returns at once; progress arrives as UpdateChanged events, and the app quits
-   * when the swap script is running.
+   * InstallUpdate puts the update in now and restarts Tolk: at once when it has
+   * already downloaded, otherwise after the download (progress arrives as
+   * UpdateChanged events).
    */
   installUpdate(): Promise<void> {
     return call("Tolk.InstallUpdate");
@@ -353,6 +360,13 @@ export const Tolk = {
   /** Translate runs the engine chosen in the legacy config. */
   translate(text: string, source: string, target: string): Promise<TranslateResult> {
     return call("Tolk.Translate", text, source, target);
+  },
+  /**
+   * UpdateNotice reports, once, how the update that just ran went: "" when
+   * there was none.
+   */
+  updateNotice(): Promise<string> {
+    return call("Tolk.UpdateNotice");
   },
   /** UpdateStatus returns the last known update state. */
   updateStatus(): Promise<UpdateState> {

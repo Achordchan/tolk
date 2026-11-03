@@ -259,4 +259,4 @@ events.menuCommand.on(async (c) => {
 
 showEmpty(true);
 input.focus();
-await initUpdate();
+await initUpdate(toast);

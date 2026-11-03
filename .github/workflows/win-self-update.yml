@@ -1,16 +1,22 @@
 name: Windows self update
 
-# Tolk 自己更新自己（2.2.x → 新版）的完整路径：用这次的代码检查已发布的 Release、
-# 下载验签、启动替换脚本、退出，再确认脚本真的把安装目录换成了新版。
-# 2.2.1/2.2.2 就是在"程序退出后脚本没跑起来"这一步坏的，单测替换脚本测不出来。
-# 只读已发布的 Release，不用任何 Secret。
+# Tolk 自己更新自己的完整路径，在真 Windows 上跑：
+#   1. 退出时安装：旧版查到新版 → 测速选线（源站故意放慢，应该选中转）→ 下载验签 →
+#      启动替换脚本、退出 → 脚本把安装目录换成新版，不再打开程序。
+#   2. 重启更新：再发一个更新的版本，这次替换完要把新版打开。
+#   3. 安装器：从 2.2.2 及以前的「大佐翻译官」目录升级，装到 Tolk 目录并删掉旧目录。
+# 发布用的是本机临时起的服务和一次性密钥，不碰真实的 Release，也不用任何 Secret。
 
 on:
   pull_request:
     paths:
       - internal/update/**
+      - internal/legacy/**
       - cmd/selfupdate-e2e/**
+      - cmd/tolk-release/**
+      - installer/**
       - .github/workflows/win-self-update.yml
+      - .github/scripts/win-self-update.ps1
   workflow_dispatch:
 
 permissions:
@@ -19,48 +25,86 @@ permissions:
 jobs:
   self-update:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.1"
-      - name: Update a scratch install and check the swap
+      - name: Build the tools, an old and a new version
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = "Stop"
-          $root = Join-Path $env:RUNNER_TEMP "self-update"
-          $install = Join-Path $root "带 空格\大佐翻译官"
+          $root = Join-Path $env:RUNNER_TEMP "su"
+          "ROOT=$root" >> $env:GITHUB_ENV
+          "TOLK_HOME=$(Join-Path $root 'home')" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force $root | Out-Null
+          go build -o (Join-Path $root "rel.exe") ./cmd/tolk-release
+          go build -tags e2e -o (Join-Path $root "e2e.exe") ./cmd/selfupdate-e2e
+          foreach ($v in "0.0.1", "9.9.9", "9.9.10") {
+            go build -tags e2e -ldflags "-X main.version=$v" -o (Join-Path $root "v$v\Tolk.exe") ./cmd/selfupdate-e2e
+            if ($LASTEXITCODE -ne 0) { throw "build v$v" }
+          }
+          & (Join-Path $root "e2e.exe") keys -out (Join-Path $root "keys")
+      - name: Start the release server
+        shell: pwsh
+        run: |
+          $dist = Join-Path $env:ROOT "dist"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Start-Process -FilePath (Join-Path $env:ROOT "e2e.exe") -ArgumentList "serve", "-dir", $dist, "-addr", "127.0.0.1:8765" -WindowStyle Hidden
+      - name: "1. Download in the background, install on quit"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          . ./.github/scripts/win-self-update.ps1
+          $install = Join-Path $env:ROOT "带 空格\Tolk"
           New-Item -ItemType Directory -Force $install | Out-Null
-          $env:DZFYQ_HOME = Join-Path $root "home"
-          $exe = Join-Path $install "大佐翻译官.exe"
-          go build -o $exe ./cmd/selfupdate-e2e
-          $oldHash = (Get-FileHash $exe).Hash
+          Copy-Item (Join-Path $env:ROOT "v0.0.1\Tolk.exe") (Join-Path $install "Tolk.exe")
           Set-Content (Join-Path $install "unins000.exe") "uninstaller"
-
-          & $exe
-          if ($LASTEXITCODE -ne 0) { throw "selfupdate-e2e 退出码 $LASTEXITCODE" }
-
-          $res = Join-Path $env:DZFYQ_HOME "update_state\last_update_result.json"
-          $deadline = (Get-Date).AddMinutes(5)
-          while (-not (Test-Path $res) -and (Get-Date) -lt $deadline) { Start-Sleep 2 }
-          Write-Host "---- update.log ----"
-          Get-Content (Join-Path $env:DZFYQ_HOME "update_state\update.log") -ErrorAction SilentlyContinue
-          Write-Host "---- result ----"
-          Get-Content $res -ErrorAction SilentlyContinue
-          if (-not (Test-Path $res)) { throw "替换脚本没有写出结果" }
-          if ((Get-Content $res -Raw | ConvertFrom-Json).status -ne "success") { throw "替换失败" }
-
-          # 安装目录里应该是刚发布的那个主程序。
-          $tag = gh release view --repo $env:GITHUB_REPOSITORY --json tagName -q .tagName
-          $ver = $tag.TrimStart("v")
-          gh release download $tag --repo $env:GITHUB_REPOSITORY --dir pkg --pattern "dazuofanyiguan_full.for.windows_$ver.zip"
-          Expand-Archive (Join-Path pkg "dazuofanyiguan_full.for.windows_$ver.zip") -DestinationPath pkgx
-          $want = (Get-FileHash (Join-Path pkgx "大佐翻译官.exe")).Hash
-          $got = (Get-FileHash $exe).Hash
-          if ($got -eq $oldHash) { throw "主程序没有被换掉" }
-          if ($got -ne $want) { throw "主程序不是 v$ver 的那个" }
+          Publish-Version "9.9.9"
+          $log = Invoke-Update -Install $install -Relaunch "0"
+          if (-not ($log -match "从 中转 ")) { throw "源站被放慢了，应该选中转下载" }
+          Assert-Swapped -Install $install -Version "9.9.9"
+          Start-Sleep 5
+          if (Test-Path (Join-Path $env:TOLK_HOME "restarted-9.9.9")) { throw "退出时安装不应该再打开程序" }
           if (-not (Test-Path (Join-Path $install "unins000.exe"))) { throw "卸载程序文件丢了" }
-          Write-Host "升级到 v$ver 成功"
+      - name: "2. Restart to update"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          . ./.github/scripts/win-self-update.ps1
+          $install = Join-Path $env:ROOT "带 空格\Tolk"
+          Publish-Version "9.9.10"
+          Invoke-Update -Install $install -Relaunch "1" | Out-Null
+          Assert-Swapped -Install $install -Version "9.9.10"
+          $deadline = (Get-Date).AddMinutes(1)
+          while (-not (Test-Path (Join-Path $env:TOLK_HOME "restarted-9.9.10")) -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
+          if (-not (Test-Path (Join-Path $env:TOLK_HOME "restarted-9.9.10"))) { throw "重启更新后新版没有打开" }
+      - name: "3. Installer upgrades an old 大佐翻译官 install"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco install innosetup --no-progress -y
+          $exe = Join-Path $env:ROOT "v9.9.9\Tolk.exe"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=9.9.9" "/DSourceExe=$exe" installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC $LASTEXITCODE" }
+          # 2.2.2 及以前的安装：「大佐翻译官」目录、同名主程序、同一个 AppId 的卸载项。
+          $old = Join-Path $env:LOCALAPPDATA "Programs\大佐翻译官"
+          New-Item -ItemType Directory -Force $old | Out-Null
+          Copy-Item $exe (Join-Path $old "大佐翻译官.exe")
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1"
+          New-Item -Force $key | Out-Null
+          New-ItemProperty -Force $key -Name InstallLocation -Value "$old\" | Out-Null
+          $setup = Get-ChildItem dist\Tolk-setup-windows_9.9.9.exe
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "安装器退出码 $($p.ExitCode)" }
+          $new = Join-Path $env:LOCALAPPDATA "Programs\Tolk"
+          if (-not (Test-Path (Join-Path $new "Tolk.exe"))) { throw "没有装到 Tolk 目录" }
+          if (Test-Path $old) { throw "旧的「大佐翻译官」目录没有删掉" }
+          $loc = (Get-ItemProperty $key).InstallLocation
+          if ($loc.TrimEnd("\") -ne $new) { throw "卸载项还指着 $loc" }
+          # 再装一次（2.2.3 以后的升级）：装回原处。
+          $p = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "第二次安装退出码 $($p.ExitCode)" }
+          if (-not (Test-Path (Join-Path $new "Tolk.exe"))) { throw "第二次安装后程序不见了" }
+          Write-Host "安装器升级通过"

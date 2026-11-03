@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"tolk/internal/legacy"
 )
 
 // Dirs are where an install keeps its working files.
@@ -20,16 +22,11 @@ type Dirs struct {
 	State  string // log and last result
 }
 
-// DefaultDirs match dazuo-win: everything lives under ~/.dzfyq (or
-// $DZFYQ_HOME), so old logs and the pending-update guard stay in one place.
+// DefaultDirs live in the settings folder (~/.tolk, or $TOLK_HOME).
 func DefaultDirs() (Dirs, error) {
-	root := os.Getenv("DZFYQ_HOME")
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return Dirs{}, err
-		}
-		root = filepath.Join(home, ".dzfyq")
+	root, err := legacy.Home()
+	if err != nil {
+		return Dirs{}, err
 	}
 	return Dirs{
 		Cache:  filepath.Join(root, "update_cache"),
@@ -38,62 +35,117 @@ func DefaultDirs() (Dirs, error) {
 	}, nil
 }
 
-// Install downloads, verifies and starts the swap of the running app. It
-// returns once the swap script runs; the caller must then quit the app so the
-// script can replace it.
+// Pending is an update that has been downloaded, verified and unpacked, and
+// only waits for the app to make way.
+type Pending struct {
+	Info   *Info
+	goos   string
+	dirs   Dirs
+	target string       // Windows: install dir; macOS: the running .app
+	plan   *WindowsPlan // Windows
+	newApp string       // macOS
+}
+
+// Install downloads, verifies and starts the swap of the running app, which
+// starts the new version when it is done. It returns once the swap script
+// runs; the caller must then quit the app so the script can replace it.
 func (c *Checker) Install(ctx context.Context, info *Info, dirs Dirs, progress func(done, total int64)) error {
+	p, err := c.Prepare(ctx, info, dirs, progress)
+	if err != nil {
+		return err
+	}
+	return p.Apply(true)
+}
+
+// Prepare downloads, verifies and unpacks an update without touching the
+// running app.
+func (c *Checker) Prepare(ctx context.Context, info *Info, dirs Dirs, progress func(done, total int64)) (*Pending, error) {
 	if info == nil {
-		return errors.New("没有可安装的更新")
+		return nil, errors.New("没有可安装的更新")
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
-		return err
+		return nil, err
+	}
+	if c.GOOS != "windows" && c.GOOS != "darwin" {
+		return nil, errors.New("这个系统暂不支持自动更新")
 	}
 	path, err := c.Download(ctx, info, dirs.Cache, progress)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := Verify(info, path); err != nil {
 		os.Remove(path)
-		return err
+		return nil, err
 	}
 	if err := os.MkdirAll(dirs.State, 0o700); err != nil {
-		return err
+		return nil, err
 	}
-	switch c.GOOS {
-	case "windows":
-		return installWindows(path, info, dirs, exe)
-	case "darwin":
-		return installMac(path, info, dirs, exe)
+	p := &Pending{Info: info, goos: c.GOOS, dirs: dirs}
+	if c.GOOS == "windows" {
+		p.target = filepath.Dir(exe)
+		if err := writable(p.target); err != nil {
+			return nil, errors.New("当前安装目录没有写入权限，无法静默替换更新。请先用安装包安装到用户目录，之后即可使用静默更新")
+		}
+		if p.plan, err = PrepareWindows(path, dirs.Cache, info.Version, filepath.Base(exe)); err != nil {
+			return nil, err
+		}
+		return p, nil
 	}
-	return errors.New("这个系统暂不支持自动更新")
+	if p.target, err = bundlePath(exe); err != nil {
+		return nil, err
+	}
+	if err := writable(filepath.Dir(p.target)); err != nil {
+		return nil, fmt.Errorf("应用所在的文件夹不可写：%s。请把应用放到「应用程序」文件夹后再更新", filepath.Dir(p.target))
+	}
+	dest := filepath.Join(dirs.Cache, "mac_update_"+sanitize(info.Version))
+	if err := os.RemoveAll(dest); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dest, 0o700); err != nil {
+		return nil, err
+	}
+	// ditto keeps resource forks, symlinks and permissions inside the bundle.
+	if out, err := exec.Command("/usr/bin/ditto", "-x", "-k", path, dest).CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("解压更新包失败：%v %s", err, strings.TrimSpace(string(out)))
+	}
+	if p.newApp, err = findApp(dest); err != nil {
+		return nil, err
+	}
+	if err := sameRequirement(p.target, p.newApp); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
-func installWindows(zipPath string, info *Info, dirs Dirs, exe string) error {
-	target := filepath.Dir(exe)
-	if err := writable(target); err != nil {
-		return errors.New("当前安装目录没有写入权限，无法静默替换更新。请先用安装包安装到用户目录，之后即可使用静默更新")
+// Apply starts the script that swaps in the update once this process has
+// exited. relaunch starts the new version afterwards; it is false when the
+// user is quitting. The caller must exit soon after.
+func (p *Pending) Apply(relaunch bool) error {
+	if p.goos == "windows" {
+		return p.applyWindows(relaunch)
 	}
-	plan, err := PrepareWindows(zipPath, dirs.Cache, info.Version, filepath.Base(exe))
-	if err != nil {
-		return err
-	}
+	return p.applyMac(relaunch)
+}
+
+func (p *Pending) applyWindows(relaunch bool) error {
+	dirs, plan := p.dirs, p.plan
 	script := filepath.Join(dirs.Cache, "apply_update.ps1")
 	// PowerShell 5 reads a BOM-less script in the ANSI code page, which would
-	// garble the Chinese executable name.
+	// garble a non-ASCII path.
 	body := "\xef\xbb\xbf" + strings.ReplaceAll(windowsApplyScript, "\n", "\r\n")
 	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
 		return err
 	}
-	env := append(os.Environ(), plan.Env(target,
-		filepath.Join(dirs.Backup, "v"+plan.Version),
-		filepath.Join(dirs.State, "update.log"),
-		filepath.Join(dirs.State, "last_update_result.json"),
-		os.Getpid())...)
 	logPath := filepath.Join(dirs.State, "update.log")
+	env := append(os.Environ(), plan.Env(p.target,
+		filepath.Join(dirs.Backup, "v"+plan.Version),
+		logPath,
+		filepath.Join(dirs.State, "last_update_result.json"),
+		os.Getpid(), relaunch)...)
 	before := fileSize(logPath)
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script)
 	cmd.Env = env
@@ -111,9 +163,32 @@ func installWindows(zipPath string, info *Info, dirs Dirs, exe string) error {
 		// if it got going at the last moment.
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
-		return errors.New("更新脚本没有启动起来，可能被安全软件拦截了。请到 GitHub 或 Gitee 下载安装包覆盖安装")
+		return errors.New("更新脚本没有启动起来，可能被安全软件拦截了。请到 GitHub 下载安装包覆盖安装")
 	}
 	return cmd.Process.Release()
+}
+
+func (p *Pending) applyMac(relaunch bool) error {
+	dirs := p.dirs
+	script := filepath.Join(dirs.Cache, "apply_update.sh")
+	if err := os.WriteFile(script, []byte(macApplyScript), 0o700); err != nil {
+		return err
+	}
+	cmd := exec.Command("/bin/sh", script)
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("TOLK_UPDATE_PID=%d", os.Getpid()),
+		"TOLK_UPDATE_NEW="+p.newApp,
+		"TOLK_UPDATE_TARGET="+p.target,
+		"TOLK_UPDATE_BACKUP="+filepath.Join(dirs.Backup, filepath.Base(p.target)),
+		"TOLK_UPDATE_LOG="+filepath.Join(dirs.State, "update.log"),
+		"TOLK_UPDATE_RESULT="+filepath.Join(dirs.State, "last_update_result.json"),
+		"TOLK_UPDATE_VERSION="+p.Info.Version,
+		"TOLK_UPDATE_RELAUNCH="+map[bool]string{true: "1", false: "0"}[relaunch],
+	)
+	if err := os.MkdirAll(dirs.Backup, 0o700); err != nil {
+		return err
+	}
+	return startDetached(cmd)
 }
 
 // waitGrow waits until the file at path is larger than before.
@@ -157,52 +232,6 @@ func bundlePath(exe string) (string, error) {
 		}
 	}
 	return "", errors.New("当前程序不在 .app 包里，无法自动更新")
-}
-
-func installMac(zipPath string, info *Info, dirs Dirs, exe string) error {
-	app, err := bundlePath(exe)
-	if err != nil {
-		return err
-	}
-	if err := writable(filepath.Dir(app)); err != nil {
-		return fmt.Errorf("应用所在的文件夹不可写：%s。请把应用放到「应用程序」文件夹后再更新", filepath.Dir(app))
-	}
-	dest := filepath.Join(dirs.Cache, "mac_update_"+sanitize(info.Version))
-	if err := os.RemoveAll(dest); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dest, 0o700); err != nil {
-		return err
-	}
-	// ditto keeps resource forks, symlinks and permissions inside the bundle.
-	if out, err := exec.Command("/usr/bin/ditto", "-x", "-k", zipPath, dest).CombinedOutput(); err != nil {
-		return fmt.Errorf("解压更新包失败：%v %s", err, strings.TrimSpace(string(out)))
-	}
-	newApp, err := findApp(dest)
-	if err != nil {
-		return err
-	}
-	if err := sameRequirement(app, newApp); err != nil {
-		return err
-	}
-	script := filepath.Join(dirs.Cache, "apply_update.sh")
-	if err := os.WriteFile(script, []byte(macApplyScript), 0o700); err != nil {
-		return err
-	}
-	cmd := exec.Command("/bin/sh", script)
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("TOLK_UPDATE_PID=%d", os.Getpid()),
-		"TOLK_UPDATE_NEW="+newApp,
-		"TOLK_UPDATE_TARGET="+app,
-		"TOLK_UPDATE_BACKUP="+filepath.Join(dirs.Backup, filepath.Base(app)),
-		"TOLK_UPDATE_LOG="+filepath.Join(dirs.State, "update.log"),
-		"TOLK_UPDATE_RESULT="+filepath.Join(dirs.State, "last_update_result.json"),
-		"TOLK_UPDATE_VERSION="+info.Version,
-	)
-	if err := os.MkdirAll(dirs.Backup, 0o700); err != nil {
-		return err
-	}
-	return startDetached(cmd)
 }
 
 func findApp(dir string) (string, error) {

@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,7 +25,10 @@ var PrefsChanged = mygo.NewEvent[Prefs]("prefsChanged")
 
 // UpdateState is what the update row of the About pane shows.
 type UpdateState struct {
-	State   string `json:"state"` // idle, checking, latest, available, downloading, installing, error
+	// idle, checking, latest, available (found, download about to start),
+	// downloading, ready (downloaded and verified; installs on restart or
+	// quit), installing, error
+	State   string `json:"state"`
 	Version string `json:"version"`
 	Notes   string `json:"notes"`
 	Force   bool   `json:"force"`
@@ -72,12 +78,18 @@ func (Tolk) ConsoleLines(after int64) []logbuf.Entry { return Logs.Since(after) 
 func (Tolk) ClearConsole() { Logs.Clear() }
 
 // ---- updates ----
+//
+// A new version downloads by itself in the background. Once it has verified,
+// the page offers 重启更新; otherwise it goes in when the user quits Tolk.
 
 var upd struct {
-	mu      sync.Mutex
-	state   UpdateState
-	info    *update.Info
-	running bool
+	mu          sync.Mutex
+	state       UpdateState
+	info        *update.Info    // newest version found
+	pending     *update.Pending // downloaded, verified, waiting to go in
+	downloading bool
+	installNow  bool // the user asked to install while it was downloading
+	applied     bool // a swap script is running; nothing more to do
 }
 
 func setUpdate(s UpdateState) {
@@ -87,7 +99,11 @@ func setUpdate(s UpdateState) {
 	_ = UpdateChanged.Broadcast(s)
 }
 
-func newChecker() *update.Checker { return update.NewChecker(runtime.GOOS, Version) }
+func newChecker() *update.Checker {
+	c := update.NewChecker(runtime.GOOS, Version)
+	c.Logf = Logs.Infof
+	return c
+}
 
 // UpdateStatus returns the last known update state.
 func (Tolk) UpdateStatus() UpdateState {
@@ -99,12 +115,13 @@ func (Tolk) UpdateStatus() UpdateState {
 	return upd.state
 }
 
-// CheckUpdate asks the release sources whether a newer version exists.
+// CheckUpdate asks GitHub whether a newer version exists, and starts
+// downloading it if so.
 func (Tolk) CheckUpdate() (UpdateState, error) { return checkUpdate() }
 
 func checkUpdate() (UpdateState, error) {
 	upd.mu.Lock()
-	if upd.running {
+	if upd.downloading || upd.applied {
 		s := upd.state
 		upd.mu.Unlock()
 		return s, nil
@@ -114,6 +131,15 @@ func checkUpdate() (UpdateState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	info, err := newChecker().Check(ctx, Version)
+	upd.mu.Lock()
+	pending := upd.pending
+	upd.mu.Unlock()
+	if pending != nil && (err != nil || info == nil || update.CompareVersions(pending.Info.Version, info.Version) >= 0) {
+		// The downloaded one is still the newest we know of.
+		s := UpdateState{State: "ready", Version: pending.Info.Version, Notes: pending.Info.Notes, Force: pending.Info.Force, Source: pending.Info.Source}
+		setUpdate(s)
+		return s, nil
+	}
 	if err != nil {
 		Logs.Warnf("检查更新失败：%v", err)
 		s := UpdateState{State: "error", Error: err.Error()}
@@ -126,53 +152,69 @@ func checkUpdate() (UpdateState, error) {
 		setUpdate(s)
 		return s, nil
 	}
-	Logs.Infof("发现新版本 v%s（来源 %s）", info.Version, info.Source)
 	upd.mu.Lock()
 	upd.info = info
 	upd.mu.Unlock()
+	Logs.Infof("发现新版本 v%s（来源 %s）", info.Version, info.Source)
 	s := UpdateState{State: "available", Version: info.Version, Notes: info.Notes, Force: info.Force, Source: info.Source}
 	setUpdate(s)
+	startDownload(info, info.Force)
 	return s, nil
 }
 
-// InstallUpdate downloads the update found by CheckUpdate and swaps it in. It
-// returns at once; progress arrives as UpdateChanged events, and the app quits
-// when the swap script is running.
-func (Tolk) InstallUpdate() error {
+// startDownload fetches and verifies info in the background. install swaps
+// it in right away (the user asked, or the release is forced); otherwise the
+// update waits as ready.
+func startDownload(info *update.Info, install bool) {
 	upd.mu.Lock()
-	info := upd.info
-	if info == nil {
+	if upd.downloading || upd.applied {
 		upd.mu.Unlock()
-		return fmt.Errorf("还没有检查到新版本")
-	}
-	if upd.running {
-		upd.mu.Unlock()
-		return nil
-	}
-	upd.running = true
-	upd.mu.Unlock()
-	go installUpdate(info)
-	return nil
-}
-
-func installUpdate(info *update.Info) {
-	defer func() {
-		upd.mu.Lock()
-		upd.running = false
-		upd.mu.Unlock()
-	}()
-	dirs, err := update.DefaultDirs()
-	if err != nil {
-		setUpdate(UpdateState{State: "error", Version: info.Version, Error: err.Error()})
 		return
 	}
-	state := UpdateState{State: "downloading", Version: info.Version, Notes: info.Notes, Force: info.Force}
+	upd.downloading = true
+	upd.mu.Unlock()
+	go downloadUpdate(info, install)
+}
+
+func downloadUpdate(info *update.Info, install bool) {
+	pending, err := prepareUpdate(info)
+	upd.mu.Lock()
+	upd.downloading = false
+	install = install || upd.installNow
+	upd.installNow = false
+	if err == nil {
+		upd.pending = pending
+	}
+	upd.mu.Unlock()
+	if err != nil {
+		Logs.Errorf("下载更新失败：%v", err)
+		setUpdate(UpdateState{State: "error", Version: info.Version, Notes: info.Notes, Force: info.Force, Error: err.Error()})
+		if !install {
+			// A background download that broke tries again later by itself.
+			time.AfterFunc(30*time.Minute, func() { _, _ = checkUpdate() })
+		}
+		return
+	}
+	if install {
+		applyUpdate(true)
+		return
+	}
+	Logs.Infof("v%s 已下载并校验，重启或退出时安装", info.Version)
+	setUpdate(UpdateState{State: "ready", Version: info.Version, Notes: info.Notes, Force: info.Force, Source: info.Source})
+}
+
+func prepareUpdate(info *update.Info) (*update.Pending, error) {
+	dirs, err := update.DefaultDirs()
+	if err != nil {
+		return nil, err
+	}
+	state := UpdateState{State: "downloading", Version: info.Version, Notes: info.Notes, Force: info.Force, Source: info.Source}
 	setUpdate(state)
 	Logs.Infof("开始下载 v%s", info.Version)
 	last := -1
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	err = newChecker().Install(ctx, info, dirs, func(done, total int64) {
+	return newChecker().Prepare(ctx, info, dirs, func(done, total int64) {
 		if total <= 0 {
 			return
 		}
@@ -182,30 +224,108 @@ func installUpdate(info *update.Info) {
 			setUpdate(state)
 		}
 	})
-	if err != nil {
-		Logs.Errorf("更新失败：%v", err)
-		setUpdate(UpdateState{State: "error", Version: info.Version, Error: err.Error()})
-		return
-	}
-	Logs.Infof("更新包已校验，正在重启安装 v%s", info.Version)
-	setUpdate(UpdateState{State: "installing", Version: info.Version})
-	time.Sleep(600 * time.Millisecond)
-	mygo.App.Quit()
 }
 
-// watchUpdates checks right after start, so the page can ask about a new
-// version while the user is looking at it, and then daily; a failed check (no
-// network yet at login) tries again sooner. A release marked update=1 installs
-// by itself once its signature has verified, as in dazuo-win.
+// InstallUpdate puts the update in now and restarts Tolk: at once when it has
+// already downloaded, otherwise after the download (progress arrives as
+// UpdateChanged events).
+func (Tolk) InstallUpdate() error {
+	upd.mu.Lock()
+	info, pending, applied := upd.info, upd.pending, upd.applied
+	if upd.downloading {
+		upd.installNow = true
+	}
+	downloading := upd.downloading
+	upd.mu.Unlock()
+	switch {
+	case applied, downloading:
+	case pending != nil && (info == nil || pending.Info.Version == info.Version):
+		go applyUpdate(true)
+	case info == nil:
+		return fmt.Errorf("还没有检查到新版本")
+	default:
+		startDownload(info, true)
+	}
+	return nil
+}
+
+// applyUpdate starts the swap of the pending update. relaunch is false when
+// Tolk is quitting anyway; otherwise this quits Tolk so the swap can run.
+func applyUpdate(relaunch bool) {
+	upd.mu.Lock()
+	p := upd.pending
+	if p == nil || upd.applied {
+		upd.mu.Unlock()
+		return
+	}
+	upd.applied = true
+	upd.mu.Unlock()
+	if relaunch {
+		setUpdate(UpdateState{State: "installing", Version: p.Info.Version})
+	}
+	if err := p.Apply(relaunch); err != nil {
+		Logs.Errorf("安装更新失败：%v", err)
+		upd.mu.Lock()
+		upd.applied = false
+		upd.mu.Unlock()
+		if relaunch {
+			setUpdate(UpdateState{State: "error", Version: p.Info.Version, Error: err.Error()})
+		}
+		return
+	}
+	Logs.Infof("正在安装 v%s", p.Info.Version)
+	if relaunch {
+		time.Sleep(600 * time.Millisecond)
+		mygo.App.Quit()
+	}
+}
+
+// installOnQuit puts a downloaded update in when the user quits, without
+// starting Tolk again.
+func installOnQuit() {
+	mygo.App.OnQuit(func() { applyUpdate(false) })
+}
+
+// UpdateNotice reports, once, how the update that just ran went: "" when
+// there was none.
+func (Tolk) UpdateNotice() string {
+	dirs, err := update.DefaultDirs()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(dirs.State, "last_update_result.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	_ = os.Remove(path)
+	var r struct {
+		Status   string `json:"status"`
+		Message  string `json:"message"`
+		Expected string `json:"expected_version"`
+	}
+	if json.Unmarshal([]byte(strings.TrimPrefix(string(b), "\xef\xbb\xbf")), &r) != nil {
+		return ""
+	}
+	if r.Status == "success" && update.CompareVersions(r.Expected, Version) == 0 {
+		return "已更新到 v" + Version
+	}
+	if r.Status == "failed" {
+		return "更新没装上：" + r.Message
+	}
+	return ""
+}
+
+// watchUpdates checks right after start and then daily; a failed check (no
+// network yet at login) tries again sooner. A new version downloads in the
+// background; a release marked update=1 installs by itself once its signature
+// has verified.
 func watchUpdates() {
+	installOnQuit()
 	time.Sleep(3 * time.Second)
 	for failures := 0; ; {
 		s, _ := checkUpdate()
-		if s.State == "available" && s.Force {
-			Logs.Warnf("v%s 是强制更新，自动安装", s.Version)
-			_ = Tolk{}.InstallUpdate()
-		}
-		if s.State == "error" {
+		if s.State == "error" && s.Version == "" {
 			// Right after launch the network is often not ready yet; try
 			// again soon so the About pane does not keep showing the error.
 			failures++

@@ -35,6 +35,18 @@ type Field struct {
 type Attachment struct {
 	Name string `json:"name"`
 	Body string `json:"body"`
+	// KeepHead: when cut, keep the beginning instead of the end. A Go crash
+	// dump starts with the panic and the crashing goroutine; logs are the
+	// other way round.
+	KeepHead bool `json:"keepHead,omitempty"`
+}
+
+// Cut shortens a to max bytes from the end it values.
+func (a Attachment) Cut(max int) string {
+	if a.KeepHead {
+		return Head(a.Body, max)
+	}
+	return Tail(a.Body, max)
 }
 
 // Report is what reaches the relay. Everything in it has gone through Scrub.
@@ -115,7 +127,9 @@ func (r Report) Clean() Report {
 	att := make([]Attachment, 0, len(r.Attachments))
 	for _, a := range r.Attachments {
 		if body := strings.TrimSpace(a.Body); body != "" {
-			att = append(att, Attachment{a.Name, Tail(Scrub(body), maxAttachment)})
+			a.Body = Scrub(body)
+			a.Body = a.Cut(maxAttachment)
+			att = append(att, a)
 		}
 	}
 	r.Attachments = att
@@ -165,7 +179,7 @@ func (r Report) Markdown() string {
 	for _, a := range r.Attachments {
 		body := a.Body
 		if share > 0 {
-			body = Tail(body, share)
+			body = a.Cut(share)
 		} else if share < 0 || (total > room && share == 0) {
 			continue
 		}
@@ -200,7 +214,7 @@ func IssueURL(repo string, r Report) string {
 	short.Attachments = append([]Attachment(nil), r.Attachments...)
 	for limit := maxAttachment; limit >= 400; limit /= 2 {
 		for i := range short.Attachments {
-			short.Attachments[i].Body = Tail(r.Attachments[i].Body, limit)
+			short.Attachments[i].Body = r.Attachments[i].Cut(limit)
 		}
 		if u, ok := fits(short.Markdown()); ok {
 			return u
@@ -249,6 +263,24 @@ func Normalize(text string) string {
 		text = n.re.ReplaceAllString(text, n.with)
 	}
 	return text
+}
+
+// Head keeps the first max bytes of s, cut on a line boundary when possible.
+func Head(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	s = s[:max]
+	for len(s) > 0 { // drop a rune cut in half
+		if r, size := utf8.DecodeLastRuneInString(s); r != utf8.RuneError || size > 1 {
+			break
+		}
+		s = s[:len(s)-1]
+	}
+	if i := strings.LastIndexByte(s, '\n'); i >= 0 && len(s)-i < 200 {
+		s = s[:i]
+	}
+	return s + "\n…（后面的内容已省略）"
 }
 
 // Tail keeps the last max bytes of s, cut on a line boundary when possible.

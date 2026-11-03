@@ -208,7 +208,7 @@ func reportPreviousRun() {
 	if fb.crash != "" {
 		head := crashHead(fb.crash)
 		sendAuto(report.Crash, "[崩溃] "+head, "上一次运行异常退出：\n\n"+head, head,
-			[]report.Attachment{{Name: "崩溃信息", Body: fb.crash}})
+			[]report.Attachment{{Name: "崩溃信息", Body: fb.crash, KeepHead: true}})
 		fb.crash = ""
 	}
 	dirs, err := update.DefaultDirs()

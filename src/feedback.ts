@@ -37,14 +37,27 @@ function fields() {
   ] as const;
 }
 
+// Each refresh gets a number; an answer that arrives after a newer request
+// was made is dropped, so typing fast cannot leave an old preview showing.
+let previewSeq = 0;
+let previewTimer: number | undefined;
+
 async function refreshPreview() {
   const box = $<HTMLDetailsElement>("#fb-preview-box");
   if (!box.open) return;
+  const seq = ++previewSeq;
+  let text: string;
   try {
-    $("#fb-preview").textContent = await Tolk.feedbackPreview(...fields());
+    text = await Tolk.feedbackPreview(...fields());
   } catch (e) {
-    $("#fb-preview").textContent = message(e);
+    text = message(e);
   }
+  if (seq === previewSeq) $("#fb-preview").textContent = text;
+}
+
+function refreshPreviewSoon() {
+  clearTimeout(previewTimer);
+  previewTimer = window.setTimeout(refreshPreview, 250);
 }
 
 function showError(text: string) {
@@ -134,6 +147,8 @@ export function initFeedback() {
   });
   $("#fb-preview-box").addEventListener("toggle", refreshPreview);
   $("#fb-logs").addEventListener("change", refreshPreview);
+  $("#fb-desc").addEventListener("input", refreshPreviewSoon);
+  $("#fb-contact").addEventListener("input", refreshPreviewSoon);
   // A request in flight would finish unseen; keep the dialog until it answers.
   dlg.addEventListener("cancel", (e) => {
     if (busy) e.preventDefault();

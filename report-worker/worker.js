@@ -80,9 +80,11 @@ export class Coordinator {
   async bump(key, limit) {
     const day = today();
     if ((await this.storage.get("day")) !== day) {
-      const old = await this.storage.list({ prefix: "rl:" });
-      await this.storage.delete([...old.keys()]);
-      await this.storage.delete([...(await this.storage.list({ prefix: "seen:" })).keys()]);
+      for (const prefix of ["rl:", "seen:"]) {
+        const keys = [...(await this.storage.list({ prefix })).keys()];
+        // delete() takes at most 128 keys a call.
+        for (let i = 0; i < keys.length; i += 128) await this.storage.delete(keys.slice(i, i + 128));
+      }
       await this.storage.put("day", day);
     }
     const n = (await this.storage.get("rl:" + key)) || 0;

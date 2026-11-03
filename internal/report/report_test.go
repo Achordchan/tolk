@@ -43,7 +43,7 @@ func TestFingerprintIgnoresDetails(t *testing.T) {
 
 func TestIssueURLFits(t *testing.T) {
 	r := Report{Kind: Manual, Title: "[反馈] 很长", Description: "desc", Version: "2.2.3", OS: "windows", Arch: "amd64",
-		Attachments: []Attachment{{"运行日志", strings.Repeat("一行很长的中文日志 line\n", 3000)}}}
+		Attachments: []Attachment{{Name: "运行日志", Body: strings.Repeat("一行很长的中文日志 line\n", 3000)}}}
 	r = r.Clean()
 	u := IssueURL(Repo, r)
 	if len(u) > 7000 {
@@ -57,7 +57,7 @@ func TestIssueURLFits(t *testing.T) {
 
 func TestMarkdownLimits(t *testing.T) {
 	r := Report{Kind: Error, Title: strings.Repeat("长", 500), Attachments: []Attachment{
-		{"a", strings.Repeat("x\n", 50000)}, {"b", strings.Repeat("y\n", 50000)}, {"c", strings.Repeat("z\n", 50000)},
+		{Name: "a", Body: strings.Repeat("x\n", 50000)}, {Name: "b", Body: strings.Repeat("y\n", 50000)}, {Name: "c", Body: strings.Repeat("z\n", 50000)},
 	}}.Clean()
 	if n := len([]rune(r.Title)); n > maxTitle {
 		t.Errorf("title %d runes", n)
@@ -97,7 +97,7 @@ func TestReserveLimits(t *testing.T) {
 
 func TestMarkdownKeepsHeaderWhenLogsAreHuge(t *testing.T) {
 	r := Report{Kind: Crash, Description: "上一次运行异常退出", Version: "2.2.3", Env: []Field{{"系统版本", "Windows 11"}}, Attachments: []Attachment{
-		{"崩溃信息", strings.Repeat("c\n", 30000)}, {"运行日志", strings.Repeat("l\n", 30000)}, {"更新日志", strings.Repeat("u\n", 30000)},
+		{Name: "崩溃信息", Body: strings.Repeat("c\n", 30000)}, {Name: "运行日志", Body: strings.Repeat("l\n", 30000)}, {Name: "更新日志", Body: strings.Repeat("u\n", 30000)},
 	}}.Clean()
 	md := r.Markdown()
 	if len(md) > maxBody {
@@ -122,5 +122,23 @@ func TestReserveRefusedWhenStateCannotBeSaved(t *testing.T) {
 	s := NewStore(dir + "/missing/\x00bad")
 	if s.Reserve("a", time.Now()) {
 		t.Fatal("an unsaved reservation must be refused")
+	}
+}
+
+func TestCrashAttachmentKeepsItsBeginning(t *testing.T) {
+	dump := "panic: boom\n\ngoroutine 1 [running]:\nmain.crash()\n" + strings.Repeat("goroutine 9 [select]:\nother()\n", 4000)
+	r := Report{Kind: Crash, Attachments: []Attachment{{Name: "崩溃信息", Body: dump, KeepHead: true}, {Name: "运行日志", Body: strings.Repeat("log line\n", 9000)}}}.Clean()
+	if !strings.HasPrefix(r.Attachments[0].Body, "panic: boom") {
+		t.Fatal("Clean dropped the panic")
+	}
+	md := r.Markdown()
+	if !strings.Contains(md, "main.crash()") {
+		t.Fatal("Markdown dropped the crashing goroutine")
+	}
+	if u := IssueURL(Repo, r); !strings.Contains(u, "panic") {
+		t.Fatal("issue link dropped the panic")
+	}
+	if got := Head("一二三四五", 7); strings.ContainsRune(got, '�') {
+		t.Fatalf("Head split a rune: %q", got)
 	}
 }

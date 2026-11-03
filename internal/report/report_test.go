@@ -77,7 +77,11 @@ func TestMarkdownLimits(t *testing.T) {
 func TestReserveLimits(t *testing.T) {
 	s := NewStore(t.TempDir())
 	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.Local)
-	if !s.Reserve("a", now) || s.Reserve("a", now.Add(time.Hour)) {
+	if !s.Reserve("a", now) {
+		t.Fatal("first report refused")
+	}
+	s.Finished("a", now)
+	if s.Reserve("a", now.Add(time.Hour)) {
 		t.Fatal("same fingerprint must wait a day")
 	}
 	if !s.Reserve("a", now.Add(25*time.Hour)) {
@@ -174,10 +178,41 @@ func TestScrubDoubleEscapedValues(t *testing.T) {
 		`{"cfg":"{\"password\": \"a b\\\"c\\\\\", \"x\": 1}"}`: `{"cfg":"{\"password\": \"***\", \"x\": 1}"}`,
 		`{"cfg":"{\"token\": \"line\\nnext\", \"x\": 1}"}`:     `{"cfg":"{\"token\": \"***\", \"x\": 1}"}`,
 		`{"cfg":"{\"token\": \"abc`:                            `{"cfg":"{\"token\": \"***`,
-		`password: \"` + strings.Repeat(`\`, 5000):             `password: \"` + strings.Repeat(`\`, 5000),
+		`password: \"` + strings.Repeat(`\`, 5000):             `password: \"***`,
+		// Cut off after an escape: the rest of the line is the value.
+		`password: "prefix\"secret-tail`:                 `password: "***`,
+		`password: "prefix\\secret-tail` + "\nnext line": `password: "***` + "\nnext line",
+		`{"l":"{\"token\": \"pre\\\"secret-tail`:         `{"l":"{\"token\": \"***`,
+		`{"l":"{\"token\": \"pre\\\\secret-tail"}`:       `{"l":"{\"token\": \"***"}`,
+		`secret='a\'b' rest`:                             `secret='***' rest`,
+		// Only the value goes; what follows stays.
+		`password: "x" user: "y"`: `password: "***" user: "y"`,
+		`password: "" ok`:         `password: "" ok`,
 	} {
 		if got := Scrub(in); got != want {
 			t.Errorf("Scrub(%.60q) = %.60q, want %.60q", in, got, want)
 		}
+	}
+}
+
+func TestReserveRetriesUploadCutShortByQuitting(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.Local)
+	run1 := NewStore(dir)
+	if !run1.Reserve("crash", now) {
+		t.Fatal("first report refused")
+	}
+	if run1.Reserve("crash", now.Add(time.Minute)) {
+		t.Fatal("same report let through while its upload runs")
+	}
+	// The app quits before the upload finishes; the next run tries again.
+	run2 := NewStore(dir)
+	if !run2.Reserve("crash", now.Add(time.Hour)) {
+		t.Fatal("interrupted upload not retried")
+	}
+	run2.Finished("crash", now.Add(time.Hour))
+	run3 := NewStore(dir)
+	if run3.Reserve("crash", now.Add(2*time.Hour)) {
+		t.Fatal("finished upload sent again within a day")
 	}
 }

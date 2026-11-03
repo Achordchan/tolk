@@ -88,20 +88,13 @@ var (
 		// DeepL keys look like a UUID with ":fx"; Azure and others are long hex.
 		{regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(:fx)?\b`), "***-uuid-***"},
 		{regexp.MustCompile(`\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}`), "${1}_***"},
-		// Quoted values go whole, spaces and escaped quotes included:
-		// first JSON inside a string (\"secret\"), then "…" and '…'.
-		// Inside such a value, escaped twice, a backslash is \\\\, a quote
-		// \\\", another escape \\n; \n is a character escaped once. No two
-		// alternatives match the same text, so the first \" left over ends it
-		// and nothing has to be retried.
-		{regexp.MustCompile(secretKey + `\\")(?:\\\\\\\\|\\\\\\"|\\\\[^"\\]|\\[^"\\]|[^\\"\r\n])*\\"`), `${1}***\"`},
-		{regexp.MustCompile(secretKey + `")(?:[^"\\\r\n]|\\.)*"`), `${1}***"`},
-		{regexp.MustCompile(secretKey + `')(?:[^'\\\r\n]|\\.)*'`), `${1}***'`},
+		// Unquoted values; quoted ones are handled by scrubQuoted.
 		{regexp.MustCompile(secretKey + `)[^\s"'&,}\\]{3,}`), "${1}***"},
-		// A value cut off before its closing quote (a log line cut short).
-		{regexp.MustCompile(secretKey + `\\?["'])[^\\"'\r\n]{3,}`), "${1}***"},
 		{regexp.MustCompile(`[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}`), "***@***"}, // same as the relay's
 	}
+	// secretOpen is a credential setting up to the quote its value opens
+	// with: "…", '…', or \"…\" (JSON inside a JSON string).
+	secretOpen = regexp.MustCompile(secretKey + `)(\\?["'])`)
 	// Home folders give away the account name: /Users/name, C:\Users\name, /home/name.
 	homeRes = []*regexp.Regexp{
 		// The account name runs to the next separator and may hold spaces
@@ -120,6 +113,7 @@ func Scrub(s string) string {
 		s = strings.ReplaceAll(s, filepath.ToSlash(home), "~")
 	}
 	s = logbuf.Scrub(s)
+	s = scrubQuoted(s)
 	for _, x := range extraSecrets {
 		s = x.re.ReplaceAllString(s, x.with)
 	}
@@ -127,6 +121,80 @@ func Scrub(s string) string {
 		s = re.ReplaceAllString(s, "${1}***")
 	}
 	return s
+}
+
+// scrubQuoted blanks every quoted credential value whole, escaped quotes
+// and backslashes included, up to its closing quote or, for a value cut off
+// (a truncated log line), to the end of the line. A scan rather than a
+// pattern: one pass, nothing to retry, and no way to stop early at an
+// escape. The relay's worker.js does the same.
+func scrubQuoted(s string) string {
+	var b strings.Builder
+	pos := 0
+	for pos < len(s) {
+		m := secretOpen.FindStringSubmatchIndex(s[pos:])
+		if m == nil {
+			break
+		}
+		start := pos + m[1]
+		end := quotedEnd(s, start, s[pos+m[4]:pos+m[5]])
+		b.WriteString(s[pos:start])
+		if end > start {
+			b.WriteString("***")
+		}
+		pos = end
+	}
+	b.WriteString(s[pos:])
+	return b.String()
+}
+
+// quotedEnd is where the value starting at i, opened by open, ends: at its
+// closing quote, the end of the line, or the end of s.
+func quotedEnd(s string, i int, open string) int {
+	q := open[len(open)-1]
+	nl := func(c byte) bool { return c == '\r' || c == '\n' }
+	if len(open) == 1 { // "…" or '…': \x is an escape
+		for i < len(s) {
+			switch c := s[i]; {
+			case c == '\\':
+				if i+1 >= len(s) || nl(s[i+1]) {
+					return i + 1
+				}
+				i += 2
+			case c == q || nl(c):
+				return i
+			default:
+				i++
+			}
+		}
+		return len(s)
+	}
+	// \"…\" inside a JSON string. Escaped once: \" ends the value, a raw "
+	// ends the outer string, \x is one character. \\ is a backslash of the
+	// inner text, which escapes the character after it (\\\" is a quote).
+	for i < len(s) {
+		switch c := s[i]; {
+		case c == '\\' && i+1 < len(s) && s[i+1] == q:
+			return i
+		case c == '\\' && i+1 < len(s) && s[i+1] == '\\':
+			i += 2
+			if i < len(s) && s[i] == '\\' && i+1 < len(s) && !nl(s[i+1]) {
+				i += 2
+			} else if i < len(s) && s[i] != '"' && s[i] != '\\' && !nl(s[i]) {
+				i++
+			}
+		case c == '\\':
+			if i+1 >= len(s) || nl(s[i+1]) {
+				return i + 1
+			}
+			i += 2
+		case c == '"' || nl(c):
+			return i
+		default:
+			i++
+		}
+	}
+	return len(s)
 }
 
 // Clean scrubs every field and trims the report to the size limits.

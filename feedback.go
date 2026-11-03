@@ -315,8 +315,9 @@ func sendAutoThen(kind, title, description, fpText string, extra []report.Attach
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 		defer cancel()
-		defer done()
 		res, err := report.Send(ctx, nil, r)
+		fb.store.Finished(fp, time.Now())
+		done()
 		switch {
 		case err != nil:
 			// Warn, never error: an error line would report itself.

@@ -39,31 +39,77 @@ const json = (data, status = 200) =>
 // A setting whose value is a credential, up to the value. The name may be
 // quoted, also JSON-escaped (\"password\").
 const SECRET_KEY = String.raw`((?:\b|_)(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?key|token|secret|password|passwd|key)(?:\\?["'])?\s*[:=]\s*`;
-// Quoted values go whole, spaces and escaped quotes included: first JSON
-// inside a string (\"secret\", where an escaped quote is \\\"), then "…" and '…'.
-// Escaped twice, a backslash in such a value is \\\\, a quote \\\", another
-// escape \\n; \n is a character escaped once. No two alternatives match
-// the same text, so the first \" left over ends the value and an
-// unterminated one fails without backtracking.
 // Parts are bounded (RFC 5321 sizes): unbounded ones cost quadratic time on
 // a long run of letters with no @ in it.
 const EMAIL = /[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}/g;
-const SECRET_VALUES = [
-  [new RegExp(SECRET_KEY + String.raw`\\")(?:\\\\\\\\|\\\\\\"|\\\\[^"\\]|\\[^"\\]|[^\\"\r\n])*\\"`, "gi"), '$1***\\"'],
-  [new RegExp(SECRET_KEY + String.raw`")(?:[^"\\\r\n]|\\.)*"`, "gi"), '$1***"'],
-  [new RegExp(SECRET_KEY + String.raw`')(?:[^'\\\r\n]|\\.)*'`, "gi"), "$1***'"],
-  [new RegExp(SECRET_KEY + String.raw`)[^\s"'&,}\\]{3,}`, "gi"), "$1***"],
-  // A value cut off before its closing quote (a log line cut short).
-  [new RegExp(SECRET_KEY + String.raw`\\?["'])[^\\"'\r\n]{3,}`, "gi"), "$1***"],
-];
+// Unquoted values; quoted ones are handled by scrubQuoted.
+const SECRET_UNQUOTED = new RegExp(SECRET_KEY + String.raw`)[^\s"'&,}\\]{3,}`, "gi");
+// A credential setting up to the quote its value opens with: "…", '…', or
+// \"…\" (JSON inside a JSON string).
+const SECRET_OPEN = new RegExp(SECRET_KEY + String.raw`)(\\?["'])`, "gi");
+
+// Blanks every quoted credential value whole, escaped quotes and
+// backslashes included, up to its closing quote or, for a value cut off (a
+// truncated log line), to the end of the line. A scan rather than a pattern:
+// one pass, nothing to retry, no way to stop early at an escape. Same as
+// scrubQuoted in internal/report/report.go.
+function scrubQuoted(s) {
+  let out = "";
+  let pos = 0;
+  SECRET_OPEN.lastIndex = 0;
+  for (let m; (m = SECRET_OPEN.exec(s)); ) {
+    const start = m.index + m[0].length;
+    const end = quotedEnd(s, start, m[2]);
+    out += s.slice(pos, start) + (end > start ? "***" : "");
+    pos = end;
+    SECRET_OPEN.lastIndex = Math.max(end, start);
+  }
+  return out + s.slice(pos);
+}
+
+const nl = (c) => c === "\r" || c === "\n";
+
+// Where the value starting at i, opened by open, ends: its closing quote,
+// the end of the line, or the end of s.
+function quotedEnd(s, i, open) {
+  const q = open[open.length - 1];
+  if (open.length === 1) {
+    // "…" or '…': \x is an escape
+    while (i < s.length) {
+      const c = s[i];
+      if (c === "\\") {
+        if (i + 1 >= s.length || nl(s[i + 1])) return i + 1;
+        i += 2;
+      } else if (c === q || nl(c)) return i;
+      else i++;
+    }
+    return s.length;
+  }
+  // \"…\" inside a JSON string. Escaped once: \" ends the value, a raw "
+  // ends the outer string, \x is one character. \\ is a backslash of the
+  // inner text, which escapes the character after it (\\\" is a quote).
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "\\" && s[i + 1] === q) return i;
+    if (c === "\\" && s[i + 1] === "\\") {
+      i += 2;
+      if (s[i] === "\\" && i + 1 < s.length && !nl(s[i + 1])) i += 2;
+      else if (i < s.length && s[i] !== '"' && s[i] !== "\\" && !nl(s[i])) i++;
+    } else if (c === "\\") {
+      if (i + 1 >= s.length || nl(s[i + 1])) return i + 1;
+      i += 2;
+    } else if (c === '"' || nl(c)) return i;
+    else i++;
+  }
+  return s.length;
+}
 
 // Same idea as the app's scrubber, in case an old or modified client sends
 // something it should not. The contact the user typed is added afterwards:
 // they asked for it to be shown.
 export function scrub(s) {
-  let out = String(s ?? "");
-  for (const [re, w] of SECRET_VALUES) out = out.replace(re, w);
-  return out
+  return scrubQuoted(String(s ?? ""))
+    .replace(SECRET_UNQUOTED, "$1***")
     .replace(/(bearer\s+)[A-Za-z0-9._\-]{8,}/gi, "$1***")
     .replace(/\bsk-[A-Za-z0-9_\-]{8,}/g, "sk-***")
     .replace(/\b(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]{10,}/g, "$1_***")

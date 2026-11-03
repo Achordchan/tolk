@@ -102,18 +102,11 @@ jobs:
           New-Item -ItemType Directory -Force $startup | Out-Null
           $oldLnk = Join-Path $startup "大佐翻译官.lnk"
           $newLnk = Join-Path $startup "Tolk.lnk"
-          $sh = New-Object -ComObject WScript.Shell
-          # 先在别处建好再拷进去，并把真实的错误打出来。
-          $tmpLnk = Join-Path $env:RUNNER_TEMP "old-autostart.lnk"
-          try {
-            $s = $sh.CreateShortcut([string]$tmpLnk)
-            $s.TargetPath = [string](Join-Path $old "大佐翻译官.exe")
-            $s.Save()
-            Copy-Item -LiteralPath $tmpLnk -Destination $oldLnk -Force
-          } catch {
-            Write-Host "建旧快捷方式失败：$($_.Exception | Format-List -Force | Out-String)"
-            throw
-          }
+          # 快捷方式用 Windows PowerShell 5.1 建、读，和 Tolk 自己一样
+          # （PowerShell 7 里 WScript.Shell 的 CreateShortcut 会报参数无效）。
+          $env:LNK = $oldLnk; $env:LNK_TARGET = Join-Path $old "大佐翻译官.exe"
+          powershell.exe -NoProfile -Command '$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK);$s.TargetPath=$env:LNK_TARGET;$s.Save()'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $oldLnk)) { throw "建旧快捷方式失败" }
           $approved = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder"
           New-Item -Force $approved | Out-Null
           $off = [byte[]](3,0,0,0,0,0,0,0,0,0,0,0)
@@ -126,7 +119,8 @@ jobs:
           if (Test-Path $old) { throw "旧的「大佐翻译官」目录没有删掉" }
           if (Test-Path $oldLnk) { throw "旧的开机自启快捷方式还在" }
           if (-not (Test-Path $newLnk)) { throw "没有建 Tolk 开机自启快捷方式" }
-          $target = $sh.CreateShortcut([string]$newLnk).TargetPath
+          $env:LNK = $newLnk
+          $target = powershell.exe -NoProfile -Command '(New-Object -ComObject WScript.Shell).CreateShortcut($env:LNK).TargetPath'
           if ($target -ne (Join-Path $new "Tolk.exe")) { throw "开机自启指向 $target" }
           $carried = (Get-ItemProperty $approved -Name "Tolk.lnk" -ErrorAction SilentlyContinue)."Tolk.lnk"
           if ($null -eq $carried -or $carried[0] -ne 3) { throw "「启动应用」里的关闭状态没带过去" }

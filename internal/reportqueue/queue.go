@@ -4,6 +4,7 @@ package reportqueue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 )
 
 var mu sync.Mutex
-var flushMu sync.Mutex
+var flushGate = make(chan struct{}, 1)
 
 // Enqueue writes atomically; the submission ID survives every retry.
 func Enqueue(dir string, r report.Report) error {
@@ -73,8 +74,12 @@ func Enabled(dir string) bool {
 
 // Flush preserves failures, pending submissions and server rate-limit responses.
 func Flush(ctx context.Context, dir string) bool {
-	flushMu.Lock()
-	defer flushMu.Unlock()
+	select {
+	case flushGate <- struct{}{}:
+		defer func() { <-flushGate }()
+	case <-ctx.Done():
+		return false
+	}
 	if !Enabled(dir) {
 		return false
 	}
@@ -94,6 +99,13 @@ func Flush(ctx context.Context, dir string) bool {
 		attempt, cancel := context.WithTimeout(ctx, 40*time.Second)
 		res, err := report.Send(attempt, nil, r.Clean())
 		cancel()
+		if errors.Is(err, report.ErrRejected) {
+			quarantine := filepath.Join(dir, "report_rejected")
+			if os.MkdirAll(quarantine, 0700) == nil {
+				_ = os.Rename(path, filepath.Join(quarantine, filepath.Base(path)))
+			}
+			continue
+		}
 		if err == nil && res.OK && !res.Pending && res.Skipped == "" {
 			// Acknowledge only this submission, never a newer reservation.
 			_, saveErr := report.NewStore(dir).Update(func(st *report.State) {

@@ -22,15 +22,20 @@ import (
 var version = "unknown"
 
 type capture struct {
-	mu   sync.Mutex
-	body string
-	path string
+	mu       sync.Mutex
+	body     string
+	headline string
+	path     string
 }
 
 func (c *capture) Write(p []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.body = report.Tail(c.body+string(p), 64<<10)
+	combined := c.body + string(p)
+	if c.headline == "" {
+		c.headline = crashDiagnostic(combined, "")
+	}
+	c.body = report.Tail(combined, 64<<10)
 	// Keep a bounded, sanitized startup trace even if the child dies immediately.
 	r := report.Report{Attachments: []report.Attachment{{Name: "启动日志", Body: c.body}}}.Clean()
 	if len(r.Attachments) > 0 {
@@ -100,6 +105,7 @@ func main() {
 	if err != nil {
 		logs.mu.Lock()
 		body := logs.body
+		headline := logs.headline
 		logs.mu.Unlock()
 		current := report.State{AutoDisabled: true}
 		if b, e := os.ReadFile(filepath.Join(dir, "report_state.json")); e == nil {
@@ -109,7 +115,10 @@ func main() {
 		}
 		if !current.AutoDisabled {
 			r := report.Report{Kind: report.Crash, Title: "[崩溃] 主程序异常退出", Description: fmt.Sprintf("主程序启动或运行失败：%v", err), InstallID: st.InstallID, SubmissionID: id, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH, Attachments: []report.Attachment{{Name: "启动与退出日志", Body: body, KeepHead: true}}}
-			r.Fingerprint = report.Fingerprint(report.Crash, crashDiagnostic(body, r.Description))
+			if headline == "" {
+				headline = crashDiagnostic(body, r.Description)
+			}
+			r.Fingerprint = report.Fingerprint(report.Crash, headline)
 			if e := reserveCrash(dir, r); e != nil {
 				fmt.Fprintln(os.Stderr, e)
 			}
@@ -121,14 +130,20 @@ func main() {
 		return
 	}
 	// Do not require another application launch to deliver a startup crash.
-	deadline := time.Now().Add(10 * time.Minute)
-	for time.Now().Before(deadline) {
+	cancel() // stop the active-run worker before bounded post-exit delivery
+	delivery, stopDelivery := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer stopDelivery()
+	for delivery.Err() == nil {
 		retryCrashes(dir)
 		sources, _ := filepath.Glob(filepath.Join(dir, "crash-source-*.json"))
-		if !reportqueue.Enabled(dir) || (reportqueue.Flush(ctx, dir) && len(sources) == 0) {
+		if !reportqueue.Enabled(dir) || (reportqueue.Flush(delivery, dir) && len(sources) == 0) {
 			break
 		}
-		time.Sleep(30 * time.Second)
+		select {
+		case <-delivery.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
 	}
 	if err == nil {
 		_ = os.Remove(logPath)

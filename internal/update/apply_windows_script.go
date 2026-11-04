@@ -100,16 +100,16 @@ try {
         throw "Process $ProcessId is still running after forced termination."
     }
 
-    # The supervised GUI exits first; release its launcher before replacing it.
-    $supervisorId = 0
-    if ([int]::TryParse($env:TOLK_SUPERVISOR_PID, [ref]$supervisorId) -and $supervisorId -gt 0) {
-        $supervisor = Get-Process -Id $supervisorId -ErrorAction SilentlyContinue
-        if ($null -ne $supervisor -and $supervisor.Path -eq (Join-Path $TargetDir $ExeName)) {
-            if (-not $supervisor.WaitForExit(10000)) {
-                Write-UpdateLog "Stopping verified launcher after GUI termination; queued reports remain on disk."
-                Stop-Process -InputObject $supervisor -Force -ErrorAction Stop
-                if (-not $supervisor.WaitForExit(5000)) { throw "Launcher has not exited; update cancelled." }
-            }
+    # Old crash uploaders can retain this same executable after a later launch.
+    # Match the full executable path, not a basename or an untrusted PID alone.
+    $launcherPath = Join-Path $TargetDir $ExeName
+    foreach ($supervisor in @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -eq $launcherPath } catch { $false }
+    })) {
+        if (-not $supervisor.WaitForExit(10000)) {
+            Write-UpdateLog "Stopping verified launcher $($supervisor.Id); queued reports remain on disk."
+            Stop-Process -InputObject $supervisor -Force -ErrorAction Stop
+            if (-not $supervisor.WaitForExit(5000)) { throw "Launcher has not exited; update cancelled." }
         }
     }
     if (Test-Path -LiteralPath $BackupDir) { Remove-Item -LiteralPath $BackupDir -Recurse -Force }

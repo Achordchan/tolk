@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"tolk/internal/legacy"
@@ -107,7 +108,7 @@ func main() {
 		}
 		if !current.AutoDisabled {
 			r := report.Report{Kind: report.Crash, Title: "[崩溃] 主程序异常退出", Description: fmt.Sprintf("主程序启动或运行失败：%v", err), InstallID: st.InstallID, SubmissionID: id, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH, Attachments: []report.Attachment{{Name: "启动与退出日志", Body: body, KeepHead: true}}}
-			r.Fingerprint = report.Fingerprint(report.Crash, r.Description)
+			r.Fingerprint = report.Fingerprint(report.Crash, crashDiagnostic(body, r.Description))
 			if store.TryReserve(r.Fingerprint, time.Now()) == report.Reserved {
 				r.SubmissionID = store.Submission(r.Fingerprint)
 				if e := reportqueue.Enqueue(dir, r); e != nil {
@@ -135,4 +136,16 @@ func main() {
 	if err == nil {
 		_ = os.Remove(logPath)
 	}
+}
+
+// Use the panic/fatal headline rather than generic exit status or volatile logs.
+func crashDiagnostic(body, fallback string) string {
+	for _, line := range strings.Split(body, "\n") {
+		for _, prefix := range []string{"panic:", "fatal error:", "Exception "} {
+			if i := strings.Index(line, prefix); i >= 0 {
+				return line[i:]
+			}
+		}
+	}
+	return fallback
 }

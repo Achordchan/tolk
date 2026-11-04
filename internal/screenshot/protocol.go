@@ -31,9 +31,8 @@ func Serve(in io.Reader, out io.Writer, translate func(context.Context, string, 
 	scanner.Buffer(make([]byte, 4096), 2<<20)
 	encoder := json.NewEncoder(out)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	var workers sync.WaitGroup
-	defer workers.Wait()
+	defer func() { cancel(); workers.Wait() }()
 	var writeMu sync.Mutex
 	closed := false
 	for scanner.Scan() {

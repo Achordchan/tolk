@@ -95,7 +95,15 @@ func Flush(ctx context.Context, dir string) bool {
 		res, err := report.Send(attempt, nil, r.Clean())
 		cancel()
 		if err == nil && res.OK && !res.Pending && res.Skipped == "" {
-			_ = os.Remove(path)
+			// Acknowledge only this submission, never a newer reservation.
+			_, saveErr := report.NewStore(dir).Update(func(st *report.State) {
+				if st.Subs[r.Fingerprint] == r.SubmissionID {
+					st.Tried[r.Fingerprint] = time.Now().Unix()
+				}
+			})
+			if saveErr == nil {
+				_ = os.Remove(path)
+			}
 		}
 	}
 	files, _ = filepath.Glob(filepath.Join(dir, "report_queue", "*.json"))

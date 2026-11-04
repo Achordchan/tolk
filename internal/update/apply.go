@@ -61,6 +61,15 @@ func PrepareWindows(zipPath, workDir, version, exeName string) (*WindowsPlan, er
 	if m.PackageType != "" && m.PackageType != "windows_full_update" {
 		return nil, fmt.Errorf("更新包类型不受支持：%s", m.PackageType)
 	}
+	if strings.EqualFold(exeName, "Tolk-core.exe") {
+		exeName = ExeName
+		if launcher := os.Getenv("TOLK_LAUNCHER_PATH"); launcher != "" {
+			exeName = filepath.Base(launcher)
+		}
+		if strings.EqualFold(exeName, "Tolk-core.exe") {
+			return nil, errors.New("启动器不能命名为 Tolk-core.exe")
+		}
+	}
 	if exeName != "" && exeName != ExeName {
 		if err := os.Rename(filepath.Join(root, ExeName), filepath.Join(root, exeName)); err != nil {
 			return nil, err

@@ -316,3 +316,23 @@ func TestApplyRechecksForeignFiles(t *testing.T) {
 		t.Fatalf("a file saved after preparing must stop the swap: %v", err)
 	}
 }
+
+func TestPrepareWindowsKeepsCoreAcrossSuccessiveUpdates(t *testing.T) {
+	t.Setenv("TOLK_LAUNCHER_PATH", "")
+	for _, version := range []string{"2.3.0", "2.3.1"} {
+		files := map[string]string{"Tolk.exe": "launcher", "Tolk-core.exe": "core", "update_manifest.json": `{"app_version":"` + version + `","package_type":"windows_full_update"}`}
+		plan, err := PrepareWindows(makeZip(t, files), t.TempDir(), version, "Tolk-core.exe")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if plan.ExeName != "Tolk.exe" {
+			t.Fatal(plan.ExeName)
+		}
+		for name, want := range map[string]string{"Tolk.exe": "launcher", "Tolk-core.exe": "core"} {
+			b, e := os.ReadFile(filepath.Join(plan.SourceDir, name))
+			if e != nil || string(b) != want {
+				t.Fatalf("%s: %s %v", name, b, e)
+			}
+		}
+	}
+}

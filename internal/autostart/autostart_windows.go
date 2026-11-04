@@ -206,6 +206,11 @@ func launcherPath() (string, error) {
 		return "", err
 	}
 	if strings.EqualFold(filepath.Base(exe), "Tolk-core.exe") {
+		if launcher := os.Getenv("TOLK_LAUNCHER_PATH"); launcher != "" && strings.EqualFold(filepath.Dir(launcher), filepath.Dir(exe)) {
+			if _, err := os.Stat(launcher); err == nil {
+				return launcher, nil
+			}
+		}
 		return filepath.Join(filepath.Dir(exe), "Tolk.exe"), nil
 	}
 	return exe, nil

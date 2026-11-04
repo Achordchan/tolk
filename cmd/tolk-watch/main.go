@@ -69,7 +69,7 @@ func main() {
 		child = filepath.Join(filepath.Dir(exe), "Tolk")
 	}
 	cmd := exec.Command(child, os.Args[1:]...)
-	cmd.Env = append(os.Environ(), "TOLK_SUPERVISOR_PID="+fmt.Sprint(os.Getpid()), "TOLK_SUPERVISED=1", "TOLK_HOME="+home)
+	cmd.Env = append(os.Environ(), "TOLK_LAUNCHER_PATH="+exe, "TOLK_SUPERVISOR_PID="+fmt.Sprint(os.Getpid()), "TOLK_SUPERVISED=1", "TOLK_HOME="+home)
 	cmd.Stdout = logs
 	cmd.Stderr = logs
 	prepare(cmd)
@@ -123,7 +123,9 @@ func main() {
 	// Do not require another application launch to deliver a startup crash.
 	deadline := time.Now().Add(10 * time.Minute)
 	for time.Now().Before(deadline) {
-		if !reportqueue.Enabled(dir) || reportqueue.Flush(ctx, dir) {
+		retryCrashes(dir)
+		sources, _ := filepath.Glob(filepath.Join(dir, "crash-source-*.json"))
+		if !reportqueue.Enabled(dir) || (reportqueue.Flush(ctx, dir) && len(sources) == 0) {
 			break
 		}
 		time.Sleep(30 * time.Second)

@@ -212,12 +212,17 @@ $form.Add_MouseUp({
  $script:crop=$screen.Clone($script:selection,$screen.PixelFormat)
  $script:blocks=@();ClearTranslation
  $bar.Visible=$true;$bar.PerformLayout()
- $x=[Math]::Max(0,[Math]::Min($script:selection.X,$form.ClientSize.Width-$bar.Width))
+ $center=New-Object Drawing.Point(($bounds.X+$script:selection.X+[int]($script:selection.Width/2)),($bounds.Y+$script:selection.Y+[int]($script:selection.Height/2)))
+ $monitor=[Windows.Forms.Screen]::FromPoint($center).WorkingArea
+ $left=$monitor.Left-$bounds.Left;$top=$monitor.Top-$bounds.Top
+ $right=$monitor.Right-$bounds.Left;$bottom=$monitor.Bottom-$bounds.Top
+ $bar.MaximumSize=New-Object Drawing.Size($monitor.Width,0);$bar.PerformLayout()
+ $x=[Math]::Max($left,[Math]::Min($script:selection.X,$right-$bar.Width))
  $y=$script:selection.Bottom+8
- if($y+$bar.Height+70 -gt $form.ClientSize.Height){$y=[Math]::Max(0,$script:selection.Top-$bar.Height-70)}
+ if($y+$bar.Height+70 -gt $bottom){$y=[Math]::Max($top,$script:selection.Top-$bar.Height-70)}
  $bar.Location=New-Object Drawing.Point($x,$y)
- $hint.Width=[Math]::Min($bar.Width,$form.ClientSize.Width)
- $hint.Location=New-Object Drawing.Point($x,([Math]::Min($form.ClientSize.Height-$hint.Height,$y+$bar.Height+4)))
+ $hint.Width=[Math]::Min($bar.Width,$monitor.Width)
+ $hint.Location=New-Object Drawing.Point($x,([Math]::Max($top,[Math]::Min($bottom-$hint.Height,$y+$bar.Height+4))))
  Status '已框选。点击翻译回贴译文，或提取文字、复制原图、钉到屏幕。'
  Busy $false;$form.Invalidate()
 })

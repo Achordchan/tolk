@@ -259,6 +259,9 @@ func install(s *State) error {
 		return err
 	}
 	s.Installed = r.Tag
+	mu.Lock()
+	state.Installed = r.Tag
+	mu.Unlock()
 	committed = true
 	return nil
 }

@@ -1,7 +1,11 @@
 $ErrorActionPreference = 'Stop'
 $script:workspaceClosed=$false
-[Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
-[Console]::InputEncoding = New-Object Text.UTF8Encoding($false)
+$utf8=New-Object Text.UTF8Encoding($false)
+$pipeReader=New-Object IO.StreamReader([Console]::OpenStandardInput(),$utf8)
+$pipeWriter=New-Object IO.StreamWriter([Console]::OpenStandardOutput(),$utf8)
+$pipeWriter.AutoFlush=$true
+[Console]::SetIn($pipeReader)
+[Console]::SetOut($pipeWriter)
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()

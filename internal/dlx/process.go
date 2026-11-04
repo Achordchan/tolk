@@ -108,19 +108,18 @@ func Translate(ctx context.Context, source, target, text string) (Result, error)
 	defer cancel()
 	stop := context.AfterFunc(lifetimeCtx, cancel)
 	defer stop()
+	processMu.Lock()
+	defer processMu.Unlock()
 	s := Status()
 	if s.Installed == "" || !validVersion(s.Installed) {
 		return Result{}, fmt.Errorf("请在设置 → 翻译服务中安装 Achord 翻译插件")
 	}
-	processMu.Lock()
 	url, err := startLocked(executable(s.Installed))
 	secret := token
 	if err != nil {
-		processMu.Unlock()
 		return Result{}, err
 	}
 	// Hold the process lease until the request finishes so installation cannot kill it.
-	defer processMu.Unlock()
 	b, _ := json.Marshal(map[string]string{"text": text, "source_lang": source, "target_lang": target})
 	req, _ := http.NewRequestWithContext(ctx, "POST", url+"/translate", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")

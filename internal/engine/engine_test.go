@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OwO-Network/DeepLX/translate"
+	"tolk/internal/dlx"
 )
 
 func TestGooglePrimary(t *testing.T) {
@@ -162,9 +162,9 @@ func TestBuiltinMapsLanguagesAndCoolsDown(t *testing.T) {
 	old := builtinCall
 	defer func() { builtinCall = old; builtinUntil = time.Time{} }()
 	var gotSrc, gotTgt string
-	builtinCall = func(s, tg, text, _, _, _ string) (translate.DeepLXTranslationResult, error) {
+	builtinCall = func(s, tg, text, _, _, _ string) (dlx.Result, error) {
 		gotSrc, gotTgt = s, tg
-		return translate.DeepLXTranslationResult{Code: 200, Data: "你好", SourceLang: "EN"}, nil
+		return dlx.Result{Code: 200, Data: "你好", SourceLang: "EN"}, nil
 	}
 	r, err := NewBuiltin().Translate(context.Background(), "hello", "自动检测", "简体中文")
 	if err != nil || r.Text != "你好" || r.Detected != "英语" || gotSrc != "auto" || gotTgt != "ZH" {
@@ -174,16 +174,16 @@ func TestBuiltinMapsLanguagesAndCoolsDown(t *testing.T) {
 	if gotTgt != "EN-US" {
 		t.Fatalf("target %s", gotTgt)
 	}
-	builtinCall = func(_, _, _, _, _, _ string) (translate.DeepLXTranslationResult, error) {
-		return translate.DeepLXTranslationResult{Code: 429, Message: "Too many requests"}, nil
+	builtinCall = func(_, _, _, _, _, _ string) (dlx.Result, error) {
+		return dlx.Result{Code: 429, Message: "Too many requests"}, nil
 	}
 	if _, err := NewBuiltin().Translate(context.Background(), "x", "自动检测", "简体中文"); err == nil {
 		t.Fatal("want rate limit error")
 	}
 	calls := 0
-	builtinCall = func(_, _, _, _, _, _ string) (translate.DeepLXTranslationResult, error) {
+	builtinCall = func(_, _, _, _, _, _ string) (dlx.Result, error) {
 		calls++
-		return translate.DeepLXTranslationResult{Code: 200, Data: "a"}, nil
+		return dlx.Result{Code: 200, Data: "a"}, nil
 	}
 	if _, err := NewBuiltin().Translate(context.Background(), "x", "自动检测", "简体中文"); err == nil || calls != 0 {
 		t.Fatalf("cooldown should block, calls=%d err=%v", calls, err)
@@ -240,7 +240,7 @@ func TestBuiltinQueuedRequestRespectsFreshCooldown(t *testing.T) {
 	calls := 0
 	started := make(chan struct{})
 	release := make(chan struct{})
-	builtinCall = func(_, _, _, _, _, _ string) (translate.DeepLXTranslationResult, error) {
+	builtinCall = func(_, _, _, _, _, _ string) (dlx.Result, error) {
 		mu.Lock()
 		calls++
 		first := calls == 1
@@ -248,9 +248,9 @@ func TestBuiltinQueuedRequestRespectsFreshCooldown(t *testing.T) {
 		if first {
 			close(started)
 			<-release
-			return translate.DeepLXTranslationResult{Code: 429, Message: "Too many requests"}, nil
+			return dlx.Result{Code: 429, Message: "Too many requests"}, nil
 		}
-		return translate.DeepLXTranslationResult{Code: 200, Data: "a"}, nil
+		return dlx.Result{Code: 200, Data: "a"}, nil
 	}
 	var wg sync.WaitGroup
 	errs := make([]error, 2)

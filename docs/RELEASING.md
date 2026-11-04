@@ -34,3 +34,7 @@ go run ./cmd/tolk-release keygen -out ~/tolk-keys
 ## 2.2.3 改名
 
 2.2.3 把底层名字都换成了 Tolk：设置目录 `~/.dzfyq` → `~/.tolk`（启动时自动搬），Windows 主程序 `大佐翻译官.exe` → `Tolk.exe`、安装目录 → `Tolk`（安装器删掉旧目录），更新包名、Mac 包名 `achord.dazuofanyiguan` → `app.tolk.desktop`。2.2.2 及以前的客户端认不出新的更新包，需要手动装一次 2.2.3；Mac 换了包名，要重新授予一次辅助功能和录屏权限。
+
+## Windows supervised entry point
+
+`bun run build -- -platform windows/amd64` produces `Tolk.exe` (launcher) and `Tolk-core.exe` (GUI). Ship both together. Shortcuts and auto-start must target `Tolk.exe`. The release ZIP and Inno Setup installer include both files; the update script waits for the launcher to exit before replacement. Do not distribute MyGo-generated installers directly: they are generated before the launcher split. Windows installer and update E2E must be run before release.

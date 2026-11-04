@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo"
 
 	"tolk/internal/autostart"
+	"tolk/internal/dlx"
 	"tolk/internal/doublecopy"
 	"tolk/internal/legacy"
 )
@@ -18,6 +19,9 @@ import (
 var Copied = mygo.NewEvent[string]("copied")
 
 func main() {
+	if !mygo.App.RequestSingleInstanceLock() {
+		return
+	}
 	mygo.Bind(Tolk{})
 	// The pages are written in Chinese; without this MyGo's own menus (Edit,
 	// Window…) and dialogs stay English, as for an app written in English.
@@ -31,6 +35,7 @@ func main() {
 		} else if moved {
 			Logs.Infof("设置已搬到新目录")
 		}
+		initPlugin()
 		applyNativeTheme(loadPrefs().Theme)
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:  "Tolk",
@@ -44,9 +49,7 @@ func main() {
 			BackgroundColor: mainBackground,
 			StateKey:        "main",
 			URL:             "/",
-			// Shown once the page has painted (below): on a slow PC WebView2
-			// takes a moment to start, and an empty window in the meantime
-			// looks broken.
+			// Show explicitly after sizing and registering startup callbacks.
 			Hidden: true,
 		})
 		// A size saved by an older version, when the minimum was smaller, is
@@ -58,17 +61,25 @@ func main() {
 		tintTitleBar(loadPrefs().Theme == "pink")
 
 		showMain := func() { win.Show(); win.Focus() }
-		firstShow(win, showMain)
+		mygo.App.OnSecondInstance(func(_ []string, _ string) {
+			mygo.RunOnMain(showMain)
+		})
+		firstShow(win)
+		showMain()
 
 		// Closing the window only hides it: the app stays in the tray / Dock
 		// and a shortcut must be able to bring the same window back. A
 		// destroyed window ignores Show, which left the shortcuts doing nothing.
 		var quitting atomic.Bool
-		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting.Store(true) })
+		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting.Store(true); dlx.Stop() })
 		win.OnClose(func(e *mygo.CloseEvent) {
 			if !quitting.Load() {
 				e.PreventDefault()
-				win.Hide()
+				if trayAvailable() {
+					win.Hide()
+				} else {
+					mygo.App.Quit()
+				}
 			}
 		})
 		// Dock icon clicked. Not gated on "has visible windows": the Mini
@@ -108,6 +119,7 @@ func main() {
 		})
 
 		setupTray(win, showMain)
+		setupScreenshotShortcut()
 		go func() {
 			if err := autostart.Migrate(); err != nil {
 				Logs.Warnf("开机自启：%v", err)
@@ -123,9 +135,7 @@ func main() {
 const (
 	minWidth  = 760
 	minHeight = 480
-	// showAnyway shows the main window even when the page never says it is
-	// ready (WebView2 missing or very slow), so starting Tolk always shows
-	// something.
+	// Bound the delay before starting auxiliary services if WebView readiness stalls.
 	showAnyway = 4 * time.Second
 )
 
@@ -134,18 +144,11 @@ var (
 	afterShown []func()
 )
 
-// firstShow shows win when its page is ready, or after showAnyway.
-func firstShow(win *mygo.Window, show func()) {
-	// A shortcut or the tray may have shown it already, and the user may
-	// even have closed it again: then it stays as they left it.
-	var shown atomic.Bool
-	win.OnShow(func() { shown.Store(true) })
+// firstShow defers auxiliary services while the immediately visible window loads.
+func firstShow(win *mygo.Window) {
 	ready := func() {
 		mygo.RunOnMain(func() {
 			shownOnce.Do(func() {
-				if !shown.Load() {
-					show()
-				}
 				for _, fn := range afterShown {
 					fn()
 				}

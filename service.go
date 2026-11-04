@@ -45,6 +45,19 @@ func (Tolk) Translate(text, source, target string) (TranslateResult, error) {
 	return translate(text, source, target)
 }
 
+// TranslateOnboarding always uses Microsoft without reading or changing the
+// saved engine. Reuse the engine pool and request timeout of normal translations.
+func (Tolk) TranslateOnboarding(text, target string) (TranslateResult, error) {
+	if len([]rune(text)) > 1000 {
+		return TranslateResult{}, fmt.Errorf("试用文字不能超过 1000 字")
+	}
+	eng, _, err := engineFor(nil, "microsoft")
+	if err != nil {
+		return TranslateResult{}, err
+	}
+	return runEngine(eng, "microsoft", text, engine.Auto, target)
+}
+
 // translate wraps newlines in a marker so engines keep paragraph breaks, as
 // dazuo-win did.
 func translate(text, source, target string) (TranslateResult, error) {

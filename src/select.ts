@@ -81,6 +81,8 @@ export function enhanceSelect(sel: HTMLSelectElement) {
   function show() {
     if (open || sel.disabled || !sel.options.length) return;
     open = true;
+    // The detached menu keeps the toolbar's typography without changing settings controls.
+    menu.classList.toggle("dd-menu-toolbar", !!wrap.closest(".toolbar"));
     // A modal <dialog> sits in the top layer, so the list must live inside it.
     (wrap.closest("dialog") ?? document.body).append(menu);
     menu.hidden = false;

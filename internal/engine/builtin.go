@@ -9,12 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/OwO-Network/DeepLX/translate"
+	"tolk/internal/dlx"
 )
 
-// Builtin is the "Achord built-in" engine. The legacy Windows app shipped
-// DeepLX as a sidecar executable; Tolk links the same MIT-licensed library
-// (OwO Network, v1.2.2) in-process, so there is no binary to trust or start.
+// Builtin delegates translation to the independently managed DLX plugin.
 type Builtin struct{}
 
 func NewBuiltin() *Builtin { return &Builtin{} }
@@ -25,7 +23,11 @@ var (
 	builtinMu    sync.Mutex
 	builtinUntil time.Time
 	builtinSlot  = make(chan struct{}, 1) // one request at a time, like the legacy semaphore
-	builtinCall  = translate.TranslateByDeepLX
+	builtinCall  = func(source, target, text, _, _, _ string) (dlx.Result, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return dlx.Translate(ctx, source, target, text)
+	}
 )
 
 var builtinSource = func() map[string]string {
@@ -73,7 +75,7 @@ func limitedErr(d time.Duration) error {
 	if s < 1 {
 		s = 1
 	}
-	return fmt.Errorf("Achord 内置引擎请求过于频繁，请 %d 秒后再试；也可切换到 Google、DeepL 或 AI 翻译继续使用", s)
+	return fmt.Errorf("上游暂时限制访问，本地将在 %d 秒后允许重试，但不保证服务恢复；可切换到微软翻译", s)
 }
 
 func (b *Builtin) Translate(ctx context.Context, text, source, target string) (Result, error) {
@@ -103,7 +105,7 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 	}
 
 	type out struct {
-		r   translate.DeepLXTranslationResult
+		r   dlx.Result
 		err error
 	}
 	ch := make(chan out, 1)

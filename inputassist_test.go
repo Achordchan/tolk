@@ -45,7 +45,7 @@ func TestEngineIdentityOtherEngines(t *testing.T) {
 			t.Errorf("%s: %q %q", api, fp, title)
 		}
 	}
-	if fp, title := engineIdentity(map[string]any{}); fp != "google" || title != "Google 翻译" {
+	if fp, title := engineIdentity(map[string]any{}); fp != "microsoft" || title != "微软翻译" {
 		t.Fatalf("%q %q", fp, title)
 	}
 }

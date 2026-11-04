@@ -1,3 +1,4 @@
+import "./onboarding.css";
 import { Tolk, events } from "./mygo";
 import { THEMES, applyLook, initLook } from "./look";
 import { enhanceSelect } from "./select";
@@ -6,6 +7,7 @@ import { initSettings } from "./settings";
 import { macPane } from "./mac";
 import { inputAssistPane } from "./inputassist";
 import { langName } from "./langname";
+import { initOnboarding } from "./onboarding";
 import { initUpdate } from "./update";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -137,8 +139,6 @@ async function refreshSettings() {
   return s;
 }
 engineSel.value = initialSettings.engine;
-// The page is filled in: let the toolbar's labels fade in (see .booting).
-document.documentElement.classList.remove("booting");
 
 let seq = 0;
 let timer: number | undefined;
@@ -153,6 +153,7 @@ function showEmpty(on: boolean, busy = false) {
 async function run() {
   const text = input.value;
   const mine = ++seq;
+  const hadError = output.classList.contains("error");
   output.classList.remove("error");
   if (!text.trim()) {
     output.textContent = "";
@@ -162,7 +163,7 @@ async function run() {
     return;
   }
   // First translation: the placeholder says so. Later ones: the old text fades.
-  const first = !output.textContent || output.classList.contains("error");
+  const first = !output.textContent || hadError;
   if (first) output.textContent = "";
   showEmpty(first, first);
   output.classList.add("busy");
@@ -192,16 +193,42 @@ function schedule(delay = 380) {
   timer = window.setTimeout(run, delay);
 }
 
+function clearTranslationState() {
+  // Invalidate in-flight responses before changing the selected service.
+  ++seq;
+  clearTimeout(timer);
+  output.textContent = "";
+  output.classList.remove("error", "busy");
+  status.textContent = "";
+  dot.classList.remove("err");
+  showEmpty(true);
+}
+
 input.addEventListener("input", () => {
   $("#count").textContent = input.value ? `${input.value.length} 字` : "";
+  if (!input.value.trim()) {
+    clearTranslationState();
+    return;
+  }
   schedule();
 });
 source.addEventListener("change", () => { void saveLanguages(); schedule(0); });
 target.addEventListener("change", () => { void saveLanguages(); schedule(0); });
 engineSel.addEventListener("change", async () => {
+  clearTranslationState();
   try {
     await Tolk.setEngine(engineSel.value);
     dot.classList.remove("err");
+    if (engineSel.value === "achord_builtin") {
+      const localPlugin = await Tolk.pluginStatus();
+      if (!localPlugin.installed) { await settings.open("service"); return; }
+      const plugin = await Tolk.checkPlugin();
+      if (engineSel.value !== "achord_builtin") return;
+      if (!plugin.installed || (plugin.latest && plugin.latest !== plugin.installed)) {
+        await settings.open("service");
+        return;
+      }
+    }
     schedule(0);
   } catch (e) {
     toast(String(e instanceof Error ? e.message : e));
@@ -248,6 +275,7 @@ const settings = initSettings({
   mac: about.os === "darwin" ? macPane(toast, () => $("#s-cancel").click()) : undefined,
   ia: about.os === "darwin" || about.os === "windows" ? inputAssistPane(about.os, toast, () => $("#s-cancel").click()) : undefined,
   saved: async (next) => {
+    clearTranslationState();
     prefs = next;
     showMini();
     showTheme(next.theme);
@@ -266,5 +294,9 @@ events.menuCommand.on(async (c) => {
 });
 
 showEmpty(true);
+document.querySelector(".app")!.removeAttribute("inert");
+document.documentElement.classList.remove("booting", "startup-failed");
+window.dispatchEvent(new Event("tolk-ready"));
 input.focus();
+initOnboarding(about.os, () => settings.open("ia"), toast);
 await initUpdate(toast);

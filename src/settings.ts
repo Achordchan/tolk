@@ -1,3 +1,4 @@
+import { initPluginPanel } from "./plugin";
 import { Tolk, events } from "./mygo";
 import { THEMES, applyLook } from "./look";
 import { engineList } from "./engines";
@@ -43,6 +44,10 @@ export function initSettings(h: Hooks) {
   const sSrcFont = $<HTMLInputElement>("#s-src-font");
   const sDstFont = $<HTMLInputElement>("#s-dst-font");
   const sError = $("#settings-error");
+  $("#p-shot-windows").addEventListener("click", async () => {
+    $("#s-cancel").click();
+    try { await Tolk.screenshotWindows(); } catch (e) { h.toast(message(e)); }
+  });
 
   let cfg: Cfg;
   let saved: Prefs;
@@ -52,10 +57,13 @@ export function initSettings(h: Hooks) {
   const fill = (sel: HTMLSelectElement, items: [string, string][]) =>
     sel.replaceChildren(...items.map(([value, label]) => new Option(label, value)));
 
+  const refreshPlugin = initPluginPanel();
+
   function syncSections() {
     document.querySelectorAll<HTMLElement>("fieldset[data-for]").forEach((f) => {
       f.hidden = f.dataset.for !== sEngine.value;
     });
+    void refreshPlugin();
   }
 
   function fillVendor() {
@@ -276,6 +284,8 @@ export function initSettings(h: Hooks) {
       const mac = h.os === "darwin";
       $("#tab-mac").hidden = !mac;
       $("#fs-shot").hidden = !mac;
+      $("#fs-shot-windows").hidden = h.os !== "windows";
+      $<HTMLInputElement>("#s-win-shot").checked = saved.screenshotHotkey;
       $("#dc-system-row").hidden = !mac;
       $("#tab-ia").hidden = !h.ia;
       $("#fs-ia-key").hidden = !h.ia;
@@ -327,6 +337,7 @@ export function initSettings(h: Hooks) {
       if (sAuto.checked !== autostartWas) await Tolk.setAutostart(sAuto.checked);
       await Tolk.setAppearance(draftTheme, Number(sSrcFont.value), Number(sDstFont.value));
       await h.mac?.save();
+      if (h.os === "windows") await Tolk.setWindowsScreenshotHotkey($<HTMLInputElement>("#s-win-shot").checked);
       await h.ia?.save();
       const next = await Tolk.getPrefs();
       saved = next;

@@ -1,0 +1,37 @@
+package doublekey
+
+import (
+	"testing"
+	"time"
+)
+
+func TestDoublePress(t *testing.T) {
+	var d Detector
+	n := time.Now()
+	if d.Observe(true, true, true, n) {
+		t.Fatal("first")
+	}
+	if d.Observe(true, true, true, n.Add(20*time.Millisecond)) {
+		t.Fatal("repeat")
+	}
+	d.Observe(true, false, true, n.Add(30*time.Millisecond))
+	if !d.Observe(true, true, true, n.Add(100*time.Millisecond)) {
+		t.Fatal("second")
+	}
+}
+func TestExpiredAndInterrupted(t *testing.T) {
+	for _, interrupt := range []bool{false, true} {
+		var d Detector
+		n := time.Now()
+		d.Observe(true, true, true, n)
+		d.Observe(true, false, true, n)
+		delay := time.Second
+		if interrupt {
+			d.Observe(false, true, true, n)
+			delay = time.Millisecond
+		}
+		if d.Observe(true, true, true, n.Add(delay)) {
+			t.Fatal("unexpected trigger")
+		}
+	}
+}

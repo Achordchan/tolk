@@ -19,6 +19,7 @@ import (
 
 	"tolk/internal/logbuf"
 	"tolk/internal/report"
+	"tolk/internal/reportqueue"
 	"tolk/internal/update"
 )
 
@@ -64,7 +65,7 @@ func init() {
 	Logs.OnError(onErrorLine)
 	go func() {
 		// Leave the network time to come up after login.
-		time.Sleep(20 * time.Second)
+		time.Sleep(time.Second)
 		reportPreviousRun()
 	}()
 }
@@ -254,7 +255,7 @@ func onErrorLine(e logbuf.Entry) {
 		return
 	}
 	fb.first = &e
-	time.AfterFunc(8*time.Second, func() {
+	time.AfterFunc(0, func() {
 		fb.mu.Lock()
 		first := fb.first
 		fb.first = nil
@@ -268,7 +269,7 @@ func onErrorLine(e logbuf.Entry) {
 // reportPreviousRun reports a crash of the previous run and an update the
 // update script says failed, once each.
 func reportPreviousRun() {
-	if fb.crash != "" {
+	if fb.crash != "" && os.Getenv("TOLK_SUPERVISED") != "1" {
 		head := crashHead(fb.crash)
 		pending := filepath.Join(fb.dir, crashPending)
 		sendAutoThen(report.Crash, "[崩溃] "+head, "上一次运行异常退出：\n\n"+head, head,
@@ -421,6 +422,17 @@ func sendAutoThen(kind, title, description, fpText string, extra []report.Attach
 	r.SubmissionID = fb.store.Submission(fp)
 	r.Attachments = append(extra, r.Attachments...)
 	r = r.Clean()
+	if err := reportqueue.Enqueue(fb.dir, r); err != nil {
+		fb.store.Release(fp)
+		Logs.Warnf("错误报告入队失败：%v", err)
+		return
+	}
+	// The durable queue now owns delivery; the crash source can be retired.
+	done()
+	if os.Getenv("TOLK_SUPERVISED") == "1" {
+		fb.store.Finished(fp, time.Now())
+		return
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 		defer cancel()
@@ -432,8 +444,13 @@ func sendAutoThen(kind, title, description, fpText string, extra []report.Attach
 			Logs.Infof("错误报告上一次的上传还在处理中，稍后再试")
 			return
 		}
+		if err != nil || res.Skipped != "" || !res.OK {
+			fb.store.Release(fp)
+			Logs.Warnf("错误报告保留在本地等待重试：%v %s", err, res.Skipped)
+			return
+		}
+		_ = os.Remove(filepath.Join(fb.dir, "report_queue", r.SubmissionID+".json"))
 		fb.store.Finished(fp, time.Now())
-		done()
 		switch {
 		case err != nil:
 			// Warn, never error: an error line would report itself.

@@ -8,14 +8,14 @@ import (
 	"tolk/internal/engine"
 )
 
-// APIName returns translation.api from a legacy config, "google" if unset.
+// APIName preserves the saved engine and defaults to Microsoft when unset.
 func APIName(m map[string]any) string {
 	if t, ok := m["translation"].(map[string]any); ok {
 		if s, _ := t["api"].(string); s != "" {
 			return s
 		}
 	}
-	return "google"
+	return "microsoft"
 }
 
 func str(m map[string]any, k string) string {

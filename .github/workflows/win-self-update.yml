@@ -90,6 +90,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           choco install innosetup --no-progress -y
           $exe = Join-Path $env:ROOT "v9.9.9\Tolk.exe"
+          Copy-Item $exe (Join-Path (Split-Path $exe) "Tolk-core.exe")
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=9.9.9" "/DSourceExe=$exe" installer\setup.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC $LASTEXITCODE" }
           # 2.2.2 及以前的安装：「大佐翻译官」目录、同名主程序、同一个 AppId 的卸载项。

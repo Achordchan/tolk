@@ -65,11 +65,17 @@ func startLocked(path string) (string, error) {
 	if err = cmd.Start(); err != nil {
 		return "", err
 	}
+	cleanup, err := supervise(cmd)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return "", err
+	}
 	command = cmd
 	runningPath = path
 	done = make(chan struct{})
 	finished := done
-	go func() { _ = cmd.Wait(); close(finished) }()
+	go func() { _ = cmd.Wait(); cleanup(); close(finished) }()
 	endpoint = fmt.Sprintf("http://127.0.0.1:%d", port)
 	// Bounded readiness probes are local process startup, not remote task polling.
 	deadline := time.Now().Add(5 * time.Second)

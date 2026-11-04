@@ -26,10 +26,17 @@ func winpack(args []string) error {
 	exe := fs.String("exe", "", "新版 Windows 可执行文件")
 	version := fs.String("version", "", "版本号")
 	out := fs.String("out", "dist", "输出目录")
+	single := fs.Bool("single-executable", false, "仅用于旧单程序版本与测试夹具")
 	extra := fs.String("extra", "", "额外文件，逗号分隔，放在包根目录（许可证等）")
 	fs.Parse(args)
 	if *exe == "" || *version == "" {
 		return errors.New("需要 -exe -version")
+	}
+	core := filepath.Join(filepath.Dir(*exe), "Tolk-core.exe")
+	if !*single {
+		if info, err := os.Stat(core); err != nil || info.IsDir() {
+			return errors.New("需要同目录 Tolk-core.exe；旧单程序构建须显式指定 -single-executable")
+		}
 	}
 	v := update.NormalizeVersion(*version)
 	if err := os.MkdirAll(*out, 0o755); err != nil {
@@ -54,8 +61,16 @@ func winpack(args []string) error {
 		{update.ExeName, *exe, nil},
 		{"update_manifest.json", "", append(manifest, '\n')},
 	}
+	if !*single {
+		*extra = strings.Trim(*extra+","+core, ",")
+	}
+	seen := map[string]bool{update.ExeName: true, "update_manifest.json": true}
 	for _, e := range strings.Split(*extra, ",") {
 		if e = strings.TrimSpace(e); e != "" {
+			if seen[filepath.Base(e)] {
+				continue
+			}
+			seen[filepath.Base(e)] = true
 			files = append(files, struct {
 				name string
 				src  string

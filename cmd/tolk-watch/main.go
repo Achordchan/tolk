@@ -85,6 +85,7 @@ func main() {
 				return
 			case <-time.After(delay):
 			}
+			retryCrashes(dir)
 			reportqueue.Flush(ctx, dir)
 			if delay < time.Minute {
 				delay *= 2
@@ -109,14 +110,8 @@ func main() {
 		if !current.AutoDisabled {
 			r := report.Report{Kind: report.Crash, Title: "[崩溃] 主程序异常退出", Description: fmt.Sprintf("主程序启动或运行失败：%v", err), InstallID: st.InstallID, SubmissionID: id, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH, Attachments: []report.Attachment{{Name: "启动与退出日志", Body: body, KeepHead: true}}}
 			r.Fingerprint = report.Fingerprint(report.Crash, crashDiagnostic(body, r.Description))
-			if store.TryReserve(r.Fingerprint, time.Now()) == report.Reserved {
-				r.SubmissionID = store.Submission(r.Fingerprint)
-				if e := reportqueue.Enqueue(dir, r); e != nil {
-					store.Release(r.Fingerprint)
-					fmt.Fprintln(os.Stderr, e)
-				} else {
-					store.Finished(r.Fingerprint, time.Now())
-				}
+			if e := reserveCrash(dir, r); e != nil {
+				fmt.Fprintln(os.Stderr, e)
 			}
 		}
 	}

@@ -21,6 +21,9 @@ func initPlugin() {
 		return
 	}
 	dlx.Configure(filepath.Join(home, "plugins", "dlx"), func(s dlx.State) { _ = PluginChanged.Broadcast(s) })
+	if cfg, err := legacy.Load(filepath.Join(home, "config.json")); err == nil && legacy.APIName(cfg) == "achord_builtin" && dlx.Status().Installed == "" {
+		dlx.Install()
+	}
 }
 func (Tolk) PluginStatus() dlx.State { return dlx.Status() }
 func (Tolk) CheckPlugin() dlx.State  { return dlx.Check() }

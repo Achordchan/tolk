@@ -19,7 +19,7 @@ func TestWinpackSignNotesRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "tolk.exe")
 	os.WriteFile(exe, []byte("MZ-fake"), 0o755)
-	if err := winpack([]string{"-exe", exe, "-version", "v2.0.0", "-out", dir}); err != nil {
+	if err := winpack([]string{"-single-executable", "-exe", exe, "-version", "v2.0.0", "-out", dir}); err != nil {
 		t.Fatal(err)
 	}
 	zipPath := filepath.Join(dir, "Tolk-update-windows_2.0.0.zip")

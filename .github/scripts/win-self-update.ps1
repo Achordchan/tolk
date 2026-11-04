@@ -10,7 +10,7 @@ function Publish-Version([string]$v) {
     $dist = Join-Path $env:ROOT "dist"
     Get-ChildItem $dist -File | Remove-Item -Force
     $pub = (Get-Content (Join-Path $env:ROOT "keys\win.pub") -Raw).Trim()
-    Invoke-Rel winpack -exe (Join-Path $env:ROOT "v$v\Tolk.exe") -version $v -out $dist
+    Invoke-Rel winpack -single-executable -exe (Join-Path $env:ROOT "v$v\Tolk.exe") -version $v -out $dist
     Invoke-Rel winsign -zip (Join-Path $dist "Tolk-update-windows_$v.zip") -version $v -key (Join-Path $env:ROOT "keys\win.pem") -pub $pub
     Invoke-Rel latest -version $v -dir $dist -base "http://127.0.0.1:8765/dl/" -out (Join-Path $dist "latest.json")
 }

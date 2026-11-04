@@ -1,6 +1,10 @@
 package legacy
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestAPINameDefaultAndSavedSelection(t *testing.T) {
 	tests := []struct {
@@ -26,5 +30,25 @@ func TestAPINameDefaultAndSavedSelection(t *testing.T) {
 				t.Fatalf("APIName() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestExistingImplicitEngineAndNewConfig(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, "old.json")
+	if err := os.WriteFile(old, []byte(`{"translation":{"target_lang":"英语"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(old)
+	if err != nil || APIName(cfg) != "google" {
+		t.Fatalf("legacy: %v %v", cfg, err)
+	}
+	fresh := filepath.Join(dir, "new.json")
+	if err = Update(fresh, func(m map[string]any) { Sub(m, "translation")["target_lang"] = "英语" }); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load(fresh)
+	if err != nil || APIName(cfg) != "microsoft" {
+		t.Fatalf("fresh: %v %v", cfg, err)
 	}
 }

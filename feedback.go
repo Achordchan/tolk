@@ -65,6 +65,9 @@ func init() {
 	fb.lastUpdate = keepUpdateFailure(dir)
 	setupCrashOutput(dir)
 	Logs.OnError(onErrorLine)
+	if message := os.Getenv("TOLK_MONITOR_ERROR"); message != "" {
+		Logs.Warnf("独立错误监测不可用：%s", message)
+	}
 	go func() {
 		// Leave the network time to come up after login.
 		time.Sleep(time.Second)

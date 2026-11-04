@@ -25,3 +25,15 @@ func TestCaptureKeepsPanicHeadline(t *testing.T) {
 		t.Fatal(c.headline)
 	}
 }
+
+func TestCaptureBuffersSplitHeadline(t *testing.T) {
+	c := capture{path: filepath.Join(t.TempDir(), "log")}
+	c.Write([]byte("panic: "))
+	if c.headline != "" {
+		t.Fatal("partial headline committed")
+	}
+	c.Write([]byte("specific failure\nstack\n"))
+	if c.headline != "panic: specific failure" || !strings.Contains(c.crashHead, "stack") {
+		t.Fatalf("%+v", c)
+	}
+}

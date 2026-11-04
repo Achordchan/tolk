@@ -22,10 +22,12 @@ import (
 var version = "unknown"
 
 type capture struct {
-	mu       sync.Mutex
-	body     string
-	headline string
-	path     string
+	mu        sync.Mutex
+	body      string
+	headline  string
+	crashHead string
+	partial   string
+	path      string
 }
 
 func (c *capture) Write(p []byte) (int, error) {
@@ -33,7 +35,23 @@ func (c *capture) Write(p []byte) (int, error) {
 	defer c.mu.Unlock()
 	combined := c.body + string(p)
 	if c.headline == "" {
-		c.headline = crashDiagnostic(combined, "")
+		c.partial += string(p)
+		for {
+			i := strings.IndexByte(c.partial, '\n')
+			if i < 0 {
+				break
+			}
+			line := c.partial[:i]
+			c.partial = c.partial[i+1:]
+			if h := crashDiagnostic(line, ""); h != "" {
+				c.headline = h
+				c.crashHead = report.Head(line+"\n"+c.partial, 24000)
+				break
+			}
+		}
+		c.partial = report.Tail(c.partial, 24000)
+	} else if len(c.crashHead) < 24000 {
+		c.crashHead = report.Head(c.crashHead+string(p), 24000)
 	}
 	c.body = report.Tail(combined, 64<<10)
 	// Keep a bounded, sanitized startup trace even if the child dies immediately.
@@ -106,6 +124,12 @@ func main() {
 		logs.mu.Lock()
 		body := logs.body
 		headline := logs.headline
+		if headline == "" {
+			headline = crashDiagnostic(logs.partial, "")
+		}
+		if logs.crashHead != "" {
+			body = logs.crashHead + "\n--- recent output ---\n" + body
+		}
 		logs.mu.Unlock()
 		current := report.State{AutoDisabled: true}
 		if b, e := os.ReadFile(filepath.Join(dir, "report_state.json")); e == nil {
@@ -118,6 +142,7 @@ func main() {
 			if headline == "" {
 				headline = crashDiagnostic(body, r.Description)
 			}
+			r.Description += "\n" + headline
 			r.Fingerprint = report.Fingerprint(report.Crash, headline)
 			if e := reserveCrash(dir, r); e != nil {
 				fmt.Fprintln(os.Stderr, e)
@@ -160,4 +185,15 @@ func crashDiagnostic(body, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+func launchWithoutMonitoring(exe string, cause error) {
+	child := filepath.Join(filepath.Dir(exe), "Tolk-core.exe")
+	cmd := exec.Command(child, os.Args[1:]...)
+	cmd.Env = append(os.Environ(), "TOLK_MONITOR_ERROR="+cause.Error())
+	prepare(cmd)
+	if cmd.Start() == nil {
+		allowForeground(cmd)
+		_ = cmd.Wait()
+	}
 }

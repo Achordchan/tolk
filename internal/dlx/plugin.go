@@ -209,10 +209,28 @@ func install(s *State) error {
 	defer processMu.Unlock()
 	stopLocked()
 	dst := executable(r.Tag)
-	// Only remove a previously installed same-version binary after verified download.
-	if err = os.Remove(dst); err != nil && !os.IsNotExist(err) {
-		return err
+	binaryBackup := dst + ".previous"
+	hadPrevious := false
+	if _, statErr := os.Stat(dst); statErr == nil {
+		if err = os.Rename(dst, binaryBackup); err != nil {
+			return err
+		}
+		hadPrevious = true
+	} else if !os.IsNotExist(statErr) {
+		return statErr
 	}
+	committed := false
+	defer func() {
+		if committed {
+			_ = os.Remove(binaryBackup)
+			return
+		}
+		stopLocked()
+		if hadPrevious {
+			_ = os.Remove(dst)
+			_ = os.Rename(binaryBackup, dst)
+		}
+	}()
 	if err = os.Rename(downloaded, dst); err != nil {
 		return err
 	}
@@ -241,5 +259,6 @@ func install(s *State) error {
 		return err
 	}
 	s.Installed = r.Tag
+	committed = true
 	return nil
 }

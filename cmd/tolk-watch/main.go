@@ -75,10 +75,12 @@ func main() {
 	}
 	dir := filepath.Join(home, "update_state")
 	if err = os.MkdirAll(dir, 0700); err != nil {
+		launchWithoutMonitoring(exe, err)
 		return
 	}
 	idBytes := make([]byte, 16)
 	if _, err = rand.Read(idBytes); err != nil {
+		launchWithoutMonitoring(exe, err)
 		return
 	}
 	id := hex.EncodeToString(idBytes)

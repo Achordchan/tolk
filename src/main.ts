@@ -222,12 +222,13 @@ engineSel.addEventListener("change", async () => {
     if (engineSel.value === "achord_builtin") {
       const localPlugin = await Tolk.pluginStatus();
       if (!localPlugin.installed) { await settings.open("service"); return; }
-      const plugin = await Tolk.checkPlugin();
-      if (engineSel.value !== "achord_builtin") return;
-      if (!plugin.installed || (plugin.latest && plugin.latest !== plugin.installed)) {
-        await settings.open("service");
-        return;
-      }
+      // Installed engines remain usable while release discovery is offline.
+      void Tolk.checkPlugin().then(async (plugin) => {
+        if (engineSel.value !== "achord_builtin") return;
+        if (plugin.latest && plugin.latest !== plugin.installed && !document.querySelector("dialog[open]")) {
+          await settings.open("service");
+        }
+      }).catch(e => toast(`插件更新检查失败：${String(e)}`));
     }
     schedule(0);
   } catch (e) {

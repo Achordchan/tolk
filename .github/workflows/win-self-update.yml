@@ -118,7 +118,7 @@ jobs:
           $scriptPath = Join-Path $env:TOLK_HOME "update_cache\apply_update.ps1"
           $rollbackScript = Join-Path $env:ROOT "paired-rollback.ps1"
           $script = Get-Content $scriptPath -Raw
-          $script = $script.Replace('Invoke-RobocopyChecked -From $SourceDir -To $TargetDir -Phase "update"', 'throw "injected update-copy failure"')
+          $script = $script.Replace('Invoke-RobocopyChecked -From $SourceDir -To $TargetDir -Phase "update"', 'Set-Content -LiteralPath (Join-Path $TargetDir "Tolk.exe") -Value "partial launcher"; Set-Content -LiteralPath (Join-Path $TargetDir "Tolk-core.exe") -Value "partial core"; throw "injected update-copy failure"')
           Set-Content $rollbackScript $script -Encoding UTF8
           $env:TOLK_UPDATE_SOURCE_DIR = $paired
           $env:TOLK_UPDATE_TARGET_DIR = $install
@@ -130,9 +130,13 @@ jobs:
           $env:TOLK_UPDATE_EXPECTED_VERSION = ""
           $env:TOLK_UPDATE_RELAUNCH = "0"
           $before = (Get-FileHash (Join-Path $install "Tolk-core.exe")).Hash
+          $beforeLauncher = (Get-FileHash (Join-Path $install "Tolk.exe")).Hash
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $rollbackScript
           if ((Get-FileHash (Join-Path $install "Tolk-core.exe")).Hash -ne $before) { throw "rollback changed core" }
-          if (-not (Test-Path (Join-Path $install "Tolk.exe"))) { throw "rollback lost launcher" }
+          if ((Get-FileHash (Join-Path $install "Tolk.exe")).Hash -ne $beforeLauncher) { throw "rollback changed launcher" }
+          $result = Get-Content $env:TOLK_UPDATE_RESULT_PATH -Raw | ConvertFrom-Json
+          if ($result.status -eq "success" -or $result.message -notmatch "injected update-copy failure") { throw "unexpected rollback result" }
+          if ((Get-Content $env:TOLK_UPDATE_LOG_PATH -Raw) -notmatch "rollback") { throw "rollback was not attempted" }
           exit 0
       - name: "3. Installer upgrades an old 大佐翻译官 install"
         shell: pwsh

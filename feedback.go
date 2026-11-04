@@ -96,6 +96,9 @@ func init() {
 // trace.
 func setupCrashOutput(dir string) {
 	fb.crash = takeCrash(dir)
+	if os.Getenv("TOLK_SUPERVISED") == "1" {
+		return
+	} // launcher captures this run; legacy pending remains reportable
 	path := filepath.Join(dir, crashFile)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
@@ -289,7 +292,7 @@ func onErrorLine(e logbuf.Entry) {
 // reportPreviousRun reports a crash of the previous run and an update the
 // update script says failed, once each.
 func reportPreviousRun() {
-	if fb.crash != "" && os.Getenv("TOLK_SUPERVISED") != "1" {
+	if fb.crash != "" {
 		head := crashHead(fb.crash)
 		pending := filepath.Join(fb.dir, crashPending)
 		sendAutoThen(report.Crash, "[崩溃] "+head, "上一次运行异常退出：\n\n"+head, head,

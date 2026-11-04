@@ -16,6 +16,7 @@ import (
 )
 
 var processMu sync.Mutex
+var lifetimeCtx, lifetimeCancel = context.WithCancel(context.Background())
 var command *exec.Cmd
 var done chan struct{}
 var endpoint, token, runningPath string
@@ -28,7 +29,7 @@ type Result struct {
 	SourceLang string `json:"source_lang"`
 }
 
-func Stop() { processMu.Lock(); defer processMu.Unlock(); stopLocked() }
+func Stop() { lifetimeCancel(); processMu.Lock(); defer processMu.Unlock(); stopLocked() }
 func stopLocked() {
 	if command != nil {
 		_ = command.Process.Kill()
@@ -38,6 +39,9 @@ func stopLocked() {
 	endpoint = ""
 }
 func startLocked(path string) (string, error) {
+	if lifetimeCtx.Err() != nil {
+		return "", lifetimeCtx.Err()
+	}
 	if command != nil && runningPath != path {
 		stopLocked()
 	}
@@ -60,7 +64,7 @@ func startLocked(path string) (string, error) {
 		return "", err
 	}
 	token = hex.EncodeToString(secret)
-	cmd := exec.Command(path, "-ip", "127.0.0.1", "-port", fmt.Sprint(port), "-token", token)
+	cmd := exec.CommandContext(lifetimeCtx, path, "-ip", "127.0.0.1", "-port", fmt.Sprint(port), "-token", token)
 	prepare(cmd)
 	if err = cmd.Start(); err != nil {
 		return "", err
@@ -100,6 +104,10 @@ func startLocked(path string) (string, error) {
 	return "", fmt.Errorf("插件启动超时")
 }
 func Translate(ctx context.Context, source, target, text string) (Result, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(lifetimeCtx, cancel)
+	defer stop()
 	s := Status()
 	if s.Installed == "" || !validVersion(s.Installed) {
 		return Result{}, fmt.Errorf("请在设置 → 翻译服务中安装 Achord 翻译插件")

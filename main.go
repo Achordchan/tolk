@@ -71,7 +71,7 @@ func main() {
 		// and a shortcut must be able to bring the same window back. A
 		// destroyed window ignores Show, which left the shortcuts doing nothing.
 		var quitting atomic.Bool
-		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting.Store(true); go dlx.Stop() })
+		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting.Store(true); dlx.Stop() })
 		win.OnClose(func(e *mygo.CloseEvent) {
 			if !quitting.Load() {
 				e.PreventDefault()

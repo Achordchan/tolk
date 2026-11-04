@@ -136,7 +136,7 @@ jobs:
           if ((Get-FileHash (Join-Path $install "Tolk.exe")).Hash -ne $beforeLauncher) { throw "rollback changed launcher" }
           $result = Get-Content $env:TOLK_UPDATE_RESULT_PATH -Raw | ConvertFrom-Json
           if ($result.status -eq "success" -or $result.message -notmatch "injected update-copy failure") { throw "unexpected rollback result" }
-          if ((Get-Content $env:TOLK_UPDATE_LOG_PATH -Raw) -notmatch "rollback") { throw "rollback was not attempted" }
+          if ((Get-Content $env:TOLK_UPDATE_LOG_PATH -Raw) -notmatch "Restore completed\.") { throw "rollback was not attempted" }
           exit 0
       - name: "3. Installer upgrades an old 大佐翻译官 install"
         shell: pwsh

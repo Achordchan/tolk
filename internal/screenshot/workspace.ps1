@@ -206,8 +206,10 @@ $form.Add_Paint({
  if($script:crop -and $script:translated -and !$compare.Checked){$_.Graphics.DrawImage($script:translated,$script:selection)}
 })
 $form.Add_MouseUp({
- if(!$script:start -or $_.Button -ne 'Left' -or $script:selection.Width -le 4 -or $script:selection.Height -le 4){return}
+ if($_.Button -ne 'Left'){return}
+ $hadStart=$null -ne $script:start
  $script:start=$null
+ if(!$hadStart -or $script:selection.Width -le 4 -or $script:selection.Height -le 4){return}
  if($script:crop){$script:crop.Dispose()}
  $script:crop=$screen.Clone($script:selection,$screen.PixelFormat)
  $script:blocks=@();ClearTranslation

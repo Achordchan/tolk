@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import { trayBuildEnv } from "./mygo-tray-patch";
 import config from "../mygo.config";
 
-const args = process.argv.slice(2).filter((a) => a !== "--");
+const args = process.argv.slice(2).filter((a) => a !== "--").flatMap(a => {
+ const match = /^(--?platform|--?o)=(.*)$/.exec(a);
+ return match ? [match[1]!.replace(/^--/, "-"), match[2]!] : [a.replace(/^--(platform|o)$/, "-$1")];
+});
 async function run(command: string[], env = process.env) {
   const p = Bun.spawn(command, { stdout: "inherit", stderr: "inherit", env });
   if (await p.exited !== 0) throw new Error(`Build failed: ${command.join(" ")}`);

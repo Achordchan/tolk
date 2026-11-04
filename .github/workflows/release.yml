@@ -96,16 +96,14 @@ jobs:
           mkdir -p dist
           ./tolk-release.exe winpack -exe "$EXE" -version "$VERSION" -out dist -extra LICENSE,third_party/DeepLX-LICENSE,build/windows-amd64/Tolk-core.exe
           ./tolk-release.exe winsign -zip "dist/Tolk-update-windows_$VERSION.zip" -version "$VERSION"
-          cp "$EXE" dist/Tolk-windows.exe
-          cp build/windows-amd64/Tolk-core.exe dist/Tolk-core.exe
+          test -f build/windows-amd64/Tolk-core.exe
       - name: Installer (Inno Setup)
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          $exe = (Resolve-Path dist\Tolk-windows.exe).Path
+          $exe = (Resolve-Path build\windows-amd64\Tolk.exe).Path
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:VERSION" "/DSourceExe=$exe" installer\setup.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Remove-Item dist\Tolk-windows.exe
       - name: Release notes
         shell: bash
         run: |

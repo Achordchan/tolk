@@ -23,8 +23,8 @@ var (
 	builtinMu    sync.Mutex
 	builtinUntil time.Time
 	builtinSlot  = make(chan struct{}, 1) // one request at a time, like the legacy semaphore
-	builtinCall  = func(source, target, text, _, _, _ string) (dlx.Result, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	builtinCall  = func(ctx context.Context, source, target, text, _, _, _ string) (dlx.Result, error) {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		return dlx.Translate(ctx, source, target, text)
 	}
@@ -113,7 +113,7 @@ func (b *Builtin) Translate(ctx context.Context, text, source, target string) (R
 		// The slot is held until the call itself ends, not until the caller
 		// gives up, so timeouts cannot pile up concurrent DeepLX requests.
 		defer func() { <-builtinSlot }()
-		r, err := builtinCall(src, tgt, text, "", "", "")
+		r, err := builtinCall(ctx, src, tgt, text, "", "", "")
 		// Record a rate limit before the slot is released, so a queued request
 		// cannot slip past the cooldown while the caller is still reading ch.
 		if err == nil && (r.Code == http.StatusTooManyRequests || looksLimited(r.Message)) {

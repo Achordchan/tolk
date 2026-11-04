@@ -64,7 +64,7 @@ func startLocked(path string) (string, error) {
 		return "", err
 	}
 	token = hex.EncodeToString(secret)
-	cmd := exec.CommandContext(lifetimeCtx, path, "-ip", "127.0.0.1", "-port", fmt.Sprint(port), "-token", token)
+	cmd := pluginCommand(lifetimeCtx, path, "-ip", "127.0.0.1", "-port", fmt.Sprint(port), "-token", token)
 	prepare(cmd)
 	if err = cmd.Start(); err != nil {
 		return "", err

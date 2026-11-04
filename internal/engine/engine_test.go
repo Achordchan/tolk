@@ -162,7 +162,7 @@ func TestBuiltinMapsLanguagesAndCoolsDown(t *testing.T) {
 	old := builtinCall
 	defer func() { builtinCall = old; builtinUntil = time.Time{} }()
 	var gotSrc, gotTgt string
-	builtinCall = func(s, tg, text, _, _, _ string) (dlx.Result, error) {
+	builtinCall = func(_ context.Context, s, tg, text, _, _, _ string) (dlx.Result, error) {
 		gotSrc, gotTgt = s, tg
 		return dlx.Result{Code: 200, Data: "你好", SourceLang: "EN"}, nil
 	}
@@ -174,14 +174,14 @@ func TestBuiltinMapsLanguagesAndCoolsDown(t *testing.T) {
 	if gotTgt != "EN-US" {
 		t.Fatalf("target %s", gotTgt)
 	}
-	builtinCall = func(_, _, _, _, _, _ string) (dlx.Result, error) {
+	builtinCall = func(_ context.Context, _, _, _, _, _, _ string) (dlx.Result, error) {
 		return dlx.Result{Code: 429, Message: "Too many requests"}, nil
 	}
 	if _, err := NewBuiltin().Translate(context.Background(), "x", "自动检测", "简体中文"); err == nil {
 		t.Fatal("want rate limit error")
 	}
 	calls := 0
-	builtinCall = func(_, _, _, _, _, _ string) (dlx.Result, error) {
+	builtinCall = func(_ context.Context, _, _, _, _, _, _ string) (dlx.Result, error) {
 		calls++
 		return dlx.Result{Code: 200, Data: "a"}, nil
 	}
@@ -240,7 +240,7 @@ func TestBuiltinQueuedRequestRespectsFreshCooldown(t *testing.T) {
 	calls := 0
 	started := make(chan struct{})
 	release := make(chan struct{})
-	builtinCall = func(_, _, _, _, _, _ string) (dlx.Result, error) {
+	builtinCall = func(_ context.Context, _, _, _, _, _, _ string) (dlx.Result, error) {
 		mu.Lock()
 		calls++
 		first := calls == 1

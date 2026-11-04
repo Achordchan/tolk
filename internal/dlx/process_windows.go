@@ -1,6 +1,7 @@
 package dlx
 
 import (
+	"context"
 	"golang.org/x/sys/windows"
 	"os/exec"
 	"syscall"
@@ -34,4 +35,8 @@ func supervise(cmd *exec.Cmd) (func(), error) {
 		return nil, err
 	}
 	return cleanup, nil
+}
+
+func pluginCommand(ctx context.Context, path string, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, path, args...)
 }

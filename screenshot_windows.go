@@ -113,6 +113,9 @@ func (Tolk) ScreenshotWindows() error {
 		}
 		cfg, e := legacy.Load(path)
 		if e != nil {
+			if !os.IsNotExist(e) {
+				return "", fmt.Errorf("无法读取翻译服务配置：%w", e)
+			}
 			cfg = map[string]any{}
 		}
 		api := legacy.APIName(cfg)

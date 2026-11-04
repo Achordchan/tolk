@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -67,7 +68,10 @@ func translate(text, source, target string) (TranslateResult, error) {
 	}
 	cfg, err := legacy.Load(p)
 	if err != nil {
-		cfg = map[string]any{} // no config yet: the default engine needs no key
+		if !os.IsNotExist(err) {
+			return TranslateResult{}, fmt.Errorf("无法读取翻译服务配置：%w", err)
+		}
+		cfg = map[string]any{} // missing first-run configuration only
 	}
 	api := legacy.APIName(cfg)
 	eng, key, err := engineFor(cfg, api)

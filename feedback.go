@@ -17,6 +17,7 @@ import (
 
 	"github.com/egoist/mygo"
 
+	"tolk/internal/legacy"
 	"tolk/internal/logbuf"
 	"tolk/internal/report"
 	"tolk/internal/reportqueue"
@@ -52,6 +53,7 @@ func init() {
 	if testing.Testing() {
 		return // never report from go test
 	}
+	_, _ = legacy.MigrateHome()
 	dir := ""
 	if dirs, err := update.DefaultDirs(); err == nil {
 		dir = dirs.State
@@ -67,6 +69,24 @@ func init() {
 		// Leave the network time to come up after login.
 		time.Sleep(time.Second)
 		reportPreviousRun()
+		if os.Getenv("TOLK_SUPERVISED") != "1" {
+			ctx, cancel := context.WithCancel(context.Background())
+			off := mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { cancel() })
+			defer off()
+			defer cancel()
+			delay := time.Second
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(delay):
+					reportqueue.Flush(ctx, dir)
+				}
+				if delay < time.Minute {
+					delay *= 2
+				}
+			}
+		}
 	}()
 }
 

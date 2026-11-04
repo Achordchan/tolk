@@ -3,9 +3,11 @@ package screenshot
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 )
 
 type Request struct {
@@ -24,10 +26,16 @@ type Response struct {
 
 // Serve translates in reading order, preserving block positions in the response.
 // No recognized content is logged or forwarded to the main-window editor.
-func Serve(in io.Reader, out io.Writer, translate func(string, string, string) (string, error), onClose ...func()) error {
+func Serve(in io.Reader, out io.Writer, translate func(context.Context, string, string, string) (string, error), onClose ...func()) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 4096), 2<<20)
 	encoder := json.NewEncoder(out)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	var writeMu sync.Mutex
+	closed := false
 	for scanner.Scan() {
 		var req Request
 		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
@@ -40,32 +48,50 @@ func Serve(in io.Reader, out io.Writer, translate func(string, string, string) (
 			continue
 		}
 		if req.Closed {
+			cancel()
+			closed = true
 			if len(onClose) > 0 {
 				onClose[0]()
 			}
 			continue
 		}
-		res := Response{ID: req.ID, Texts: []string{}}
-		if len(req.Blocks) == 0 || len(req.Blocks) > 200 {
-			res.Error = "识别段落数量无效，请缩小选区"
-		} else {
-			for _, text := range req.Blocks {
-				if len(text) > 16000 {
-					res.Error = "识别段落过长，请缩小选区"
-					break
+		if closed {
+			continue
+		}
+		workers.Add(1)
+		go func(req Request) {
+			defer workers.Done()
+			res := Response{ID: req.ID, Texts: []string{}}
+			if len(req.Blocks) == 0 || len(req.Blocks) > 200 {
+				res.Error = "识别段落数量无效，请缩小选区"
+			} else {
+				for _, text := range req.Blocks {
+					if len(text) > 16000 {
+						res.Error = "识别段落过长，请缩小选区"
+						break
+					}
+					if ctx.Err() != nil {
+						return
+					}
+					translated, err := translate(ctx, text, req.Source, req.Target)
+					if err != nil {
+						res.Error = err.Error()
+						res.Texts = nil
+						break
+					}
+					res.Texts = append(res.Texts, translated)
 				}
-				translated, err := translate(text, req.Source, req.Target)
-				if err != nil {
-					res.Error = err.Error()
-					res.Texts = nil
-					break
-				}
-				res.Texts = append(res.Texts, translated)
 			}
-		}
-		if err := encoder.Encode(res); err != nil {
-			return err
-		}
+			writeMu.Lock()
+			defer writeMu.Unlock()
+			if ctx.Err() == nil {
+				_ = encoder.Encode(res)
+			}
+		}(req)
 	}
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		cancel()
+		return err
+	}
+	return nil
 }

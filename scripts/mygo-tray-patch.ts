@@ -55,5 +55,5 @@ export async function trayBuildEnv() {
   const modfile = resolve(dir, "build.mod");
   await writeFile(modfile, (await readFile("go.mod", "utf8")) + `\nreplace github.com/egoist/mygo => ${JSON.stringify(localModule)}\n`);
   await writeFile(resolve(dir, "build.sum"), await readFile("go.sum", "utf8"));
-  return { ...process.env, GOFLAGS: `${process.env.GOFLAGS ?? ""} -modfile=${modfile}`.trim() };
+  return { ...process.env, GOFLAGS: `${process.env.GOFLAGS ?? ""} ${JSON.stringify(`-modfile=${modfile}`)}`.trim() };
 }

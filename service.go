@@ -87,13 +87,16 @@ func translate(text, source, target string) (TranslateResult, error) {
 }
 
 func runEngine(eng engine.Engine, api, text, source, target string) (TranslateResult, error) {
+	return runEngineContext(context.Background(), eng, api, text, source, target)
+}
+func runEngineContext(parent context.Context, eng engine.Engine, api, text, source, target string) (TranslateResult, error) {
 	// Apple's on-device translator may be waiting on the user to approve a
 	// language-pack download, which can take minutes; network engines keep 30s.
 	timeout := 30 * time.Second
 	if api == "apple" {
 		timeout = 5 * time.Minute
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	start := time.Now()
 	if api == "apple" { // the system translator keeps line breaks itself

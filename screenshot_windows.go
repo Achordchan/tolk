@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 	"tolk/internal/engine"
+	"tolk/internal/legacy"
 	"tolk/internal/screenshot"
 	"unsafe"
 )
@@ -105,8 +106,21 @@ func (Tolk) ScreenshotWindows() error {
 		_ = cmd.Wait()
 		return err
 	}
-	protocolErr := screenshot.Serve(output, input, func(text, source, target string) (string, error) {
-		r, e := translate(text, source, target)
+	protocolErr := screenshot.Serve(output, input, func(requestCtx context.Context, text, source, target string) (string, error) {
+		path, e := legacy.DefaultPath()
+		if e != nil {
+			return "", e
+		}
+		cfg, e := legacy.Load(path)
+		if e != nil {
+			cfg = map[string]any{}
+		}
+		api := legacy.APIName(cfg)
+		eng, _, e := engineFor(cfg, api)
+		if e != nil {
+			return "", e
+		}
+		r, e := runEngineContext(requestCtx, eng, api, text, source, target)
 		return r.Text, e
 	}, release, func() {
 		Logs.Infof("截图选区已就绪，启动耗时 %d 毫秒", time.Since(started).Milliseconds())

@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$script:workspaceClosed=$false
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
 [Console]::InputEncoding = New-Object Text.UTF8Encoding($false)
 Add-Type -AssemblyName System.Windows.Forms
@@ -19,7 +20,7 @@ function Await($operation, $type) {
  $task = $method.MakeGenericMethod($type).Invoke($null, @($operation))
  while (!$task.IsCompleted) {
   [System.Windows.Forms.Application]::DoEvents()
-  if ($form -and $form.IsDisposed) { throw '截图已取消' }
+  if ($script:workspaceClosed -or ($form -and $form.IsDisposed)) { throw '截图已取消' }
   [System.Threading.Thread]::Sleep(10)
  }
  $task.GetAwaiter().GetResult()
@@ -45,6 +46,7 @@ $form.BackgroundImageLayout = 'None'
 $script:start = $null
 $script:selection = [System.Drawing.Rectangle]::Empty
 $form.Add_Shown({ $form.Activate() })
+$form.Add_FormClosing({$script:workspaceClosed=$true})
 $form.Add_KeyDown({ if ($_.KeyCode -eq 'Escape') { $form.Close() } })
 $form.Add_MouseDown({
  if ($_.Button -eq 'Right') { if($script:crop -and !$script:working){ResetSelection}else{$form.Close()}; return }

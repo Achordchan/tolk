@@ -84,6 +84,56 @@ jobs:
           $deadline = (Get-Date).AddMinutes(1)
           while (-not (Test-Path (Join-Path $env:TOLK_HOME "restarted-9.9.10")) -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
           if (-not (Test-Path (Join-Path $env:TOLK_HOME "restarted-9.9.10"))) { throw "重启更新后新版没有打开" }
+      - name: "Paired launcher/core update and rollback"
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          . ./.github/scripts/win-self-update.ps1
+          $install = Join-Path $env:ROOT "paired"
+          New-Item -ItemType Directory -Force $install | Out-Null
+          go build -o (Join-Path $install "Tolk.exe") ./cmd/tolk-watch
+          Copy-Item (Join-Path $env:ROOT "v0.0.1\Tolk.exe") (Join-Path $install "Tolk-core.exe")
+          Set-Content (Join-Path $install "unins000.exe") "uninstaller"
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{5E76B529-0B3B-4E93-AE4D-DCF0EA7174CE}_is1"
+          New-ItemProperty -Force $key -Name InstallLocation -Value "$install\" | Out-Null
+          foreach ($v in "9.9.9", "9.9.10") {
+            $paired = Join-Path $env:ROOT "pair$v"
+            New-Item -ItemType Directory -Force $paired | Out-Null
+            Copy-Item (Join-Path $install "Tolk.exe") (Join-Path $paired "Tolk.exe")
+            Copy-Item (Join-Path $env:ROOT "v$v\Tolk.exe") (Join-Path $paired "Tolk-core.exe")
+            $dist = Join-Path $env:ROOT "dist"
+            Get-ChildItem $dist -File | Remove-Item -Force
+            $pub = (Get-Content (Join-Path $env:ROOT "keys\win.pub") -Raw).Trim()
+            Invoke-Rel winpack -exe (Join-Path $paired "Tolk.exe") -version $v -out $dist
+            Invoke-Rel winsign -zip (Join-Path $dist "Tolk-update-windows_$v.zip") -version $v -key (Join-Path $env:ROOT "keys\win.pem") -pub $pub
+            Invoke-Rel latest -version $v -dir $dist -base "http://127.0.0.1:8765/dl/" -out (Join-Path $dist "latest.json")
+            Remove-Item (Join-Path $env:TOLK_HOME "restarted-$v") -ErrorAction SilentlyContinue
+            Invoke-Update -Install $install -Relaunch "1" | Out-Null
+            if ((Get-FileHash (Join-Path $install "Tolk-core.exe")).Hash -ne (Get-FileHash (Join-Path $paired "Tolk-core.exe")).Hash) { throw "core mismatch" }
+            $deadline = (Get-Date).AddMinutes(1)
+            while (-not (Test-Path (Join-Path $env:TOLK_HOME "restarted-$v")) -and (Get-Date) -lt $deadline) { Start-Sleep 1 }
+            if (-not (Test-Path (Join-Path $env:TOLK_HOME "restarted-$v"))) { throw "paired relaunch failed" }
+          }
+          # Exercise rollback with a valid package and an injected copy failure.
+          $scriptPath = Join-Path $env:TOLK_HOME "update_cache\apply_update.ps1"
+          $rollbackScript = Join-Path $env:ROOT "paired-rollback.ps1"
+          $script = Get-Content $scriptPath -Raw
+          $script = $script.Replace('Invoke-RobocopyChecked -From $SourceDir -To $TargetDir -Phase "update"', 'throw "injected update-copy failure"')
+          Set-Content $rollbackScript $script -Encoding UTF8
+          $env:TOLK_UPDATE_SOURCE_DIR = $paired
+          $env:TOLK_UPDATE_TARGET_DIR = $install
+          $env:TOLK_UPDATE_EXE_NAME = "Tolk.exe"
+          $env:TOLK_UPDATE_PROCESS_ID = "2147483647"
+          $env:TOLK_UPDATE_BACKUP_DIR = Join-Path $env:ROOT "paired-backup"
+          $env:TOLK_UPDATE_LOG_PATH = Join-Path $env:ROOT "paired-rollback.log"
+          $env:TOLK_UPDATE_RESULT_PATH = Join-Path $env:ROOT "paired-rollback.json"
+          $env:TOLK_UPDATE_EXPECTED_VERSION = ""
+          $env:TOLK_UPDATE_RELAUNCH = "0"
+          $before = (Get-FileHash (Join-Path $install "Tolk-core.exe")).Hash
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $rollbackScript
+          if ((Get-FileHash (Join-Path $install "Tolk-core.exe")).Hash -ne $before) { throw "rollback changed core" }
+          if (-not (Test-Path (Join-Path $install "Tolk.exe"))) { throw "rollback lost launcher" }
+          exit 0
       - name: "3. Installer upgrades an old 大佐翻译官 install"
         shell: pwsh
         run: |

@@ -133,11 +133,13 @@ $translate=Button '翻译' {
  try {
   Busy $true;Status '正在识别文字…';$form.Refresh()
   Recognize
+  if($script:workspaceClosed){return}
   ClearTranslation
   $script:requestId++
   # OCR language selection controls recognition; translation auto-detects the recognized text.
   $request=@{id=$script:requestId;source='自动检测';target=[string]$target.SelectedItem;blocks=@($script:blocks | ForEach-Object {$_.Text})}
   $json=$request | ConvertTo-Json -Compress -Depth 5
+  if($script:workspaceClosed){return}
   [Console]::Out.WriteLine($json);[Console]::Out.Flush()
   $script:readTask=[CaptureDpi]::ReadReply()
   Status ('正在翻译 '+$script:blocks.Count+' 个文字区域…')

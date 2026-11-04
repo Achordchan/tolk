@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -40,7 +41,9 @@ var (
 	miniAt mygo.Point
 	// miniShown is whether the bubble should be up (guarded by miniMu);
 	// syncMiniWatch makes the mouse watch follow it.
-	miniShown bool
+	miniShown     bool
+	miniPageReady bool
+	miniState     MiniState
 
 	miniWatchMu sync.Mutex
 	miniWatched bool
@@ -72,6 +75,8 @@ func createMini() {
 		Height:          miniMinHeight,
 		Hidden:          true,
 		Frameless:       true,
+		Panel:           runtime.GOOS == "windows",
+		DisableMinimize: true,
 		AlwaysOnTop:     true,
 		SkipTaskbar:     true,
 		DisableMaximize: true,
@@ -103,6 +108,10 @@ func placeMini(h int) {
 
 // showMini translates text in the bubble next to the cursor.
 func showMini(text string) {
+	mygo.RunOnMain(func() { showMiniOnMain(text) })
+}
+
+func showMiniOnMain(text string) {
 	text = strings.TrimSpace(text)
 	if text == "" || miniWin == nil {
 		return
@@ -121,8 +130,16 @@ func showMini(text string) {
 
 	miniWin.SetSize(miniWidth, miniMinHeight)
 	placeMini(miniMinHeight)
-	_ = MiniUpdate.Emit(miniWin, MiniState{State: "translating", Smart: smart, Source: pair.Source, Target: pair.Target})
+	miniMu.Lock()
+	miniState = MiniState{State: "translating", Smart: smart, Source: pair.Source, Target: pair.Target}
+	ready, state := miniPageReady, miniState
+	miniMu.Unlock()
+	if ready {
+		_ = MiniUpdate.Emit(miniWin, state)
+	}
+	restoreMiniInactive(miniWin)
 	miniWin.ShowInactive()
+	Logs.Infof("Mini 显示：visible=%v minimized=%v panel=%v", miniWin.IsVisible(), miniWin.IsMinimized(), miniWin.IsPanel())
 	go syncMiniWatch() // an outside click closes the bubble
 
 	go func() {
@@ -148,9 +165,21 @@ func showMini(text string) {
 		} else {
 			st.State, st.Text, st.Detected = "result", res.Text, res.Detected
 		}
-		if err := MiniUpdate.Emit(miniWin, st); err != nil {
-			log.Println("mini:", err)
-		}
+		mygo.RunOnMain(func() {
+			miniMu.Lock()
+			if mine != miniSeq || !miniShown {
+				miniMu.Unlock()
+				return
+			}
+			miniState = st
+			ready := miniPageReady
+			miniMu.Unlock()
+			if ready {
+				if err := MiniUpdate.Emit(miniWin, st); err != nil {
+					log.Println("mini:", err)
+				}
+			}
+		})
 	}()
 }
 
@@ -198,4 +227,17 @@ func miniOutsideClick(x, y int) {
 		return
 	}
 	Tolk{}.HideMini()
+}
+
+// MiniReady replays the latest state only after the page installed its listener.
+func (Tolk) MiniReady() {
+	mygo.RunOnMain(func() {
+		miniMu.Lock()
+		miniPageReady = true
+		shown, state := miniShown, miniState
+		miniMu.Unlock()
+		if shown && miniWin != nil {
+			_ = MiniUpdate.Emit(miniWin, state)
+		}
+	})
 }

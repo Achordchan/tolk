@@ -30,7 +30,7 @@ func Update(path string, fn func(m map[string]any)) error {
 	m, err := Load(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		m = map[string]any{}
+		m = map[string]any{"translation": map[string]any{"api": "microsoft"}}
 	case err != nil:
 		return err
 	default:

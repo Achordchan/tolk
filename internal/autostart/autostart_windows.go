@@ -151,7 +151,7 @@ func Enabled() bool {
 	if _, err := os.Stat(lnk); err != nil {
 		return false
 	}
-	exe, err := os.Executable()
+	exe, err := launcherPath()
 	if err != nil {
 		return false
 	}
@@ -182,7 +182,7 @@ func set(on bool) error {
 		}
 		return nil
 	}
-	exe, err := os.Executable()
+	exe, err := launcherPath()
 	if err != nil {
 		return err
 	}
@@ -197,4 +197,21 @@ func set(on bool) error {
 		return fmt.Errorf("创建开机自启快捷方式失败：%v %s", err, out)
 	}
 	return nil
+}
+
+// launcherPath keeps auto-start on the supervised entry point.
+func launcherPath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if strings.EqualFold(filepath.Base(exe), "Tolk-core.exe") {
+		if launcher := os.Getenv("TOLK_LAUNCHER_PATH"); launcher != "" && strings.EqualFold(filepath.Dir(launcher), filepath.Dir(exe)) {
+			if _, err := os.Stat(launcher); err == nil {
+				return launcher, nil
+			}
+		}
+		return filepath.Join(filepath.Dir(exe), "Tolk.exe"), nil
+	}
+	return exe, nil
 }

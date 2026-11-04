@@ -91,20 +91,19 @@ jobs:
           set -euo pipefail
           [ -n "$TOLK_UPDATE_PRIVATE_KEY_PEM" ] || { echo "缺少 Secret TOLK_UPDATE_PRIVATE_KEY_PEM（用 tolk-release keygen 生成，见 docs/RELEASING.md）" >&2; exit 1; }
           go build -o tolk-release.exe ./cmd/tolk-release
-          EXE="$(ls build/windows-amd64/*.exe | grep -vi setup | head -1)"
+          EXE="build/windows-amd64/Tolk.exe"
           echo "主程序：$EXE"
           mkdir -p dist
-          ./tolk-release.exe winpack -exe "$EXE" -version "$VERSION" -out dist -extra LICENSE,third_party/DeepLX-LICENSE
+          ./tolk-release.exe winpack -exe "$EXE" -version "$VERSION" -out dist -extra LICENSE,third_party/DeepLX-LICENSE,build/windows-amd64/Tolk-core.exe
           ./tolk-release.exe winsign -zip "dist/Tolk-update-windows_$VERSION.zip" -version "$VERSION"
-          cp "$EXE" dist/Tolk-windows.exe
+          test -f build/windows-amd64/Tolk-core.exe
       - name: Installer (Inno Setup)
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          $exe = (Resolve-Path dist\Tolk-windows.exe).Path
+          $exe = (Resolve-Path build\windows-amd64\Tolk.exe).Path
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:VERSION" "/DSourceExe=$exe" installer\setup.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Remove-Item dist\Tolk-windows.exe
       - name: Release notes
         shell: bash
         run: |

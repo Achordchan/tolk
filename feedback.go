@@ -17,8 +17,10 @@ import (
 
 	"github.com/egoist/mygo"
 
+	"tolk/internal/legacy"
 	"tolk/internal/logbuf"
 	"tolk/internal/report"
+	"tolk/internal/reportqueue"
 	"tolk/internal/update"
 )
 
@@ -51,6 +53,7 @@ func init() {
 	if testing.Testing() {
 		return // never report from go test
 	}
+	_, _ = legacy.MigrateHome()
 	dir := ""
 	if dirs, err := update.DefaultDirs(); err == nil {
 		dir = dirs.State
@@ -62,10 +65,31 @@ func init() {
 	fb.lastUpdate = keepUpdateFailure(dir)
 	setupCrashOutput(dir)
 	Logs.OnError(onErrorLine)
+	if message := os.Getenv("TOLK_MONITOR_ERROR"); message != "" {
+		Logs.Warnf("独立错误监测不可用：%s", message)
+	}
 	go func() {
 		// Leave the network time to come up after login.
-		time.Sleep(20 * time.Second)
+		time.Sleep(time.Second)
 		reportPreviousRun()
+		if os.Getenv("TOLK_SUPERVISED") != "1" {
+			ctx, cancel := context.WithCancel(context.Background())
+			off := mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { cancel() })
+			defer off()
+			defer cancel()
+			delay := time.Second
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(delay):
+					reportqueue.Flush(ctx, dir)
+				}
+				if delay < time.Minute {
+					delay *= 2
+				}
+			}
+		}
 	}()
 }
 
@@ -75,6 +99,9 @@ func init() {
 // trace.
 func setupCrashOutput(dir string) {
 	fb.crash = takeCrash(dir)
+	if os.Getenv("TOLK_SUPERVISED") == "1" {
+		return
+	} // launcher captures this run; legacy pending remains reportable
 	path := filepath.Join(dir, crashFile)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
@@ -254,7 +281,7 @@ func onErrorLine(e logbuf.Entry) {
 		return
 	}
 	fb.first = &e
-	time.AfterFunc(8*time.Second, func() {
+	time.AfterFunc(0, func() {
 		fb.mu.Lock()
 		first := fb.first
 		fb.first = nil
@@ -421,6 +448,17 @@ func sendAutoThen(kind, title, description, fpText string, extra []report.Attach
 	r.SubmissionID = fb.store.Submission(fp)
 	r.Attachments = append(extra, r.Attachments...)
 	r = r.Clean()
+	if err := reportqueue.Enqueue(fb.dir, r); err != nil {
+		fb.store.Release(fp)
+		Logs.Warnf("错误报告入队失败：%v", err)
+		return
+	}
+	// The durable queue now owns delivery; the crash source can be retired.
+	done()
+	if os.Getenv("TOLK_SUPERVISED") == "1" {
+		fb.store.Finished(fp, time.Now())
+		return
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 		defer cancel()
@@ -432,8 +470,13 @@ func sendAutoThen(kind, title, description, fpText string, extra []report.Attach
 			Logs.Infof("错误报告上一次的上传还在处理中，稍后再试")
 			return
 		}
+		if err != nil || res.Skipped != "" || !res.OK {
+			fb.store.Release(fp)
+			Logs.Warnf("错误报告保留在本地等待重试：%v %s", err, res.Skipped)
+			return
+		}
+		_ = os.Remove(filepath.Join(fb.dir, "report_queue", r.SubmissionID+".json"))
 		fb.store.Finished(fp, time.Now())
-		done()
 		switch {
 		case err != nil:
 			// Warn, never error: an error line would report itself.

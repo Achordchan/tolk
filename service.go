@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +46,19 @@ func (Tolk) Translate(text, source, target string) (TranslateResult, error) {
 	return translate(text, source, target)
 }
 
+// TranslateOnboarding always uses Microsoft without reading or changing the
+// saved engine. Reuse the engine pool and request timeout of normal translations.
+func (Tolk) TranslateOnboarding(text, target string) (TranslateResult, error) {
+	if len([]rune(text)) > 1000 {
+		return TranslateResult{}, fmt.Errorf("试用文字不能超过 1000 字")
+	}
+	eng, _, err := engineFor(nil, "microsoft")
+	if err != nil {
+		return TranslateResult{}, err
+	}
+	return runEngine(eng, "microsoft", text, engine.Auto, target)
+}
+
 // translate wraps newlines in a marker so engines keep paragraph breaks, as
 // dazuo-win did.
 func translate(text, source, target string) (TranslateResult, error) {
@@ -54,7 +68,10 @@ func translate(text, source, target string) (TranslateResult, error) {
 	}
 	cfg, err := legacy.Load(p)
 	if err != nil {
-		cfg = map[string]any{} // no config yet: the default engine needs no key
+		if !os.IsNotExist(err) {
+			return TranslateResult{}, fmt.Errorf("无法读取翻译服务配置：%w", err)
+		}
+		cfg = map[string]any{} // missing first-run configuration only
 	}
 	api := legacy.APIName(cfg)
 	eng, key, err := engineFor(cfg, api)
@@ -74,13 +91,16 @@ func translate(text, source, target string) (TranslateResult, error) {
 }
 
 func runEngine(eng engine.Engine, api, text, source, target string) (TranslateResult, error) {
+	return runEngineContext(context.Background(), eng, api, text, source, target)
+}
+func runEngineContext(parent context.Context, eng engine.Engine, api, text, source, target string) (TranslateResult, error) {
 	// Apple's on-device translator may be waiting on the user to approve a
 	// language-pack download, which can take minutes; network engines keep 30s.
 	timeout := 30 * time.Second
 	if api == "apple" {
 		timeout = 5 * time.Minute
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	start := time.Now()
 	if api == "apple" { // the system translator keeps line breaks itself

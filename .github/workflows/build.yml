@@ -73,6 +73,6 @@ jobs:
             # 发布工具（含 keygen），在自己的 Mac 上直接运行，不用装 Go
             GOOS=darwin GOARCH=arm64 go build -o out/tolk-release-macos-arm64 ./cmd/tolk-release
           else
-            cp build/windows-amd64/tolk.exe out/Tolk-windows.exe
+            powershell.exe -NoProfile -Command "Compress-Archive -Path build/windows-amd64/Tolk.exe,build/windows-amd64/Tolk-core.exe,build/windows-amd64/icon.png -DestinationPath out/Tolk-windows.zip -Force"
           fi
           gh release upload proto out/* --clobber

@@ -2,7 +2,6 @@ package main
 
 import (
 	_ "embed"
-	"log"
 	"runtime"
 	"sync"
 
@@ -52,7 +51,7 @@ func setupTray(win *mygo.Window, showMain func()) {
 	}
 	tray, err := mygo.NewTray(opts)
 	if err != nil {
-		log.Println("tray:", err)
+		Logs.Errorf("创建系统托盘失败：%v", err)
 	} else if runtime.GOOS == "windows" {
 		// A left click brings the window back; the right click opens the menu.
 		tray.OnClick(showMain)
@@ -138,4 +137,11 @@ func trayMenu(withQuit bool) *mygo.Menu {
 			&mygo.MenuItem{Label: "退出 Tolk", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }})
 	}
 	return mygo.NewMenu(items)
+}
+
+// A failed tray must never leave a hidden window with no way back.
+func trayAvailable() bool {
+	trayState.mu.Lock()
+	defer trayState.mu.Unlock()
+	return trayState.tray != nil
 }

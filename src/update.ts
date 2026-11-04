@@ -62,6 +62,12 @@ function draw(s: Update) {
 
 /** Show the dialog for the update found last, whatever the user answered before. */
 export function openUpdate() {
+  // Do not interrupt first-run guidance; deliver the update prompt afterwards.
+  const guide = document.querySelector<HTMLDialogElement>("#onboarding");
+  if (guide?.open) {
+    guide.addEventListener("close", openUpdate, { once: true });
+    return;
+  }
   draw(last);
   if (!dlg.open) dlg.showModal();
 }

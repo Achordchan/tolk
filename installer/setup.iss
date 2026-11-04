@@ -53,6 +53,7 @@ Type: dirifempty; Name: "{app}\src\ziyuan"
 Type: dirifempty; Name: "{app}\src"
 
 [Files]
+Source: "{#ExtractFilePath(SourceExe)}Tolk-core.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: ignoreversion
 
 [Icons]

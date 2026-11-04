@@ -86,6 +86,18 @@ func (s *Store) save(st State) error {
 func (s *Store) Update(fn func(*State)) (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(s.path), 0700); err != nil {
+		return State{}, err
+	}
+	lock, err := os.OpenFile(s.path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return State{}, err
+	}
+	defer lock.Close()
+	if err = lockState(lock); err != nil {
+		return State{}, err
+	}
+	defer unlockState(lock)
 	st := s.load()
 	fn(&st)
 	if st.InstallID == "" {

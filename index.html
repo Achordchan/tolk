@@ -14,16 +14,34 @@
           if (l && l.sourceFont) r.style.setProperty("--src-size", l.sourceFont + "px");
           if (l && l.targetFont) r.style.setProperty("--dst-size", l.targetFont + "px");
         } catch (e) {}
-        // src/main.ts lifts this once the toolbar is filled; never leave it
-        // hidden if that does not happen.
-        setTimeout(function () { document.documentElement.classList.remove("booting"); }, 5000);
+        // This controller does not depend on the application module loading.
+        document.addEventListener("DOMContentLoaded", function () {
+          var root = document.documentElement;
+          var status = document.getElementById("startup-status");
+          var retry = document.getElementById("startup-retry");
+          var timer = setTimeout(function () {
+            if (!root.classList.contains("booting")) return;
+            root.classList.add("startup-failed");
+            status.textContent = "启动时间较长，请重试";
+            retry.hidden = false;
+          }, 15000);
+          retry.addEventListener("click", function () { location.reload(); });
+          window.addEventListener("tolk-ready", function () { clearTimeout(timer); }, { once: true });
+        });
       })();
     </script>
     <title>Tolk</title>
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
-    <div class="app">
+    <section id="startup" class="startup" aria-label="正在启动">
+      <img src="/icon.png" width="64" height="64" alt="" />
+      <strong>Tolk</strong>
+      <span class="startup-progress" aria-hidden="true"></span>
+      <p id="startup-status" role="status">正在准备翻译服务</p>
+      <button id="startup-retry" type="button" hidden>重新加载</button>
+    </section>
+    <div class="app" inert>
       <header class="toolbar card">
         <label class="pill"><span class="pill-label">源语言</span><select id="source" aria-label="源语言"></select></label>
         <button id="swap" class="icon" title="交换翻译方向" aria-label="交换翻译方向">
@@ -78,6 +96,27 @@
       <div id="toast" class="toast" hidden></div>
     </div>
 
+    <dialog id="onboarding" aria-labelledby="onboarding-title" aria-describedby="onboarding-description">
+      <div class="onboarding-content">
+        <header class="onboarding-brand"><img src="/icon.png" width="32" height="32" alt="" /><span>输入助手<span class="onboarding-eyebrow">快速上手</span></span><button id="onboarding-skip" type="button" class="ghost">稍后设置</button></header>
+        <h2 id="onboarding-title">写下想法，<br />让译文回到原处。</h2>
+        <p id="onboarding-description">不用来回复制。选中文字，唤起助手，选择译文。</p>
+        <ol class="onboarding-steps" aria-label="试用进度"><li aria-current="step">选中文字</li><li>获取译文</li><li>原位替换</li></ol>
+        <section class="onboarding-workspace" aria-label="真实翻译试用">
+          <div class="onboarding-example-head"><span>试写一封邮件</span><span>真实翻译 · 不会发送邮件</span></div>
+          <label class="onboarding-editor-label" for="onboarding-input">邮件正文</label>
+          <textarea id="onboarding-input" rows="3" maxlength="1000" spellcheck="false">我们明天下午三点见，期待与你交流。</textarea>
+          <div class="onboarding-testbar"><label>翻译成 <select id="onboarding-language"><option value="英语">英语</option><option value="日语">日语</option><option value="法语">法语</option></select></label><button id="onboarding-test" type="button" class="primary">选中并翻译</button></div>
+          <div id="onboarding-candidate" class="onboarding-candidate" hidden>
+            <div class="onboarding-candidate-head"><span id="onboarding-result-label">翻译候选</span><span id="onboarding-result-meta"></span></div>
+            <button id="onboarding-replace" type="button"><span id="onboarding-result"></span><span class="onboarding-replace-hint">点击替换原文</span></button>
+          </div>
+          <div id="onboarding-status" class="onboarding-status" role="status">可修改示例文字；选中部分内容，或直接翻译整段。</div>
+        </section>
+        <p class="onboarding-note">试用固定使用微软翻译，会将选中文字发送给微软，不改变你的翻译服务设置。外部应用的快捷键与权限需在设置中验证。</p>
+        <footer class="onboarding-actions"><button id="onboarding-reset" type="button" class="ghost">重新试用</button><span class="spacer"></span><button id="onboarding-next" type="button" class="primary">设置输入助手</button></footer>
+      </div>
+    </dialog>
     <dialog id="settings">
       <form method="dialog" id="settings-form" class="sheet">
         <nav class="side" aria-label="设置分类">
@@ -105,7 +144,13 @@
               <select id="s-engine"></select>
             </label>
             <fieldset data-for="achord_builtin">
-              <p class="muted">不用填任何东西。偶尔会被限流，提示后稍等一分钟或换别的服务。</p>
+              <legend>Achord 翻译插件</legend>
+              <p class="muted">使用独立的 DLX 插件，无需 API 密钥。更新不保证解除上游访问限制。</p>
+              <progress id="plugin-progress" class="plugin-progress" max="100" hidden aria-label="插件安装进度"></progress>
+              <p id="plugin-detail" class="muted" hidden></p>
+              <p id="plugin-status" role="status">正在读取插件状态…</p>
+              <button id="plugin-check" type="button">检查插件更新</button>
+              <button id="plugin-install" type="button" hidden>安装插件</button>
             </fieldset>
             <fieldset data-for="google">
               <p class="muted">不用填任何东西。需要能访问 Google 的网络。</p>
@@ -152,6 +197,13 @@
                 <label class="check" id="dc-system-row" hidden><input id="s-hk-dc" type="checkbox" /><span>后台稳定监听<small class="muted">推荐打开。在任何应用里都更灵敏，需要「辅助功能」权限</small></span></label>
               </div>
             </fieldset>
+            <fieldset id="fs-shot-windows" hidden>
+              <legend>截图翻译</legend>
+              <label class="check"><input id="s-win-shot" type="checkbox" /> 按住 Ctrl，550 毫秒内连按两次 X 截图</label>
+              <p>框选后在截图上回贴译文，可对照原文、提取文字、复制图片或钉到屏幕。Esc 或右键退出；第一次 Ctrl+X 保留剪切行为。</p>
+              <p class="muted">使用 Windows 本机 OCR，需安装对应语言的 OCR 语言包；不会上传截图，识别文字交给当前翻译服务。</p>
+              <div class="actions left"><button type="button" id="p-shot-windows" class="ghost">框选截图翻译</button></div>
+            </fieldset>
             <fieldset id="fs-shot" hidden>
               <legend>截图翻译</legend>
               <label class="check"><input id="s-hk-shot" type="checkbox" /><span>连按两次 ⌘X 框选屏幕上的文字翻译<small class="muted">需要「屏幕录制」权限</small></span></label>
@@ -179,7 +231,7 @@
           </section>
 
           <section class="pane-body" data-pane="ia" hidden>
-            <h2>输入助手</h2>
+            <div class="ia-guide-heading"><h2>输入助手</h2><button type="button" id="open-onboarding" class="ghost" hidden>使用引导</button></div>
             <p class="muted" id="ia-intro"></p>
             <fieldset>
               <label class="check"><input id="ia-enabled" type="checkbox" /> 打开输入助手</label>
@@ -231,15 +283,14 @@
 
           <section class="pane-body" data-pane="about" hidden>
             <h2>关于</h2>
-            <div class="about card">
+            <div class="about card about-update">
               <img src="/icon.png" alt="" width="64" height="64" />
               <div>
                 <strong id="a-name">Tolk</strong>
                 <div class="muted" id="a-version"></div>
-                <div class="about-status muted" id="a-status" hidden></div>
               </div>
-              <span class="spacer"></span>
               <button type="button" id="a-check" class="ghost">检查更新</button>
+              <div class="about-status muted" id="a-status" role="status" tabindex="0" hidden></div>
             </div>
             <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">问题反馈</a></p>
             <div class="about card feedback-card">

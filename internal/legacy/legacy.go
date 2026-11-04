@@ -62,6 +62,14 @@ func Load(path string) (map[string]any, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, fmt.Errorf("legacy config is not a JSON object: %w", err)
 	}
+	// Existing configurations predate the Microsoft first-run default.
+	// Make their historical implicit provider explicit in memory and on next save.
+	if m != nil {
+		t := Sub(m, "translation")
+		if api, _ := t["api"].(string); api == "" {
+			t["api"] = "google"
+		}
+	}
 	return m, nil
 }
 

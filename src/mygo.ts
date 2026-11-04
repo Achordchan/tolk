@@ -186,6 +186,17 @@ export interface SettingsUpdate {
   deeplKey: string;
 }
 
+export interface State {
+  stage: string;
+  route: string;
+  done: number;
+  total: number;
+  phase: string;
+  installed: string;
+  latest: string;
+  message: string;
+}
+
 export interface Summary {
   found: boolean;
   path: string;
@@ -247,6 +258,9 @@ export const Tolk = {
   autostart(): Promise<boolean> {
     return call("Tolk.Autostart");
   },
+  checkPlugin(): Promise<State> {
+    return call("Tolk.CheckPlugin");
+  },
   /**
    * CheckUpdate asks GitHub whether a newer version exists, and starts
    * downloading it if so.
@@ -302,6 +316,9 @@ export const Tolk = {
   inputAssistTrigger(): Promise<void> {
     return call("Tolk.InputAssistTrigger");
   },
+  installPlugin(): Promise<void> {
+    return call("Tolk.InstallPlugin");
+  },
   /**
    * InstallUpdate puts the update in now and restarts Tolk: at once when it has
    * already downloaded, otherwise after the download (progress arrives as
@@ -337,6 +354,10 @@ export const Tolk = {
   macStatus(): Promise<MacStatus> {
     return call("Tolk.MacStatus");
   },
+  /** MiniReady replays the latest state only after the page installed its listener. */
+  miniReady(): Promise<void> {
+    return call("Tolk.MiniReady");
+  },
   /** OpenLink opens an http(s) link in the default browser. */
   openLink(url: string): Promise<void> {
     return call("Tolk.OpenLink", url);
@@ -348,6 +369,9 @@ export const Tolk = {
   panelSnapshot(): Promise<PanelView> {
     return call("Tolk.PanelSnapshot");
   },
+  pluginStatus(): Promise<State> {
+    return call("Tolk.PluginStatus");
+  },
   /** ResizeMini fits the bubble to its content; the page reports the height. */
   resizeMini(height: number): Promise<void> {
     return call("Tolk.ResizeMini", height);
@@ -355,6 +379,9 @@ export const Tolk = {
   /** SaveSettings writes the settings back to the shared config file. */
   saveSettings(u: SettingsUpdate): Promise<void> {
     return call("Tolk.SaveSettings", u);
+  },
+  screenshotWindows(): Promise<void> {
+    return call("Tolk.ScreenshotWindows");
   },
   /**
    * SetAppearance stores the theme and text sizes where dazuo-win keeps them. An
@@ -398,6 +425,9 @@ export const Tolk = {
   setMini(on: boolean): Promise<void> {
     return call("Tolk.SetMini", on);
   },
+  setWindowsScreenshotHotkey(arg0: boolean): Promise<void> {
+    return call("Tolk.SetWindowsScreenshotHotkey", arg0);
+  },
   /**
    * SubmitFeedback sends a report from the 提交问题 dialog. submissionID is the
    * same for every attempt from one opening of the dialog, so a retry after a
@@ -409,6 +439,13 @@ export const Tolk = {
   /** Translate runs the engine chosen in the legacy config. */
   translate(text: string, source: string, target: string): Promise<TranslateResult> {
     return call("Tolk.Translate", text, source, target);
+  },
+  /**
+   * TranslateOnboarding always uses Microsoft without reading or changing the
+   * saved engine. Reuse the engine pool and request timeout of normal translations.
+   */
+  translateOnboarding(text: string, target: string): Promise<TranslateResult> {
+    return call("Tolk.TranslateOnboarding", text, target);
   },
   /**
    * UpdateNotice reports, once, how the update that just ran went: "" when
@@ -446,6 +483,7 @@ export const events = {
   copied: event<string>("copied"),
   /** MiniUpdate carries MiniState to the bubble window. */
   mini: event<MiniState>("mini"),
+  pluginChanged: event<State>("pluginChanged"),
   /**
    * MenuCommand asks the main window to open a part of its UI: "settings" or
    * "update" (settings → 关于, then check for updates).

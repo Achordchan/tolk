@@ -139,6 +139,7 @@ func TestUpdateConcurrentKeepsEveryEdit(t *testing.T) {
 	}
 	wg.Wait()
 	m, err := Load(path)
+	delete(m, "translation") // first-run engine is initialized alongside user edits
 	if err != nil || len(m) != 20 {
 		t.Fatalf("lost updates: %d keys, err=%v", len(m), err)
 	}

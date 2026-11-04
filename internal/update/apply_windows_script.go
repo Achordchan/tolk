@@ -100,6 +100,18 @@ try {
         throw "Process $ProcessId is still running after forced termination."
     }
 
+    # Old crash uploaders can retain this same executable after a later launch.
+    # Match the full executable path, not a basename or an untrusted PID alone.
+    $launcherPath = Join-Path $TargetDir $ExeName
+    foreach ($supervisor in @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -eq $launcherPath } catch { $false }
+    })) {
+        if (-not $supervisor.WaitForExit(10000)) {
+            Write-UpdateLog "Stopping verified launcher $($supervisor.Id); queued reports remain on disk."
+            Stop-Process -InputObject $supervisor -Force -ErrorAction Stop
+            if (-not $supervisor.WaitForExit(5000)) { throw "Launcher has not exited; update cancelled." }
+        }
+    }
     if (Test-Path -LiteralPath $BackupDir) { Remove-Item -LiteralPath $BackupDir -Recurse -Force }
     [System.IO.Directory]::CreateDirectory($BackupDir) | Out-Null
     Invoke-RobocopyChecked -From $TargetDir -To $BackupDir -Phase "backup"

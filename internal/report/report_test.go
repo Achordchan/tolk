@@ -3,6 +3,7 @@ package report
 import (
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -270,5 +271,24 @@ func TestScrubMultilineSecrets(t *testing.T) {
 	in := "password: \"cut\n" + strings.Repeat("log line\n", 2000) + "end \"quoted\""
 	if out := Scrub(in); !strings.HasPrefix(out, "password: \"***\nlog line\n") {
 		t.Errorf("unclosed value took the log: %.60q", out)
+	}
+}
+
+func TestIndependentStoresSerializeUpdates(t *testing.T) {
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := NewStore(dir).Update(func(st *State) { st.Count++ })
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := NewStore(dir).Get().Count; got != 20 {
+		t.Fatalf("lost update: %d", got)
 	}
 }

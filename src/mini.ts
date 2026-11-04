@@ -67,6 +67,7 @@ events.mini.on((s) => {
     body.textContent = "翻译中…";
     meta.textContent = "";
     stopDismiss();
+    remaining = 0;
   } else if (s.state === "error") {
     body.classList.add("error");
     body.textContent = s.text;
@@ -80,3 +81,5 @@ events.mini.on((s) => {
   }
   fit();
 });
+
+void Tolk.miniReady();

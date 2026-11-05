@@ -158,7 +158,13 @@ engineSel.value = initialSettings.engine;
 
 let seq = 0;
 let timer: number | undefined;
-let detectedName = "";
+/** The translation on screen and exactly what produced it. */
+let lastResult: { input: string; source: string; target: string; text: string; detected: string } | null = null;
+/** The result only counts while the text and the pair still match it. */
+function currentResult() {
+  const r = lastResult;
+  return r && r.input === input.value && r.source === source.value && r.target === target.value ? r : null;
+}
 
 // The empty stage teaches the gesture that fills it, on this system's keys and
 // at the speed the settings ask for.
@@ -202,7 +208,10 @@ function showDetected(name: string) {
 
 async function run() {
   const text = input.value;
+  const from = source.value;
+  const to = target.value;
   const mine = ++seq;
+  lastResult = null;
   const hadError = output.classList.contains("error");
   output.classList.remove("error");
   if (!text.trim()) {
@@ -221,15 +230,16 @@ async function run() {
   status.textContent = "";
   drawResultActions("none");
   try {
-    const res = await Tolk.translate(text, source.value, target.value);
+    const res = await Tolk.translate(text, from, to);
     if (mine !== seq) return; // a newer request replaced this one
     showEmpty(false);
     output.classList.remove("busy");
     output.textContent = res.text;
     if (first) replay(output, "land");
     dot.classList.remove("err");
-    detectedName = langName(res.detected);
-    showDetected(source.value === AUTO ? detectedName : "");
+    const detectedName = langName(res.detected);
+    lastResult = { input: text, source: from, target: to, text: res.text, detected: detectedName };
+    showDetected(from === AUTO ? detectedName : "");
     status.textContent = `${(res.durationMs / 1000).toFixed(1)} 秒`;
     drawResultActions("done");
   } catch (e) {
@@ -257,7 +267,7 @@ function clearTranslationState() {
   output.classList.remove("error", "busy");
   status.textContent = "";
   dot.classList.remove("err");
-  detectedName = "";
+  lastResult = null;
   showDetected("");
   showEmpty(true);
   drawResultActions("none");
@@ -311,10 +321,12 @@ engineSel.addEventListener("change", async () => {
 let swapTurn = 0;
 const engineLabel = (name: string) => (name === "中文" ? "简体中文" : langs.find((n) => shown(n) === name || n === name));
 swapBtn.addEventListener("click", () => {
-  const from = source.value === AUTO ? engineLabel(detectedName) : source.value;
-  if (!from) return toast("还不知道原文是什么语言，先翻译一句再交换");
+  // Text edited since the last translation stays put: only the pair trades places.
+  const done = currentResult();
+  const from = source.value === AUTO ? engineLabel(done?.detected ?? "") : source.value;
+  if (!from) return toast("还不知道原文是什么语言，等译文出来再交换");
   const to = target.value;
-  const translated = !output.classList.contains("error") && !output.classList.contains("busy") ? output.textContent ?? "" : "";
+  const translated = done?.text ?? "";
   source.value = to;
   target.value = from;
   swapTurn += 180;
@@ -325,6 +337,9 @@ swapBtn.addEventListener("click", () => {
   void saveLanguages();
   if (translated) {
     ++seq; // whatever is still on its way answers the old direction
+    lastResult = null;
+    drawResultActions("none");
+    status.textContent = "";
     output.textContent = input.value;
     input.value = translated;
     drawInputState();
@@ -362,11 +377,14 @@ let copiedTimer: number | undefined;
 copyBtn.addEventListener("click", async () => {
   const text = output.textContent;
   if (!text || output.classList.contains("error")) return;
+  const mine = seq;
   try {
     await navigator.clipboard.writeText(text);
   } catch {
     return toast("复制失败");
   }
+  // The result may have been replaced or cleared while the clipboard was busy.
+  if (mine !== seq || output.textContent !== text) return toast("已复制上一条译文");
   const mark = document.createElement("mark");
   mark.textContent = text;
   output.replaceChildren(mark);

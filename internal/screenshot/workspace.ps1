@@ -28,6 +28,7 @@ $target.SelectedItem=$env:TOLK_SHOT_TARGET
 if ($target.SelectedIndex -lt 0) { $target.SelectedIndex=0 }
 $bar.AddTop($target)
 $translate=NewButton '翻译' ([ShotKind]::Primary) 'translate'
+$translate.FixedHeight=36
 $bar.SetAction($translate)
 $compare=New-Object ShotToggle
 $compare.Text='原文对照';$compare.Enabled=$false
@@ -43,7 +44,7 @@ $reselect=NewButton '重新框选' ([ShotKind]::Ghost) 'reselect'
 $bar.AddBottomLeft($reselect)
 $close=NewButton '退出' ([ShotKind]::Quiet) ''
 $bar.AddBottomRight($close)
-$finish=NewButton '复制完成' ([ShotKind]::Soft) 'check'
+$finish=NewButton '复制完成' ([ShotKind]::Soft) 'copy'
 $bar.AddBottomRight($finish)
 $script:workArea=[Drawing.Rectangle]::Empty
 function CursorArea {
@@ -73,6 +74,12 @@ function Busy($on) {
  $viewText.Enabled=(!$on -and $script:fullTranslation)
  $compare.Enabled=(!$on -and $null -ne $script:translated)
 }
+function SetLead($translated) {
+ # The one strong button is what the user does next: translate, then keep the result.
+ $translate.Kind=if($translated){[ShotKind]::Soft}else{[ShotKind]::Primary}
+ $finish.Kind=if($translated){[ShotKind]::Primary}else{[ShotKind]::Soft}
+ $translate.Invalidate();$finish.Invalidate()
+}
 function ClearTranslation {
  $script:fullTranslation=''
  $viewText.Enabled=$false
@@ -80,6 +87,7 @@ function ClearTranslation {
  if ($script:translated) {$script:translated.Dispose();$script:translated=$null}
  $compare.Checked=$false;$compare.Enabled=$false
  $translate.Text='翻译'
+ SetLead $false
 }
 function Recognize {
  LoadOCR
@@ -111,35 +119,62 @@ function Recognize {
  $script:blocks=@(GroupParagraphs $script:blocks)
  if (!$script:blocks.Count) {throw '未识别到文字。请重新框选或切换源语言后重试。'}
 }
+function FitSize($g,$text,$rect,$largest,$typeset) {
+ # GDI+ measures long text slowly. Rule out what cannot fit by area, then bisect the size,
+ # so an oversized translation fails at once instead of freezing the workspace.
+ $smallest=6
+ $largest=[Math]::Max($smallest,$largest)
+ if(($text.Length*$smallest*$smallest*0.45) -gt ($rect.Width*$rect.Height)){return 0}
+ $fits=0;$trial=$smallest
+ for($step=0;$step -lt 8;$step++){
+  $font=New-Object Drawing.Font('Microsoft YaHei',[single]$trial,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+  $measured=$g.MeasureString($text,$font,[int]$rect.Width,$typeset)
+  $font.Dispose()
+  if($measured.Height -le $rect.Height -and $measured.Width -le $rect.Width){$fits=$trial}elseif($step -eq 0){return 0}else{$largest=$trial}
+  if($step -eq 0){$trial=$largest}else{$trial=($fits+$largest)/2}
+  if($step -gt 0 -and ($largest-$fits) -le 0.5){break}
+ }
+ return $fits
+}
 function Render($texts) {
  $image=New-Object Drawing.Bitmap($script:crop)
  $g=[Drawing.Graphics]::FromImage($image)
  $g.TextRenderingHint=[Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+ # GenericTypographic drops GDI+'s side padding, so the text starts where the source text did.
+ $typeset=New-Object Drawing.StringFormat([Drawing.StringFormat]::GenericTypographic)
+ $typeset.FormatFlags=$typeset.FormatFlags -bor [Drawing.StringFormatFlags]::MeasureTrailingSpaces
+ # OCR line heights wobble; lines close to the typical height are one level and share a size,
+ # headings keep their own. Left edges within a few pixels of the previous block line up with it.
+ $heights=@($script:blocks | ForEach-Object {$_.LineHeight} | Sort-Object)
+ $typical=$heights[[int][Math]::Floor($heights.Count/2)]
  try {
+  $plans=New-Object System.Collections.Generic.List[object]
+  $previousLeft=$null
   for($i=0;$i -lt $script:blocks.Count;$i++) {
    $block=$script:blocks[$i]
+   $sameLevel=[Math]::Abs($block.LineHeight-$typical) -le $typical*0.35
+   $lineHeight=if($sameLevel){$typical}else{$block.LineHeight}
    $x=[Math]::Max(0,[int]$block.X-2);$y=[Math]::Max(0,[int]$block.Y-2)
    $w=[Math]::Min($image.Width-$x,[int]$block.W+4);$h=[Math]::Min($image.Height-$y,[int]$block.H+4)
-   $color=$script:crop.GetPixel($x,$y)
-   $background=New-Object Drawing.SolidBrush($color)
-   $foreground=if ($color.GetBrightness() -gt 0.5){[Drawing.Brushes]::Black}else{[Drawing.Brushes]::White}
-   $rect=New-Object Drawing.RectangleF($x,$y,$w,$h)
-   $size=[Math]::Max(6,[Math]::Min(32,$block.LineHeight*0.8))
+   $left=[float]$block.X
+   if($null -ne $previousLeft -and [Math]::Abs($left-$previousLeft) -le $lineHeight*0.25){$left=$previousLeft}
+   $previousLeft=$left
+   $textRect=New-Object Drawing.RectangleF($left,[float]$block.Y,([float]$x+$w-$left),([float]$y+$h-[float]$block.Y))
+   $text=[string]$texts[$i]
+   $size=FitSize $g $text $textRect ($lineHeight*1.15) $typeset
+   if($size -le 0){throw '译文长度超出原文字区域，已保留原图。可点击“查看译文”阅读和复制完整结果。'}
+   $plans.Add([PSCustomObject]@{Text=$text;Rect=(New-Object Drawing.RectangleF($x,$y,$w,$h));TextRect=$textRect;Size=$size;SameLevel=$sameLevel;Background=$script:crop.GetPixel($x,$y)})
+  }
+  $levelSize=@($plans | Where-Object {$_.SameLevel} | ForEach-Object {$_.Size} | Sort-Object)[0]
+  foreach($plan in $plans) {
+   $size=if($plan.SameLevel){$levelSize}else{$plan.Size}
+   $background=New-Object Drawing.SolidBrush($plan.Background)
+   $foreground=if ($plan.Background.GetBrightness() -gt 0.5){[Drawing.Brushes]::Black}else{[Drawing.Brushes]::White}
    $font=New-Object Drawing.Font('Microsoft YaHei',[single]$size,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   while($size -gt 6) {
-    $measured=$g.MeasureString([string]$texts[$i],$font,[int]$w)
-    if($measured.Height -le $h -and $measured.Width -le $w){break}
-    $font.Dispose();$size-=0.5;$font=New-Object Drawing.Font('Microsoft YaHei',[single]$size,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
-   }
-   $measured=$g.MeasureString([string]$texts[$i],$font,[int]$w)
-   if ($measured.Height -gt $h -or $measured.Width -gt $w) {
-    $font.Dispose();$background.Dispose()
-    throw '译文长度超出原文字区域，已保留原图。可点击“查看译文”阅读和复制完整结果。'
-   }
-   $g.FillRectangle($background,$rect);$g.DrawString([string]$texts[$i],$font,$foreground,$rect)
+   $g.FillRectangle($background,$plan.Rect);$g.DrawString($plan.Text,$font,$foreground,$plan.TextRect,$typeset)
    $font.Dispose();$background.Dispose()
   }
- } catch {$image.Dispose();throw} finally {$g.Dispose()}
+ } catch {$image.Dispose();throw} finally {$typeset.Dispose();$g.Dispose()}
  return $image
 }
 $compare.Add_CheckedChanged({SyncOverlay})
@@ -167,7 +202,7 @@ $viewText.Add_Click({
  try {
  $scale=[CaptureDpi]::ScaleAt($bounds.X+$script:selection.X,$bounds.Y+$script:selection.Y)
  $textWindow=New-Object Windows.Forms.Form
- $textWindow.Text='完整译文';$textWindow.AutoScaleMode='None'
+ $textWindow.Text='完整译文';$textWindow.AutoScaleMode='None';$textWindow.ShowIcon=$false
  $textWindow.ClientSize=New-Object Drawing.Size([int](560*$scale),[int](400*$scale))
  $textWindow.StartPosition='CenterParent';$textWindow.BackColor=$palette.Card;$textWindow.KeyPreview=$true;$textWindow.ShowInTaskbar=$false
  # The workspace is topmost; this window has to stay above it.
@@ -175,10 +210,14 @@ $viewText.Add_Click({
  $textWindow.Padding=New-Object Windows.Forms.Padding([int](18*$scale))
  $textWindow.Add_KeyDown({if($_.KeyCode -eq 'Escape'){$this.Close()}})
  $textBox=New-Object Windows.Forms.TextBox
- $textBox.Multiline=$true;$textBox.ReadOnly=$true;$textBox.ScrollBars='Vertical';$textBox.Dock='Fill';$textBox.BorderStyle='None'
+ $textBox.Multiline=$true;$textBox.ReadOnly=$true;$textBox.Dock='Fill';$textBox.BorderStyle='None'
  $textBox.BackColor=$palette.Card;$textBox.ForeColor=$palette.Fg;$textBox.Text=$script:fullTranslation
  $textBox.Font=[ShotPaint]::FontPx(15*$scale,[Drawing.FontStyle]::Regular)
  $textWindow.Controls.Add($textBox)
+ # The scrollbar appears only when the text needs it.
+ $inner=$textWindow.ClientSize.Width-2*$textWindow.Padding.Left
+ $needed=[Windows.Forms.TextRenderer]::MeasureText($script:fullTranslation,$textBox.Font,(New-Object Drawing.Size($inner,0)),[Windows.Forms.TextFormatFlags]::WordBreak).Height
+ if($needed -gt $textWindow.ClientSize.Height-2*$textWindow.Padding.Top){$textBox.ScrollBars='Vertical'}
  $textWindow.Add_Shown({$textBox.SelectionStart=0;$textBox.SelectionLength=0})
  [CaptureDpi]::DarkCaption($textWindow.Handle,$palette.Dark)
  try{[void]$textWindow.ShowDialog($form)}finally{$textBox.Font.Dispose();$textWindow.Dispose()}
@@ -239,7 +278,7 @@ $form.Add_MouseUp({
  $form.SetHint('','',[Drawing.Rectangle]::Empty,1)
  $bar.Arrange($form.SelectionScale,$monitor.Width)
  $bar.Visible=$true
- Status '已框选，可以翻译或提取文字'
+ Status '已框选'
  Busy $false
 })
 # The pipe is event-driven; the UI timer only marshals a completed read task onto
@@ -258,8 +297,9 @@ $timer.Add_Tick({
   $script:fullTranslation=(@($reply.texts) -join "`r`n")
   $script:translated=Render @($reply.texts)
   $translate.Text='重新翻译'
+  SetLead $true
   SyncOverlay
-  Status '翻译完成，可以复制或钉住'
+  Status '翻译完成'
  } catch {Failed $_.Exception.Message} finally {Busy $false}
 })
 $timer.Start()

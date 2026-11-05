@@ -6,6 +6,7 @@ struct LanguageSearchPicker: View {
     let options: [Language]
     @Binding var selection: String
     let palette: ScreenshotPalette
+    var showsTitle: Bool = true
 
     @Environment(\.colorScheme) private var scheme
 
@@ -20,9 +21,11 @@ struct LanguageSearchPicker: View {
             isPresented = true
         } label: {
             HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(palette.muted)
+                if showsTitle {
+                    Text(title)
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.muted)
+                }
 
                 Text(selectedName)
                     .font(.system(size: 14))
@@ -48,6 +51,7 @@ struct LanguageSearchPicker: View {
             .onHover { isHovering = $0 }
         }
         .buttonStyle(.plain)
+        .help(title)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             VStack(spacing: 10) {
                 TextField("搜索语言", text: $query)

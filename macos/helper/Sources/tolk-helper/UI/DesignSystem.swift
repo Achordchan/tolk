@@ -69,40 +69,52 @@ struct ScreenshotButtonStyle: ButtonStyle {
 
     let kind: Kind
     let palette: ScreenshotPalette
+    var iconOnly: Bool = false
+    var tall: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
-        StyledButton(configuration: configuration, kind: kind, palette: palette)
+        StyledButton(configuration: configuration, kind: kind, palette: palette, iconOnly: iconOnly, tall: tall)
     }
 
     private struct StyledButton: View {
         let configuration: Configuration
         let kind: Kind
         let palette: ScreenshotPalette
+        let iconOnly: Bool
+        let tall: Bool
 
         @Environment(\.isEnabled) private var isEnabled
         @State private var hovering = false
 
         var body: some View {
             configuration.label
-                .labelStyle(ScreenshotLabelStyle(iconColor: iconColor))
-                .font(.system(size: kind == .primary ? 14 : 13, weight: kind == .primary ? .medium : .regular))
-                .foregroundStyle(kind == .primary ? Color.white : kind == .quiet ? palette.muted : palette.fg)
-                .padding(.horizontal, kind == .primary ? 13 : 9)
-                .frame(height: kind == .primary ? 34 : 30)
+                .labelStyle(ScreenshotLabelStyle(iconColor: iconColor, iconOnly: iconOnly))
+                .font(.system(size: 13, weight: kind == .primary ? .medium : .regular))
+                .foregroundStyle(textColor)
+                .padding(.horizontal, kind == .primary ? 12 : 9)
+                .frame(height: tall ? 34 : 30)
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(fill))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .strokeBorder(kind == .soft ? palette.controlStroke : Color.clear, lineWidth: 1)
                 )
                 .brightness(kind == .primary && isEnabled ? (configuration.isPressed ? -0.08 : hovering ? 0.04 : 0) : 0)
-                .opacity(isEnabled ? 1 : 0.45)
+                .opacity(isEnabled || kind == .primary ? 1 : 0.45)
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .onHover { hovering = $0 }
         }
 
+        private var textColor: Color {
+            switch kind {
+            case .primary: return isEnabled ? .white : palette.muted
+            case .quiet: return palette.muted
+            case .soft, .ghost: return palette.fg
+            }
+        }
+
         private var iconColor: Color {
             switch kind {
-            case .primary: return .white
+            case .primary: return textColor
             case .soft: return palette.fg
             case .ghost, .quiet: return palette.muted
             }
@@ -110,7 +122,7 @@ struct ScreenshotButtonStyle: ButtonStyle {
 
         private var fill: Color {
             switch kind {
-            case .primary: return palette.accent
+            case .primary: return isEnabled ? palette.accent : palette.control
             case .soft: return palette.control
             case .ghost, .quiet:
                 if !isEnabled { return .clear }
@@ -122,13 +134,16 @@ struct ScreenshotButtonStyle: ButtonStyle {
 
 private struct ScreenshotLabelStyle: LabelStyle {
     let iconColor: Color
+    let iconOnly: Bool
 
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 6) {
             configuration.icon
                 .font(.system(size: 13))
                 .foregroundStyle(iconColor)
-            configuration.title
+            if !iconOnly {
+                configuration.title
+            }
         }
     }
 }
@@ -140,7 +155,7 @@ extension View {
             .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(palette.card))
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(palette.stroke, lineWidth: 1))
             .compositingGroup()
-            .shadow(color: .black.opacity(0.22), radius: 16, x: 0, y: 8)
+            .shadow(color: .black.opacity(0.18), radius: 9, x: 0, y: 5)
     }
 }
 

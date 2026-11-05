@@ -73,7 +73,7 @@ struct ScreenshotSelectionWorkspaceView: View {
             Text("拖动框选要翻译的区域")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(palette.fg)
-            Text("Esc 退出，右键清空选区。框选后点「翻译」才识别和翻译。")
+            Text("Esc 退出，右键清空选区。")
                 .font(.system(size: 13))
                 .foregroundStyle(palette.muted)
         }
@@ -212,6 +212,8 @@ struct ScreenshotSelectionWorkspaceView: View {
 
     private func toolbar(size: CGSize) -> some View {
         let placement = toolbarPlacement(containerSize: size)
+        let width = toolbarWidth(containerSize: size)
+        let compact = width < Self.fullToolbarWidth
 
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 2) {
@@ -220,7 +222,8 @@ struct ScreenshotSelectionWorkspaceView: View {
                     allowAuto: true,
                     options: VisionOCRService.selectableSourceLanguages,
                     selection: $session.sourceLanguageCode,
-                    palette: palette
+                    palette: palette,
+                    showsTitle: !compact
                 )
 
                 Image(systemName: "arrow.right")
@@ -233,18 +236,21 @@ struct ScreenshotSelectionWorkspaceView: View {
                     allowAuto: false,
                     options: LanguagePreset.common,
                     selection: $session.targetLanguageCode,
-                    palette: palette
+                    palette: palette,
+                    showsTitle: !compact
                 )
 
                 Spacer(minLength: 10)
 
-                statusLabel
-                    .padding(.trailing, 8)
+                if !compact {
+                    statusLabel
+                        .padding(.trailing, 8)
+                }
 
                 Button(action: onTranslateTapped) {
                     Label(translateButtonTitle, systemImage: "translate")
                 }
-                .buttonStyle(ScreenshotButtonStyle(kind: .primary, palette: palette))
+                .buttonStyle(ScreenshotButtonStyle(kind: session.stage == .translated ? .soft : .primary, palette: palette, tall: true))
                 .disabled(!canTranslate)
             }
 
@@ -271,13 +277,15 @@ struct ScreenshotSelectionWorkspaceView: View {
                 Button(action: onExtractTapped) {
                     Label("提取原文", systemImage: "text.viewfinder")
                 }
-                .buttonStyle(ScreenshotButtonStyle(kind: .ghost, palette: palette))
+                .buttonStyle(ScreenshotButtonStyle(kind: .ghost, palette: palette, iconOnly: compact))
+                .help("提取原文")
                 .disabled(!canExtract)
 
                 Button(action: onPinTapped) {
                     Label("钉到屏幕", systemImage: "pin")
                 }
-                .buttonStyle(ScreenshotButtonStyle(kind: .ghost, palette: palette))
+                .buttonStyle(ScreenshotButtonStyle(kind: .ghost, palette: palette, iconOnly: compact))
+                .help("钉到屏幕")
                 // plain 样式加了前景色，禁用时不会自己变淡。
                 .disabled(!session.canExport)
 
@@ -286,17 +294,23 @@ struct ScreenshotSelectionWorkspaceView: View {
                 Button {
                     showOCRInfo.toggle()
                 } label: {
-                    Image(systemName: "info.circle")
+                    Label("说明", systemImage: "info.circle")
                 }
-                .buttonStyle(ScreenshotButtonStyle(kind: .quiet, palette: palette))
+                .buttonStyle(ScreenshotButtonStyle(kind: .quiet, palette: palette, iconOnly: compact))
                 .help("关于截图 OCR")
                 .popover(isPresented: $showOCRInfo, arrowEdge: .top) { ocrInfo }
 
                 Button(action: onFinishTapped) {
                     Label("完成", systemImage: "checkmark")
                 }
-                .buttonStyle(ScreenshotButtonStyle(kind: .soft, palette: palette))
+                .buttonStyle(ScreenshotButtonStyle(kind: session.stage == .translated ? .primary : .soft, palette: palette))
                 .disabled(!session.canExport)
+            }
+
+            if compact, !statusText.isEmpty || session.stage == .ocrRunning || session.stage == .translating {
+                statusLabel
+                    .padding(.top, 8)
+                    .padding(.horizontal, 8)
             }
 
             if case .failed(let message) = session.stage {
@@ -310,11 +324,17 @@ struct ScreenshotSelectionWorkspaceView: View {
             }
         }
         .padding(10)
-        .frame(width: Self.toolbarWidth)
+        .frame(width: width)
         .screenshotCard(palette, radius: 14)
         // 贴着选区的那条边锚定：错误提示让工具条变高时，不会盖到选区上。
-        .alignmentGuide(.top) { placement.growsUpward ? $0[.bottom] : $0[.top] }
-        .offset(x: placement.x, y: placement.y)
+        // 外层固定大小的框把它留在容器内，否则 ZStack 会把工具条算进自己的尺寸，整层跟着移位。
+        .padding(.leading, placement.x)
+        .frame(
+            width: size.width,
+            height: placement.growsUpward ? placement.y : max(0, size.height - placement.y),
+            alignment: placement.growsUpward ? .bottomLeading : .topLeading
+        )
+        .offset(y: placement.growsUpward ? 0 : placement.y)
     }
 
     @ViewBuilder
@@ -332,12 +352,10 @@ struct ScreenshotSelectionWorkspaceView: View {
 
     private var statusText: String {
         switch session.stage {
-        case .selecting, .failed: return ""
-        case .selected: return "已框选，可以翻译或提取文字"
-        case .ocrRunning: return "正在识别文字…"
-        case .ocrReady: return "原文已提取并复制"
-        case .translating: return "正在翻译…"
-        case .translated: return "翻译完成，可以钉住或完成"
+        case .selected: return "已框选"
+        case .translated: return "翻译完成"
+        // 进行中按钮上已经写着；提取原文有提示条；失败写在工具条最下面。
+        case .selecting, .ocrRunning, .ocrReady, .translating, .failed: return ""
         }
     }
 
@@ -413,7 +431,15 @@ struct ScreenshotSelectionWorkspaceView: View {
         }
     }
 
-    private static let toolbarWidth: CGFloat = 690
+    private static let fullToolbarWidth: CGFloat = 690
+    private static let toolbarMargin: CGFloat = 10
+
+    /// 通常是完整宽度；显示器放不下时收窄，语言不写标题，次要操作只留图标。
+    private func toolbarWidth(containerSize: CGSize) -> CGFloat {
+        let selection = rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: containerSize)
+        let frame = displayFrame(containing: selection, containerSize: containerSize)
+        return min(Self.fullToolbarWidth, frame.width - Self.toolbarMargin * 2)
+    }
 
     private struct ToolbarPlacement {
         let x: CGFloat
@@ -422,9 +448,11 @@ struct ScreenshotSelectionWorkspaceView: View {
         let growsUpward: Bool
     }
 
-    private var estimatedToolbarHeight: CGFloat {
-        if case .failed = session.stage { return 140 }
-        return 102
+    private func estimatedToolbarHeight(containerSize: CGSize) -> CGFloat {
+        var height: CGFloat = 102
+        if case .failed = session.stage { height += 38 }
+        if toolbarWidth(containerSize: containerSize) < Self.fullToolbarWidth { height += 26 }
+        return height
     }
 
     /// 选区下方优先，放不下放上方，再放不下贴着显示器底边。始终留在选区所在的显示器内。
@@ -435,9 +463,9 @@ struct ScreenshotSelectionWorkspaceView: View {
             containerSize: containerSize
         )
         let frame = displayFrame(containing: selection, containerSize: containerSize)
-        let width = Self.toolbarWidth
-        let height = estimatedToolbarHeight
-        let gap: CGFloat = 10
+        let width = toolbarWidth(containerSize: containerSize)
+        let height = estimatedToolbarHeight(containerSize: containerSize)
+        let gap = Self.toolbarMargin
 
         let x = clamp(selection.minX, min: frame.minX + gap, max: frame.maxX - width - gap)
         if selection.maxY + gap + height <= frame.maxY - gap {
@@ -489,15 +517,25 @@ struct ScreenshotSelectionWorkspaceView: View {
         return CGRect(x: baseRectTopLeft.minX, y: baseRectTopLeft.minY, width: baseRectTopLeft.width, height: newHeight)
     }
 
+    /// 工具条外侧优先；那边放不下就放到工具条另一侧，并始终留在显示器内。
     private func hudToastPosition(containerSize: CGSize) -> CGPoint {
+        let selection = rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: containerSize)
+        let frame = displayFrame(containing: selection, containerSize: containerSize)
         let placement = toolbarPlacement(containerSize: containerSize)
+        let height = estimatedToolbarHeight(containerSize: containerSize)
         let halfHeight: CGFloat = 20
         let margin: CGFloat = 8
-        let x = placement.x + Self.toolbarWidth / 2
-        if placement.growsUpward {
-            return CGPoint(x: x, y: placement.y - estimatedToolbarHeight - margin - halfHeight)
-        }
-        return CGPoint(x: x, y: placement.y + estimatedToolbarHeight + margin + halfHeight)
+        let top = placement.growsUpward ? placement.y - height : placement.y
+        let bottom = placement.growsUpward ? placement.y : placement.y + height
+        let above = top - margin - halfHeight
+        let below = bottom + margin + halfHeight
+        let preferred = placement.growsUpward ? above : below
+        let fallback = placement.growsUpward ? below : above
+        let fits = preferred - halfHeight >= frame.minY && preferred + halfHeight <= frame.maxY
+        return CGPoint(
+            x: placement.x + toolbarWidth(containerSize: containerSize) / 2,
+            y: clamp(fits ? preferred : fallback, min: frame.minY + halfHeight, max: frame.maxY - halfHeight)
+        )
     }
 
     private func normalizedRectTopLeft(start: CGPoint, current: CGPoint) -> CGRect {

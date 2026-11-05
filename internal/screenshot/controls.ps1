@@ -91,6 +91,7 @@ public static class ShotPaint {
    case "pin": return new float[][] { new float[] { 0, 12, 16.5f, 12, 21 }, new float[] { 1, 9, 3.5f, 15, 3.5f, 14, 9, 17.5f, 13, 17.5f, 15, 6.5f, 15, 6.5f, 13, 10, 9 } };
    case "reselect": return new float[][] { new float[] { 0, 4, 9, 4, 4, 9, 4 }, new float[] { 0, 15, 4, 20, 4, 20, 9 }, new float[] { 0, 20, 15, 20, 20, 15, 20 }, new float[] { 0, 9, 20, 4, 20, 4, 15 } };
    case "translate": return new float[][] { new float[] { 0, 3.5f, 6, 12.5f, 6 }, new float[] { 0, 8, 4, 8, 6 }, new float[] { 0, 10.5f, 6, 9.2f, 9.5f, 7, 12.3f, 4, 14.5f }, new float[] { 0, 5.5f, 9.5f, 7.5f, 12, 11, 14.5f }, new float[] { 0, 13, 21, 17, 11, 21, 21 }, new float[] { 0, 14.3f, 18, 19.7f, 18 } };
+   case "copy": return new float[][] { new float[] { 1, 9, 9, 20, 9, 20, 20, 9, 20 }, new float[] { 0, 5.5f, 15, 4, 15, 4, 4, 15, 4, 15, 5.5f } };
    case "check": return new float[][] { new float[] { 0, 5, 12.5f, 9.5f, 17, 19, 7 } };
    case "chevron": return new float[][] { new float[] { 0, 6, 9, 12, 15, 18, 9 } };
    case "arrow": return new float[][] { new float[] { 0, 5, 12, 19, 12 }, new float[] { 0, 13, 6, 19, 12, 13, 18 } };
@@ -222,14 +223,15 @@ public class ShotButton : Button, IShotScaled {
   UseMnemonic = false;
  }
  public void Theme(ShotPalette p) { palette = p; BackColor = p.Card; ForeColor = p.Fg; }
- public virtual void SetScale(float s) { scale = s; Font = ShotPaint.FontPx((Kind == ShotKind.Primary ? 14 : 13) * s, FontStyle.Regular); }
- public virtual int RowHeight() { return (int)((Kind == ShotKind.Primary ? 36 : 32) * scale); }
+ public int FixedHeight;
+ public virtual void SetScale(float s) { scale = s; Font = ShotPaint.FontPx((FixedHeight > 0 ? 14 : 13) * s, FontStyle.Regular); }
+ public virtual int RowHeight() { return (int)((FixedHeight > 0 ? FixedHeight : 32) * scale); }
  public virtual int RowWidth() {
   int icon = Glyph.Length > 0 ? (int)(16 * scale) : 0;
   if (IconOnly && icon > 0) { return (int)(32 * scale); }
   int text = TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
   int gap = icon > 0 ? (int)(6 * scale) : 0;
-  return icon + gap + text + (int)((Kind == ShotKind.Primary ? 26 : 16) * scale);
+  return icon + gap + text + (int)((FixedHeight > 0 ? 26 : 16) * scale);
  }
  protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
  protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; Invalidate(); base.OnMouseLeave(e); }
@@ -254,8 +256,8 @@ public class ShotButton : Button, IShotScaled {
   Color text = palette.Fg; Color glyph = palette.Muted;
   if (Kind == ShotKind.Primary) {
    Color fill = Mix(palette.Accent, palette.Dark ? Color.White : Color.Black, down ? .14f : hover && Enabled ? .07f : 0);
-   ShotPaint.Fill(g, r, radius, Enabled ? fill : Mix(palette.Accent, palette.Card, .5f), fill, 0);
-   text = Color.White; glyph = Color.White;
+   ShotPaint.Fill(g, r, radius, Enabled ? fill : palette.Control, fill, 0);
+   text = Enabled ? Color.White : palette.Muted; glyph = text;
   } else if (Kind == ShotKind.Soft) {
    ShotPaint.Fill(g, r, radius, hover && Enabled ? Mix(palette.Control, palette.Fg, down ? .14f : .07f) : palette.Control, palette.ControlStroke, Math.Max(1, scale));
    glyph = palette.Fg;
@@ -273,7 +275,7 @@ public class ShotButton : Button, IShotScaled {
   Ring(g, r, radius);
   g.SmoothingMode = SmoothingMode.None;
   if (!only) {
-   Color back = Kind == ShotKind.Primary ? (Enabled ? palette.Accent : Mix(palette.Accent, palette.Card, .5f)) : palette.Card;
+   Color back = Kind == ShotKind.Primary ? (Enabled ? palette.Accent : palette.Control) : Kind == ShotKind.Soft ? palette.Control : palette.Card;
    Rectangle area = new Rectangle(x + icon + gap, 0, textW + 2, Height);
    TextFormatFlags f = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
    TextRenderer.DrawText(g, Text, Font, area, Enabled || Kind == ShotKind.Primary ? (text.A < 255 ? Mix(back, Color.FromArgb(text.R, text.G, text.B), text.A / 255f) : text) : Mix(back, Color.FromArgb(text.R, text.G, text.B), text.A / 255f), f);
@@ -284,6 +286,7 @@ public class ShotButton : Button, IShotScaled {
 /// <summary>A language pill drawn like the main toolbar's, with a themed menu. Mirrors ComboBox's selection API.</summary>
 public class ShotPicker : ShotButton {
  public string Label = "";
+ public bool Compact;
  public List<string> Items = new List<string>();
  int selected = -1;
  public event EventHandler SelectedIndexChanged;
@@ -307,9 +310,10 @@ public class ShotPicker : ShotButton {
  public override void SetScale(float s) { scale = s; Font = ShotPaint.FontPx(14 * s, FontStyle.Regular); }
  public override int RowHeight() { return (int)(36 * scale); }
  public override int RowWidth() {
+  int value = TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
+  if (Compact) { return value + (int)(40 * scale); }
   using (Font small = ShotPaint.FontPx(13 * scale, FontStyle.Regular)) {
    int label = TextRenderer.MeasureText(Label, small, Size.Empty, TextFormatFlags.NoPrefix).Width;
-   int value = TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
    return label + value + (int)(48 * scale);
   }
  }
@@ -390,11 +394,12 @@ public class ShotPicker : ShotButton {
   Color back = hover && Enabled ? Mix(palette.Control, palette.Fg, down ? .12f : .06f) : palette.Control;
   using (Font small = ShotPaint.FontPx(13 * scale, FontStyle.Regular)) {
    int pad = (int)(11 * scale);
-   int labelW = TextRenderer.MeasureText(Label, small, Size.Empty, TextFormatFlags.NoPrefix).Width;
+   int labelW = Compact ? 0 : TextRenderer.MeasureText(Label, small, Size.Empty, TextFormatFlags.NoPrefix).Width;
    TextFormatFlags f = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis;
    Color muted = Enabled ? palette.Muted : Mix(back, palette.Muted, .5f); Color fg = Enabled ? palette.Fg : Mix(back, palette.Fg, .5f);
-   TextRenderer.DrawText(g, Label, small, new Rectangle(pad, 0, labelW + 2, Height), muted, back, f);
-   TextRenderer.DrawText(g, Text, Font, new Rectangle(pad + labelW + (int)(8 * scale), 0, Width - pad - labelW - (int)(30 * scale), Height), fg, back, f);
+   if (!Compact) { TextRenderer.DrawText(g, Label, small, new Rectangle(pad, 0, labelW + 2, Height), muted, back, f); }
+   int valueX = Compact ? pad : pad + labelW + (int)(8 * scale);
+   TextRenderer.DrawText(g, Text, Font, new Rectangle(valueX, 0, Width - valueX - (int)(26 * scale), Height), fg, back, f);
   }
  }
 }
@@ -492,6 +497,8 @@ public class ShotBar : Panel {
  public void AddBottomRight(Control c) { bottomRight.Add(c); Own(c); }
  static int W(Control c) { ShotButton b = c as ShotButton; if (b != null) { return b.RowWidth(); } ShotToggle t = c as ShotToggle; if (t != null) { return t.RowWidth(); } return ((ShotArrow)c).RowWidth(); }
  static int H(Control c) { ShotButton b = c as ShotButton; if (b != null) { return b.RowHeight(); } ShotToggle t = c as ShotToggle; if (t != null) { return t.RowHeight(); } return ((ShotArrow)c).RowHeight(); }
+ int TopWidth(int gapSmall) { int total = 0; foreach (Control c in top) { total += W(c) + (c is ShotArrow ? 0 : gapSmall); } return total; }
+ static int PickerWidth(List<ShotPicker> pickers) { int total = 0; foreach (ShotPicker p in pickers) { total += p.RowWidth(); } return total; }
  void ScaleAll() {
   foreach (Control c in Controls) { IShotScaled s = c as IShotScaled; if (s != null) { s.SetScale(scale); } }
   status.Font = ShotPaint.FontPx(13 * scale, FontStyle.Regular);
@@ -515,9 +522,21 @@ public class ShotBar : Panel {
    if (b != null) { b.IconOnly = compact && b.Glyph.Length > 0; tips.SetToolTip(b, compact ? b.Text : ""); }
   }
   int x = inner + shadow; int y = inner + shadow; int rowOne = (int)(36 * s);
-  foreach (Control c in top) { int w = W(c); c.SetBounds(x, y + (rowOne - H(c)) / 2, w, H(c)); x += w + (c is ShotArrow ? 0 : gapSmall); }
+  // Row 1 gives way before anything overlaps the action: captions go first, then the pills narrow.
   int actionW = action == null ? 0 : W(action);
-  if (action != null) { action.SetBounds(inner + shadow + contentW - actionW, y, actionW, rowOne); }
+  int room = contentW - actionW - gap;
+  int pickerCap = room;
+  List<ShotPicker> pickers = new List<ShotPicker>();
+  foreach (Control c in top) { ShotPicker p = c as ShotPicker; if (p != null) { p.Compact = false; pickers.Add(p); } }
+  if (TopWidth(gapSmall) > room) {
+   foreach (ShotPicker p in pickers) { p.Compact = true; }
+   if (TopWidth(gapSmall) > room && pickers.Count > 0) { pickerCap = Math.Max(0, (room - (TopWidth(gapSmall) - PickerWidth(pickers))) / pickers.Count); }
+  }
+  foreach (Control c in top) {
+   int w = c is ShotPicker ? Math.Min(W(c), pickerCap) : W(c);
+   c.SetBounds(x, y + (rowOne - H(c)) / 2, w, H(c)); x += w + (c is ShotArrow ? 0 : gapSmall);
+  }
+  if (action != null) { action.SetBounds(inner + shadow + contentW - actionW, y + (rowOne - H(action)) / 2, actionW, H(action)); }
   int slot = inner + shadow + contentW - actionW - gap - x - gap;
   int textW = statusText.Length == 0 ? 0 : TextRenderer.MeasureText(statusText, status.Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
   bool wrap = textW > slot;
@@ -538,7 +557,7 @@ public class ShotBar : Panel {
    detail.Text = statusText; detail.ForeColor = statusError ? palette.Err : palette.Muted;
    int lineW = contentW - (int)(16 * s);
    int detailH = TextRenderer.MeasureText(statusText, detail.Font, new Size(lineW, 0), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height + (int)(2 * s);
-   detail.SetBounds(inner + shadow + (int)(8 * s), rowTwoY + rowTwo + (int)(4 * s), lineW, detailH);
+   detail.SetBounds(inner + shadow + (int)(5 * s), rowTwoY + rowTwo + (int)(4 * s), lineW, detailH);
    bottom = detail.Bottom + inner;
   }
   card = new Rectangle(shadow, shadow, width, bottom - shadow);

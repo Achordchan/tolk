@@ -110,11 +110,18 @@ func setupCrashOutput(dir string) {
 	if err != nil {
 		return
 	}
-	if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
-		f.Close()
+	if err := redirectCrashOutput(f); err != nil {
+		if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
+			f.Close()
+			return
+		}
 	}
-	// f stays open for the life of the process; the runtime writes to it.
+	// The runtime writes to it by handle, so it must never be collected.
+	crashOutput = f
 }
+
+// crashOutput stays open for the life of the process.
+var crashOutput *os.File
 
 // takeCrash moves a crash in crash.log aside to crash.pending.log, where it
 // stays until its report has been tried, and returns the pending crash.
@@ -150,12 +157,23 @@ func readHead(path string, n int64) string {
 	return string(raw)
 }
 
-// isCrash: only the Go runtime writes to crash.log, and only when the
-// process dies, so anything in it is a crash dump: a panic, a fatal error,
-// or a fatal signal or Windows exception in native code (SIGSEGV: …,
-// Exception 0xc0000005 …), which carries neither of the first two.
+// isCrash: crash.log receives the runtime's stderr, so it only counts when it
+// holds a dump: a panic, a fatal error, or a fatal signal or Windows exception
+// in native code (SIGSEGV: …, Exception 0xc0000005 …), which carries neither of
+// the first two. A dump from an older version can start at its stack, without
+// any of those.
 func isCrash(s string) bool {
-	return strings.TrimSpace(s) != ""
+	for _, l := range strings.Split(s, "\n") {
+		if l = strings.TrimSpace(l); crashLine(l) || stackLine(l) {
+			return true
+		}
+	}
+	return false
+}
+
+// stackLine is where a stack starts in a crash dump.
+func stackLine(l string) bool {
+	return l == "runtime stack:" || strings.HasPrefix(l, "goroutine ")
 }
 
 // ---- the 提交问题 dialog ----
@@ -411,6 +429,12 @@ func crashHead(s string) string {
 		l = strings.TrimSpace(l)
 		if head == "" && crashLine(l) {
 			head = l
+			continue
+		}
+		// A stack before any error line: the first line was not recorded, and
+		// an error further down is a failure printing the stack, not the cause.
+		if head == "" && stackLine(l) {
+			head = "程序崩溃（原始错误未记录）"
 			continue
 		}
 		if head != "" && (strings.HasPrefix(l, "main.") || strings.HasPrefix(l, "tolk/")) {

@@ -2,8 +2,11 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -15,6 +18,64 @@ func TestCrashHead(t *testing.T) {
 	}
 	if crashHead("garbage") != "程序崩溃" {
 		t.Error("no panic line must still give a title")
+	}
+}
+
+// A dump that lost its first line, as issue #27's did: the "fatal error" below
+// the stack header is the stack printer failing, not what went wrong.
+func TestCrashHeadIgnoresErrorsAfterTheStack(t *testing.T) {
+	dump := "\nruntime stack:\nfatal error: slice bounds out of range\npanic during panic\n\nruntime stack:\nfatal error: slice bounds out of range\nstack trace unavailable\n"
+	if !isCrash(dump) {
+		t.Fatal("dump dropped")
+	}
+	if got := crashHead(dump); got != "程序崩溃（原始错误未记录）" {
+		t.Fatalf("crashHead = %q", got)
+	}
+	full := "fatal error: found bad pointer in Go heap" + dump
+	if got := crashHead(full); got != "fatal error: found bad pointer in Go heap" {
+		t.Fatalf("crashHead = %q", got)
+	}
+}
+
+func TestStrayStderrIsNotACrash(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, crashFile), []byte("some library said something\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := takeCrash(dir); got != "" {
+		t.Fatalf("takeCrash = %q", got)
+	}
+}
+
+// The real thing, in a child process: a runtime fatal error prints its message
+// before the crash output of debug.SetCrashOutput takes effect.
+func TestCrashLogKeepsFatalErrorLine(t *testing.T) {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("crash_output_other.go keeps the runtime's own option, which misses this line")
+	}
+	if dir := os.Getenv("TOLK_TEST_CRASH_DIR"); dir != "" {
+		setupCrashOutput(dir)
+		runtime.GC() // the log must survive collection
+		var m sync.Mutex
+		m.Unlock()
+		return
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	cmd := exec.Command(self, "-test.run=^TestCrashLogKeepsFatalErrorLine$")
+	cmd.Env = append(os.Environ(), "TOLK_TEST_CRASH_DIR="+dir, "TOLK_SUPERVISED=")
+	if err := cmd.Run(); err == nil {
+		t.Fatal("the child should have crashed")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, crashFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := crashHead(string(raw)); !strings.HasPrefix(got, "fatal error: sync: unlock of unlocked mutex") {
+		t.Fatalf("crashHead = %q\n%s", got, raw)
 	}
 }
 

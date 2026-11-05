@@ -128,7 +128,7 @@ func main() {
 	})
 
 	if err := mygo.App.Run(); err != nil {
-		log.Fatal(err)
+		log.Fatalf("fatal error: %v", err) // the launcher reports this line
 	}
 }
 

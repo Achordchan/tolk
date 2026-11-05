@@ -97,25 +97,40 @@
     </div>
 
     <dialog id="onboarding" aria-labelledby="onboarding-title" aria-describedby="onboarding-description">
-      <div class="onboarding-content">
-        <header class="onboarding-brand"><img src="/icon.png" width="32" height="32" alt="" /><span>输入助手<span class="onboarding-eyebrow">快速上手</span></span><button id="onboarding-skip" type="button" class="ghost">稍后设置</button></header>
-        <h2 id="onboarding-title">写下想法，<br />让译文回到原处。</h2>
-        <p id="onboarding-description">不用来回复制。选中文字，唤起助手，选择译文。</p>
-        <ol class="onboarding-steps" aria-label="试用进度"><li aria-current="step">选中文字</li><li>获取译文</li><li>原位替换</li></ol>
-        <section class="onboarding-workspace" aria-label="真实翻译试用">
-          <div class="onboarding-example-head"><span>试写一封邮件</span><span>真实翻译 · 不会发送邮件</span></div>
-          <label class="onboarding-editor-label" for="onboarding-input">邮件正文</label>
-          <textarea id="onboarding-input" rows="3" maxlength="1000" spellcheck="false">我们明天下午三点见，期待与你交流。</textarea>
-          <div class="onboarding-testbar"><label>翻译成 <select id="onboarding-language"><option value="英语">英语</option><option value="日语">日语</option><option value="法语">法语</option></select></label><button id="onboarding-test" type="button" class="primary">选中并翻译</button></div>
-          <div id="onboarding-candidate" class="onboarding-candidate" hidden>
-            <div class="onboarding-candidate-head"><span id="onboarding-result-label">翻译候选</span><span id="onboarding-result-meta"></span></div>
-            <button id="onboarding-replace" type="button"><span id="onboarding-result"></span><span class="onboarding-replace-hint">点击替换原文</span></button>
-          </div>
-          <div id="onboarding-status" class="onboarding-status" role="status">可修改示例文字；选中部分内容，或直接翻译整段。</div>
+      <div class="onboarding-stage">
+        <section class="onboarding-page" data-page="1">
+          <label class="onboarding-editor"><textarea id="onboarding-input" aria-label="试用文字" rows="4" maxlength="1000" spellcheck="false">我们明天下午三点见，期待与你交流。</textarea></label>
         </section>
-        <p class="onboarding-note">试用固定使用微软翻译，会将选中文字发送给微软，不改变你的翻译服务设置。外部应用的快捷键与权限需在设置中验证。</p>
-        <footer class="onboarding-actions"><button id="onboarding-reset" type="button" class="ghost">重新试用</button><span class="spacer"></span><button id="onboarding-next" type="button" class="primary">设置输入助手</button></footer>
+        <section class="onboarding-page" data-page="2" hidden>
+          <p class="onboarding-line" data-line></p>
+          <div id="onboarding-keys" class="onboarding-keys" role="img"></div>
+          <div class="onboarding-language" role="radiogroup" aria-label="翻译成">
+            <span>翻译成</span>
+            <label><input type="radio" name="onboarding-language" value="英语" checked /><span>英语</span></label>
+            <label><input type="radio" name="onboarding-language" value="日语" /><span>日语</span></label>
+            <label><input type="radio" name="onboarding-language" value="法语" /><span>法语</span></label>
+          </div>
+        </section>
+        <section class="onboarding-page" data-page="3" hidden>
+          <p class="onboarding-line" data-line></p>
+          <div id="onboarding-candidate" class="onboarding-candidate">
+            <button id="onboarding-replace" type="button"><span id="onboarding-result-code" class="onboarding-code"></span><span id="onboarding-result"></span><span class="onboarding-enter" aria-hidden="true">↵</span></button>
+          </div>
+        </section>
       </div>
+      <div class="onboarding-copy">
+        <h2 id="onboarding-title"></h2>
+        <p id="onboarding-description" role="status"></p>
+        <p id="onboarding-note" hidden>试用固定用微软翻译，选中的文字会发给微软，不改你的翻译服务设置。</p>
+      </div>
+      <ol class="onboarding-steps" aria-label="试用进度"><li aria-current="step"><span>选中文字</span></li><li><span>获取译文</span></li><li><span>放回原处</span></li></ol>
+      <footer class="onboarding-actions">
+        <button id="onboarding-skip" type="button" class="onboarding-quiet">稍后设置</button>
+        <button id="onboarding-settings" type="button" class="onboarding-quiet">直接去设置</button>
+        <span class="spacer"></span>
+        <button id="onboarding-back" type="button" class="ghost">上一步</button>
+        <button id="onboarding-primary" type="button" class="primary"></button>
+      </footer>
     </dialog>
     <dialog id="settings">
       <form method="dialog" id="settings-form" class="sheet">

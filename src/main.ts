@@ -9,6 +9,7 @@ import { inputAssistPane } from "./inputassist";
 import { langName } from "./langname";
 import { initOnboarding } from "./onboarding";
 import { initUpdate } from "./update";
+import { drawKeys, playDouble, pressKeys } from "./keys";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -20,8 +21,22 @@ const output = $<HTMLDivElement>("#output");
 const empty = $("#empty");
 const status = $("#status");
 const emptyTitle = $("#empty strong");
-const emptyHint = $("#empty span");
+const emptyHint = $("#empty > span");
+const emptyKeys = $("#empty-keys");
+const detected = $("#detected");
+const copyBtn = $<HTMLButtonElement>("#copy");
+const retryBtn = $<HTMLButtonElement>("#retry");
+const pasteBtn = $<HTMLButtonElement>("#paste");
+const clearBtn = $<HTMLButtonElement>("#clear");
+const swapBtn = $("#swap");
 const dot = $("#dot");
+
+/** Restart a one-shot animation class. */
+function replay(el: Element, cls: string) {
+  el.classList.remove("land", "swap-in", "swap-in-left", "swap-in-right");
+  void (el as HTMLElement).offsetWidth;
+  el.classList.add(cls);
+}
 
 const AUTO = "自动检测";
 // The config keeps the Chinese labels; the pickers show the Mac app's wording.
@@ -94,6 +109,7 @@ events.prefsChanged.on((p) => {
   prefs = p;
   showTheme(p.theme);
   showMini();
+  drawHint();
 });
 themeBtn.addEventListener("click", async () => {
   const order = THEMES.map(([id]) => id);
@@ -142,12 +158,46 @@ engineSel.value = initialSettings.engine;
 
 let seq = 0;
 let timer: number | undefined;
+let detectedName = "";
+
+// The empty stage teaches the gesture that fills it, on this system's keys and
+// at the speed the settings ask for.
+const hint = { title: "", text: "" };
+function drawHint() {
+  const mac = about.os === "darwin";
+  const mod = mac ? "⌘" : "Ctrl";
+  if (prefs.doubleCopy) {
+    drawKeys(emptyKeys, [mod, "C"], !mac);
+    hint.title = "选中文字，连按两次复制";
+    hint.text = "在任何应用里都行，译文会落在这里。";
+  } else {
+    drawKeys(emptyKeys, [mod, mac ? "⇧" : "Shift", "C"], !mac);
+    hint.title = "按这组键，翻译剪贴板里的文字";
+    hint.text = "也可以直接在左边输入。";
+  }
+  if (!empty.hidden && !empty.classList.contains("busy")) showEmpty(true);
+}
+function playHint(wait = 0) {
+  if (prefs.doubleCopy) playDouble(emptyKeys, prefs.doubleCopyMs, wait);
+  else pressKeys(emptyKeys);
+}
 
 function showEmpty(on: boolean, busy = false) {
   empty.hidden = !on;
   empty.classList.toggle("busy", busy);
-  emptyTitle.textContent = busy ? "翻译中…" : "等待翻译";
-  emptyHint.textContent = busy ? "" : "在左侧输入文字，结果会显示在这里";
+  emptyTitle.textContent = busy ? "翻译中…" : hint.title;
+  emptyHint.textContent = busy ? "" : hint.text;
+}
+
+/** What the result can do right now: copy it, or try again. */
+function drawResultActions(state: "none" | "done" | "error") {
+  copyBtn.hidden = state !== "done";
+  retryBtn.hidden = state !== "error";
+}
+
+function showDetected(name: string) {
+  detected.textContent = name;
+  detected.hidden = !name;
 }
 
 async function run() {
@@ -160,6 +210,7 @@ async function run() {
     output.classList.remove("busy");
     status.textContent = "";
     showEmpty(true);
+    drawResultActions("none");
     return;
   }
   // First translation: the placeholder says so. Later ones: the old text fades.
@@ -168,15 +219,19 @@ async function run() {
   showEmpty(first, first);
   output.classList.add("busy");
   status.textContent = "";
+  drawResultActions("none");
   try {
     const res = await Tolk.translate(text, source.value, target.value);
     if (mine !== seq) return; // a newer request replaced this one
     showEmpty(false);
     output.classList.remove("busy");
     output.textContent = res.text;
+    if (first) replay(output, "land");
     dot.classList.remove("err");
-    const from = langName(res.detected);
-    status.textContent = (from ? `${from} · ` : "") + `${(res.durationMs / 1000).toFixed(1)} 秒`;
+    detectedName = langName(res.detected);
+    showDetected(source.value === AUTO ? detectedName : "");
+    status.textContent = `${(res.durationMs / 1000).toFixed(1)} 秒`;
+    drawResultActions("done");
   } catch (e) {
     if (mine !== seq) return;
     showEmpty(false);
@@ -185,6 +240,7 @@ async function run() {
     output.textContent = String(e instanceof Error ? e.message : e);
     dot.classList.add("err");
     status.textContent = "";
+    drawResultActions("error");
   }
 }
 
@@ -201,18 +257,31 @@ function clearTranslationState() {
   output.classList.remove("error", "busy");
   status.textContent = "";
   dot.classList.remove("err");
+  detectedName = "";
+  showDetected("");
   showEmpty(true);
+  drawResultActions("none");
+}
+
+function drawInputState() {
+  $("#count").textContent = input.value ? `${input.value.length} 字` : "";
+  clearBtn.hidden = !input.value;
+  pasteBtn.hidden = !!input.value;
 }
 
 input.addEventListener("input", () => {
-  $("#count").textContent = input.value ? `${input.value.length} 字` : "";
+  drawInputState();
   if (!input.value.trim()) {
     clearTranslationState();
     return;
   }
   schedule();
 });
-source.addEventListener("change", () => { void saveLanguages(); schedule(0); });
+source.addEventListener("change", () => {
+  if (source.value !== AUTO) showDetected("");
+  void saveLanguages();
+  schedule(0);
+});
 target.addEventListener("change", () => { void saveLanguages(); schedule(0); });
 engineSel.addEventListener("change", async () => {
   clearTranslationState();
@@ -237,39 +306,93 @@ engineSel.addEventListener("change", async () => {
   }
 });
 
-$("#swap").addEventListener("click", () => {
-  if (source.value === AUTO) return toast("源语言是自动检测，无法交换");
-  [source.value, target.value] = [target.value, source.value];
+// The pair trades places and so does the text: what was the translation becomes
+// the thing to translate, and it crosses the seam the button sits on.
+let swapTurn = 0;
+const engineLabel = (name: string) => (name === "中文" ? "简体中文" : langs.find((n) => shown(n) === name || n === name));
+swapBtn.addEventListener("click", () => {
+  const from = source.value === AUTO ? engineLabel(detectedName) : source.value;
+  if (!from) return toast("还不知道原文是什么语言，先翻译一句再交换");
+  const to = target.value;
+  const translated = !output.classList.contains("error") && !output.classList.contains("busy") ? output.textContent ?? "" : "";
+  source.value = to;
+  target.value = from;
+  swapTurn += 180;
+  swapBtn.querySelector("svg")!.style.transform = `rotate(${swapTurn}deg)`;
+  replay($("#source-pill"), "swap-in-right");
+  replay($("#target-pill"), "swap-in-left");
+  showDetected("");
   void saveLanguages();
+  if (translated) {
+    ++seq; // whatever is still on its way answers the old direction
+    output.textContent = input.value;
+    input.value = translated;
+    drawInputState();
+    replay(input, "swap-in");
+    replay(output, "swap-in");
+  }
   schedule(0);
 });
 
-$("#clear").addEventListener("click", () => {
+clearBtn.addEventListener("click", () => {
   input.value = "";
   input.dispatchEvent(new Event("input"));
   input.focus();
+  playHint();
 });
 
-$("#copy").addEventListener("click", async () => {
-  if (!output.textContent || output.classList.contains("error")) return;
+pasteBtn.addEventListener("click", async () => {
   try {
-    await navigator.clipboard.writeText(output.textContent);
-    toast("已复制译文");
-  } catch {
-    toast("复制失败");
+    const text = await Tolk.clipboardText();
+    if (!text.trim()) return toast("剪贴板里没有文字");
+    input.value = text;
+    drawInputState();
+    replay(input, "land");
+    schedule(0);
+    input.focus();
+  } catch (e) {
+    toast(String(e instanceof Error ? e.message : e));
   }
+});
+
+retryBtn.addEventListener("click", () => schedule(0));
+
+// Copying looks like what it is: the whole translation is selected for a moment.
+let copiedTimer: number | undefined;
+copyBtn.addEventListener("click", async () => {
+  const text = output.textContent;
+  if (!text || output.classList.contains("error")) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    return toast("复制失败");
+  }
+  const mark = document.createElement("mark");
+  mark.textContent = text;
+  output.replaceChildren(mark);
+  mark.addEventListener("animationend", () => {
+    if (mark.isConnected) output.textContent = text;
+  });
+  copyBtn.classList.add("copied");
+  $("#copy-text").textContent = "已复制";
+  clearTimeout(copiedTimer);
+  copiedTimer = window.setTimeout(() => {
+    copyBtn.classList.remove("copied");
+    $("#copy-text").textContent = "复制";
+  }, 1400);
 });
 
 events.copied.on((text) => {
   if (!text) return;
   input.value = text;
-  input.dispatchEvent(new Event("input"));
+  drawInputState();
+  replay(input, "land"); // it just came in from another app
   schedule(0);
 });
 
 events.macNotice.on((m) => toast(m));
 
-for (const id of ["#s-engine", "#s-vendor", "#s-dc-ms", "#ia-shortcut", "#ia-scope", "#c-level"]) enhanceSelect($<HTMLSelectElement>(id));
+for (const id of ["#s-vendor", "#s-dc-ms", "#ia-shortcut", "#ia-scope", "#c-level"]) enhanceSelect($<HTMLSelectElement>(id));
 const settings = initSettings({
   os: about.os,
   toast,
@@ -280,6 +403,7 @@ const settings = initSettings({
     prefs = next;
     showMini();
     showTheme(next.theme);
+    drawHint();
     await refreshSettings();
     schedule(0);
   },
@@ -294,10 +418,13 @@ events.menuCommand.on(async (c) => {
   }
 });
 
+drawHint();
 showEmpty(true);
+drawInputState();
 document.querySelector(".app")!.removeAttribute("inert");
 document.documentElement.classList.remove("booting", "startup-failed");
 window.dispatchEvent(new Event("tolk-ready"));
 input.focus();
+playHint(520);
 initOnboarding(about.os, () => settings.open("ia"), toast);
 await initUpdate(toast);

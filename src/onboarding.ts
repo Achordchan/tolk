@@ -1,5 +1,6 @@
 import { Tolk } from "./mygo";
 import { shortcutKeys } from "./inputassist";
+import { drawKeys } from "./keys";
 
 type Page = 1 | 2 | 3;
 type Range = { start: number; end: number };
@@ -101,19 +102,7 @@ export function initOnboarding(os: string, configure: () => Promise<void>, toast
     } catch {
       /* the default shortcut still teaches the gesture */
     }
-    keys.setAttribute("aria-label", `快捷键 ${parts.join(" ")}`);
-    keys.replaceChildren(
-      ...parts.flatMap((part, i) => {
-        const cap = document.createElement("kbd");
-        cap.textContent = part;
-        cap.style.setProperty("--i", String(i));
-        if (part === "Space") cap.className = "wide";
-        if (i === 0 || !win) return [cap];
-        const plus = document.createElement("span");
-        plus.textContent = "+";
-        return [plus, cap];
-      }),
-    );
+    drawKeys(keys, parts, win);
   }
 
   async function translate() {

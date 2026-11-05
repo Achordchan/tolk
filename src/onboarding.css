@@ -1,5 +1,6 @@
 /* Three pages, one action each. The trial follows the application's theme and
    keeps one height throughout, so moving between pages never shifts the buttons. */
+#onboarding[open] { animation: none; }
 #onboarding { inset: 50% auto auto 50%; transform: translate(-50%, -50%); margin: 0; width: min(520px, 94vw); height: fit-content; min-height: 0; max-height: 92vh; overflow: auto; outline: none; }
 #onboarding .onboarding-stage { height: 280px; padding: 24px; display: grid; background: color-mix(in srgb, var(--accent) 7%, var(--bg)); }
 #onboarding .onboarding-page { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; min-height: 0; min-width: 0; animation: guide-page .2s ease-out; }
@@ -14,8 +15,8 @@
 #onboarding .onboarding-page[data-page="2"] .onboarding-line { font-size: 15px; color: var(--muted); }
 #onboarding .onboarding-line { margin: 0; max-width: 100%; font-size: 17px; line-height: 1.6; text-align: center; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; flex: none; }
 #onboarding .onboarding-line mark { padding: 2px 1px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 24%, transparent); color: inherit; }
-#onboarding .onboarding-keys { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 18px; }
-#onboarding .onboarding-keys kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 68px; height: 64px; padding: 0 16px; border: 1px solid var(--control-stroke); border-bottom-width: 4px; border-radius: 12px; background: var(--card); color: var(--fg); font: inherit; font-size: 19px; font-weight: 600; box-shadow: 0 8px 18px rgba(0, 0, 0, .1); animation: guide-key .36s ease-out both; animation-delay: calc(.12s + var(--i) * 70ms); }
+#onboarding .onboarding-keys { font-size: 18px; }
+#onboarding .onboarding-keys kbd { min-width: 68px; height: 64px; padding: 0 16px; border-radius: 12px; font-size: 19px; animation: guide-key .36s ease-out both; animation-delay: calc(.12s + var(--i) * 70ms); }
 #onboarding .onboarding-keys kbd.wide { min-width: 132px; }
 #onboarding[data-state="loading"] .onboarding-keys kbd { animation: guide-key-busy 1s ease-in-out infinite; animation-delay: calc(var(--i) * 120ms); }
 #onboarding .onboarding-language { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
@@ -44,7 +45,7 @@
 
 /* Words and footer */
 #onboarding .onboarding-copy { min-height: 136px; padding: 24px 24px 0; text-align: center; text-wrap: pretty; }
-#onboarding h2 { margin: 0 0 8px; font-size: 23px; font-weight: 600; line-height: 1.35; letter-spacing: -.2px; }
+#onboarding h2 { margin: 0 0 8px; }
 #onboarding .onboarding-copy p { margin: 0; font-size: 14px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; }
 #onboarding .onboarding-copy #onboarding-note { margin-top: 6px; font-size: 13px; line-height: 1.6; }
 #onboarding .onboarding-copy .onboarding-error { color: var(--err); }
@@ -63,16 +64,7 @@
 #onboarding button:focus { outline: none; }
 #onboarding[data-keyboard] button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-#settings .ia-guide-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-#settings .ia-guide-heading h2 { margin: 0; }
-#settings .ia-guide-heading button { flex: none; white-space: nowrap; }
 
-@keyframes guide-page { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes guide-candidate { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes guide-key { 0%, 100% { transform: translateY(0); border-bottom-width: 4px; } 45% { transform: translateY(3px); border-bottom-width: 1px; } }
-@keyframes guide-key-busy { 0%, 100% { background: var(--card); } 50% { background: color-mix(in srgb, var(--accent) 18%, var(--card)); } }
-@keyframes guide-landed { from { opacity: 0; transform: translateY(26px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
-@keyframes guide-replaced { from { background: color-mix(in srgb, var(--accent) 55%, transparent); } }
 @media (prefers-reduced-motion: reduce) { #onboarding *, #onboarding .onboarding-keys kbd { animation: none !important; transition: none !important; } }
 /* The main window can be as short as 480px. */
 @media (max-height: 620px) {

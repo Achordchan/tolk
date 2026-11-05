@@ -7,7 +7,7 @@ type Status = Awaited<ReturnType<typeof Tolk.macStatus>>;
 
 function badge(el: HTMLElement, on: boolean, running: boolean) {
   el.className = "badge " + (!running ? "" : on ? "ok" : "no");
-  el.textContent = !running ? "检测不到" : on ? "已允许" : "去允许";
+  el.textContent = !running ? "检测不到" : on ? "已允许" : "去允许 ↗";
 }
 
 /** The macOS-only part of the settings sheet: hotkeys, permissions, screenshot, import. */
@@ -23,6 +23,13 @@ export function macPane(toast: (m: string) => void, close: () => void): MacPane 
     const st: Status = await Tolk.macStatus();
     badge(ax, st.accessibility, st.running);
     badge(sr, st.screenRecording, st.running);
+    const missing = [st.accessibility, st.screenRecording].filter((on) => !on).length;
+    $("#p-summary").textContent = !st.running
+      ? "检测不到后台组件，请重启 Tolk。"
+      : missing
+        ? `还差 ${missing} 项。`
+        : "两项都已允许，Tolk 的功能都能用了。";
+    $("#p-guide").hidden = st.running && !missing;
     $("#p-guide").toggleAttribute("disabled", !st.running);
     $("#p-shot").toggleAttribute("disabled", !st.running);
     if (hkNote) {
@@ -47,8 +54,12 @@ export function macPane(toast: (m: string) => void, close: () => void): MacPane 
     close(); // get the sheet out of the way before the selection layer opens
     await Tolk.macScreenshot("translate");
   });
-  ax.addEventListener("click", () => void Tolk.macRequestPermission("accessibility").catch((e) => toast(String(e))));
-  sr.addEventListener("click", () => void Tolk.macRequestPermission("screenRecording").catch((e) => toast(String(e))));
+  const ask = (el: HTMLElement, kind: string) =>
+    el.addEventListener("click", () => {
+      if (!el.classList.contains("ok")) void Tolk.macRequestPermission(kind).catch((e) => toast(String(e)));
+    });
+  ask(ax, "accessibility");
+  ask(sr, "screenRecording");
 
   return {
     async load() {

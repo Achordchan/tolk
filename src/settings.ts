@@ -4,6 +4,7 @@ import { THEMES, applyLook } from "./look";
 import { engineList } from "./engines";
 import { openUpdate } from "./update";
 import { initFeedback, openFeedback } from "./feedback";
+import { drawKeys, playDouble, pressKeys } from "./keys";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -28,6 +29,19 @@ export interface MacPane {
 }
 
 const message = (e: unknown) => String(e instanceof Error ? e.message : e);
+
+/** One line each, so the services can be compared without opening them. */
+const ENGINE_HINTS: Record<string, string> = {
+  apple: "本机离线，不用密钥",
+  google: "不用密钥，需能访问 Google",
+  microsoft: "不用密钥，需能访问 bing.com",
+  deepl: "需要 API Key，可免费申请",
+  openai_compat: "自选模型，需要 API Key",
+  achord_builtin: "独立插件，不用密钥",
+};
+
+/** "Tolk" in the languages it works between; the app icon on 关于 walks through them. */
+const WORDS = ["Tolk 在荷兰语里是「口译员」", "英语叫 interpreter", "日语叫 通訳", "德语叫 Dolmetscher", "法语叫 interprète", "韩语叫 통역사", "西班牙语叫 intérprete"];
 
 export function initSettings(h: Hooks) {
   const dlg = $<HTMLDialogElement>("#settings");
@@ -77,12 +91,85 @@ export function initSettings(h: Hooks) {
   }
   sEngine.addEventListener("change", syncSections);
 
+  // The services, side by side. The hidden <select> stays the source of truth.
+  const enginesEl = $("#engines");
+  function drawEngines() {
+    enginesEl.replaceChildren(
+      ...[...sEngine.options].map((o) => {
+        const l = document.createElement("label");
+        l.className = "engine";
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "engine";
+        radio.value = o.value;
+        radio.checked = o.value === sEngine.value;
+        radio.addEventListener("change", () => {
+          sEngine.value = o.value;
+          sEngine.dispatchEvent(new Event("change", { bubbles: true }));
+          // In a short window the service's fields can open below the fold.
+          document.querySelector(`fieldset[data-for="${o.value}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        });
+        const hint = document.createElement("small");
+        hint.textContent = ENGINE_HINTS[o.value] ?? "";
+        l.append(radio, o.text, hint);
+        l.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>');
+        return l;
+      }),
+    );
+  }
+
   // ---- shortcuts ----
   const SPEEDS = ["350", "550", "800"];
   const sDcText = $("#s-dc-text");
   sDcText.textContent = h.os === "darwin" ? "选中文字后连按两次 ⌘C，立即翻译" : "选中文字后连按两次 Ctrl+C，立即翻译";
-  const syncDc = () => $("#dc-sub").classList.toggle("off", !sDc.checked);
+  const syncDc = () => {
+    $("#dc-sub").classList.toggle("off", !sDc.checked);
+    drawTempo();
+  };
   sDc.addEventListener("change", syncDc);
+
+  // The stage on 快捷键: real caps that press at the chosen speed, and that answer
+  // when the gesture is tried right here.
+  const dcKeys = $("#dc-keys");
+  const dcNote = $("#dc-note");
+  const mac = h.os === "darwin";
+  drawKeys(dcKeys, [mac ? "⌘" : "Ctrl", "C"], !mac);
+  let lastTap = 0;
+  let tapTimer: number | undefined;
+  function drawTempo() {
+    lastTap = 0;
+    clearTimeout(tapTimer);
+    dcNote.className = "stage-note";
+    dcNote.textContent = sDc.checked ? `两下要在 ${sDcMs.value} 毫秒内。在这里连按两次试试手速` : "连按两次复制翻译已关闭";
+  }
+  function showTap(gap: number) {
+    const limit = Number(sDcMs.value);
+    const hit = gap <= limit;
+    dcNote.className = `stage-note ${hit ? "hit" : "miss"}`;
+    dcNote.textContent = hit
+      ? `隔了 ${gap} 毫秒，在 ${limit} 毫秒内，能触发翻译`
+      : `隔了 ${gap} 毫秒，超过 ${limit} 毫秒，不会触发。可以把连按速度调慢一点`;
+  }
+  sDcMs.addEventListener("change", () => {
+    drawTempo();
+    if (sDc.checked) playDouble(dcKeys, Number(sDcMs.value));
+  });
+  dlg.addEventListener("keydown", (e) => {
+    if (current !== "keys" || !sDc.checked || e.repeat) return;
+    if (!(mac ? e.metaKey : e.ctrlKey) || e.key.toLowerCase() !== "c") return;
+    pressKeys(dcKeys);
+    const now = performance.now();
+    clearTimeout(tapTimer);
+    if (lastTap && now - lastTap < 2500) {
+      showTap(Math.round(now - lastTap));
+      lastTap = 0;
+      return;
+    }
+    lastTap = now;
+    dcNote.className = "stage-note";
+    dcNote.textContent = "再按一下…";
+    tapTimer = window.setTimeout(drawTempo, 2500);
+  });
   function showSpeed(ms: number) {
     // A window set by hand in the old app stays selectable.
     [...sDcMs.options].filter((o) => !SPEEDS.includes(o.value)).forEach((o) => o.remove());
@@ -94,25 +181,61 @@ export function initSettings(h: Hooks) {
   // ---- tabs ----
   let current = "service";
   function show(pane: string) {
+    const again = pane === current;
     current = pane;
     document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.classList.toggle("on", t.dataset.pane === pane));
     document.querySelectorAll<HTMLElement>(".pane-body").forEach((p) => (p.hidden = p.dataset.pane !== pane));
-    const live = pane === "console" || pane === "about";
-    $("#s-save").hidden = live;
-    $("#s-cancel").textContent = live ? "关闭" : "取消";
+    drawFooter();
     sError.hidden = true;
+    moveSlider(dlg.open);
     if (pane === "console") startConsole();
     else stopConsole();
+    if (pane === "keys" && !again && sDc.checked && dlg.open) playDouble(dcKeys, Number(sDcMs.value), 180);
   }
   document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => show(t.dataset.pane!)));
 
+  // One chip slides between the tabs. It needs the sheet on screen to measure,
+  // so opening puts it in place without the slide.
+  const slider = $("#tab-slider");
+  function moveSlider(animate: boolean) {
+    const tab = document.querySelector<HTMLElement>(".tab.on");
+    if (!tab || !dlg.open) return;
+    slider.classList.toggle("still", !animate);
+    slider.style.transform = `translateY(${tab.offsetTop}px)`;
+    slider.style.height = `${tab.offsetHeight}px`;
+  }
+  addEventListener("resize", () => moveSlider(false));
+
+  // Nothing is written until 保存, so the footer says when there is something to lose.
+  let dirty = false;
+  const LIVE = ["c-level", "c-search", "a-autoreport"];
+  const save = $("#s-save");
+  /** These panes have nothing of their own to save. */
+  const nothingToSave = () => ["console", "about", "mac"].includes(current);
+  function drawFooter() {
+    save.hidden = nothingToSave() && !dirty;
+    save.className = dirty ? "primary" : "ghost";
+    $("#s-cancel").textContent = dirty ? "取消" : "关闭";
+    $("#settings-dirty").hidden = !dirty;
+  }
+  function markDirty(on: boolean) {
+    dirty = on;
+    drawFooter();
+  }
+  for (const type of ["input", "change"]) {
+    $("#settings-form").addEventListener(type, (e) => {
+      if (!LIVE.includes((e.target as HTMLElement).id)) markDirty(true);
+    });
+  }
+
   // ---- appearance ----
   const themesEl = $("#themes");
-  const SWATCH: Record<string, string> = {
-    system: "linear-gradient(90deg,#fafafa 50%,#232323 50%)",
-    light: "#fafafa",
-    dark: "#232323",
-    pink: "#fff4f7",
+  // [paper, ink, stage, accent]: each tile is a small window in its own colours.
+  const SWATCH: Record<string, [string, string, string, string]> = {
+    system: ["#fafafa", "#1d1d1f", "#29313a", "#0a84ff"],
+    light: ["#fafafa", "#1d1d1f", "#dce5ed", "#0a84ff"],
+    dark: ["#232323", "#ececee", "#29313a", "#0a84ff"],
+    pink: ["#fffbfc", "#4a3039", "#ffeaf2", "#ff69b4"],
   };
   function drawThemes() {
     themesEl.replaceChildren(
@@ -120,8 +243,11 @@ export function initSettings(h: Hooks) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "theme" + (id === draftTheme ? " on" : "");
-        b.innerHTML = `<i style="background:${SWATCH[id]}"></i><span>${label}</span>`;
+        b.setAttribute("aria-pressed", String(id === draftTheme));
+        const [paper, ink, stage, accent] = SWATCH[id]!;
+        b.innerHTML = `<i style="background:${paper};color:${ink};--tile-stage:${stage};--tile-accent:${accent}"><b></b><b></b></i><span>${label}</span>`;
         b.addEventListener("click", () => {
+          if (id !== draftTheme) markDirty(true);
           draftTheme = id;
           drawThemes();
           preview();
@@ -133,8 +259,11 @@ export function initSettings(h: Hooks) {
   function preview() {
     $("#o-src-font").textContent = `${sSrcFont.value} px`;
     $("#o-dst-font").textContent = `${sDstFont.value} px`;
+    for (const range of [sSrcFont, sDstFont]) {
+      const fill = ((Number(range.value) - Number(range.min)) / (Number(range.max) - Number(range.min))) * 100;
+      range.style.setProperty("--fill", `${fill}%`);
+    }
     applyLook({ theme: draftTheme, sourceFont: Number(sSrcFont.value), targetFont: Number(sDstFont.value) });
-    $("#font-preview").style.fontSize = `${sDstFont.value}px`;
   }
   sSrcFont.addEventListener("input", preview);
   sDstFont.addEventListener("input", preview);
@@ -184,6 +313,9 @@ export function initSettings(h: Hooks) {
   }
   level.addEventListener("change", drawConsole);
   search.addEventListener("input", drawConsole);
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") e.preventDefault(); // searching the log never saves the sheet
+  });
   $("#c-clear").addEventListener("click", async () => {
     await Tolk.clearConsole();
     lines = [];
@@ -228,6 +360,17 @@ export function initSettings(h: Hooks) {
     if (dlg.open) sMini.checked = p.miniMode;
   });
 
+  // The icon on 关于 says the app's name in another language at each click.
+  let word = 0;
+  $("#a-mark").addEventListener("click", () => {
+    word = (word + 1) % WORDS.length;
+    const el = $("#a-word");
+    el.textContent = WORDS[word]!;
+    el.classList.remove("land");
+    void el.offsetWidth;
+    el.classList.add("land");
+  });
+
   // ---- 提交问题 ----
   initFeedback();
   const autoReport = $<HTMLInputElement>("#a-autoreport");
@@ -264,6 +407,7 @@ export function initSettings(h: Hooks) {
       const about = await Tolk.about();
       fill(sEngine, engineList(h.os));
       sEngine.value = cfg.engine;
+      drawEngines();
       fill(sVendor, cfg.vendors.map((v) => [v.name, v.name]));
       sVendor.value = cfg.vendor;
       fillVendor();
@@ -289,7 +433,6 @@ export function initSettings(h: Hooks) {
       $("#dc-system-row").hidden = !mac;
       $("#tab-ia").hidden = !h.ia;
       $("#fs-ia-key").hidden = !h.ia;
-      $("#side-version").textContent = `版本 ${about.version}`;
       $("#a-version").textContent = `版本 ${about.version}`;
       $("#a-os").textContent = `${about.os} / ${about.arch}`;
       $("#a-config").textContent = about.configPath;
@@ -300,9 +443,15 @@ export function initSettings(h: Hooks) {
       await h.mac?.load();
       await h.ia?.load();
       syncSections();
+      markDirty(false);
+      current = pane;
       show(pane);
       sError.hidden = true;
       dlg.showModal();
+      // Keyboard focus starts on the sheet itself, not outlined on the first tab.
+      dlg.focus();
+      moveSlider(false);
+      if (pane === "keys" && sDc.checked) playDouble(dcKeys, Number(sDcMs.value), 240);
     } catch (e) {
       h.toast(message(e));
     }
@@ -322,7 +471,7 @@ export function initSettings(h: Hooks) {
 
   $("#settings-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (current === "console" || current === "about") return;
+    if (nothingToSave() && !dirty) return;
     try {
       await Tolk.saveSettings({
         engine: sEngine.value,

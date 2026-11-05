@@ -2,7 +2,17 @@ name: Build
 
 on:
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - docs/**
+      - LICENSE
+      - report-worker/**
   workflow_dispatch:
+
+# 同一个 PR 推新提交时取消旧构建，所以只有最新提交有 CI 结果。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write

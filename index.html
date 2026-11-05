@@ -32,6 +32,7 @@
     </script>
     <title>Tolk</title>
     <link rel="stylesheet" href="./src/style.css" />
+    <link rel="stylesheet" href="./src/window.css" />
   </head>
   <body>
     <section id="startup" class="startup" aria-label="正在启动">
@@ -42,58 +43,67 @@
       <button id="startup-retry" type="button" hidden>重新加载</button>
     </section>
     <div class="app" inert>
-      <header class="toolbar card">
-        <label class="pill"><span class="pill-label">源语言</span><select id="source" aria-label="源语言"></select></label>
-        <button id="swap" class="icon" title="交换翻译方向" aria-label="交换翻译方向">
-          <svg viewBox="0 0 24 24"><path d="M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7"/></svg>
-        </button>
-        <label class="pill"><span class="pill-label">目标语言</span><select id="target" aria-label="目标语言"></select></label>
-        <span class="spacer"></span>
-        <label class="pill"><span class="pill-label">服务</span><span id="dot" class="dot"></span><select id="engine" aria-label="翻译服务"></select></label>
-        <span class="divider"></span>
-        <button id="theme" class="icon" title="切换界面主题" aria-label="切换界面主题">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-        </button>
-        <button id="mini" class="icon" title="开启 Mini 模式" aria-label="Mini 模式">
-          <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>
-        </button>
-        <button id="open-settings" class="icon" title="打开设置" aria-label="打开设置">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
-        </button>
-      </header>
-
       <main class="panes">
-        <section class="pane card">
-          <div class="pane-head">
-            <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h14"/></svg>
-            <strong>原文</strong>
-            <span class="spacer"></span>
+        <section class="pane pane-source">
+          <header class="pane-head">
+            <label class="pill" id="source-pill"><select id="source" aria-label="源语言"></select></label>
+            <span id="detected" class="detected" hidden></span>
+          </header>
+          <textarea id="input" aria-label="原文" placeholder="在这里输入或粘贴要翻译的文字…" spellcheck="false"></textarea>
+          <footer class="pane-foot">
             <span id="count" class="muted"></span>
-            <button id="clear" class="icon small" title="清空" aria-label="清空">
-              <svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
-            </button>
-          </div>
-          <textarea id="input" placeholder="在这里输入或粘贴要翻译的文字…" spellcheck="false"></textarea>
-        </section>
-        <section class="pane card">
-          <div class="pane-head">
-            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            <strong>译文</strong>
             <span class="spacer"></span>
-            <span id="status" class="muted"></span>
-            <button id="copy" class="icon small" title="复制译文" aria-label="复制译文">
-              <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            <button id="paste" type="button" class="quiet">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg>粘贴
             </button>
-          </div>
+            <button id="clear" type="button" class="quiet" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>清空
+            </button>
+          </footer>
+        </section>
+
+        <button id="swap" type="button" class="icon" title="交换语言和文字" aria-label="交换语言和文字">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4 3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7"/></svg>
+        </button>
+
+        <section class="pane pane-result">
+          <header class="pane-head">
+            <label class="pill" id="target-pill"><select id="target" aria-label="目标语言"></select></label>
+            <span class="spacer"></span>
+            <div class="tools">
+              <button id="theme" type="button" class="icon" title="切换界面主题" aria-label="切换界面主题">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+              </button>
+              <button id="mini" type="button" class="icon" title="开启 Mini 模式" aria-label="Mini 模式">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></svg>
+              </button>
+              <button id="open-settings" type="button" class="icon" title="打开设置" aria-label="打开设置">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+              </button>
+            </div>
+          </header>
           <div id="output" class="output" aria-live="polite"></div>
           <div id="empty" class="empty">
-            <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            <strong>等待翻译</strong>
-            <span>在左侧输入文字，结果会显示在这里</span>
+            <div id="empty-keys" class="keys" role="img"></div>
+            <strong></strong>
+            <span></span>
           </div>
+          <footer class="pane-foot">
+            <label class="pill pill-engine"><span id="dot" class="dot"></span><select id="engine" aria-label="翻译服务"></select></label>
+            <span id="status" class="muted"></span>
+            <span class="spacer"></span>
+            <button id="retry" type="button" class="quiet" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.3 6.4L3 16M3 21v-5h5"/></svg>重试
+            </button>
+            <button id="copy" type="button" class="quiet" hidden>
+              <svg class="idle" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              <svg class="done" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+              <span id="copy-text">复制</span>
+            </button>
+          </footer>
         </section>
       </main>
-      <div id="toast" class="toast" hidden></div>
+      <div id="toast" class="toast" role="status" hidden></div>
     </div>
 
     <dialog id="onboarding" aria-labelledby="onboarding-title" aria-describedby="onboarding-description">
@@ -103,7 +113,7 @@
         </section>
         <section class="onboarding-page" data-page="2" hidden>
           <p class="onboarding-line" data-line></p>
-          <div id="onboarding-keys" class="onboarding-keys" role="img"></div>
+          <div id="onboarding-keys" class="onboarding-keys keys" role="img"></div>
           <div class="onboarding-language" role="radiogroup" aria-label="翻译成">
             <span>翻译成</span>
             <label><input type="radio" name="onboarding-language" value="英语" checked /><span>英语</span></label>
@@ -132,81 +142,78 @@
         <button id="onboarding-primary" type="button" class="primary"></button>
       </footer>
     </dialog>
-    <dialog id="settings">
+    <dialog id="settings" tabindex="-1">
       <form method="dialog" id="settings-form" class="sheet">
         <nav class="side" aria-label="设置分类">
           <div class="side-head">
             <img src="/icon.png" alt="" width="36" height="36" />
             <div><strong>Tolk</strong><span class="muted">设置</span></div>
           </div>
-          <button type="button" class="tab" data-pane="service">翻译服务</button>
-          <button type="button" class="tab" data-pane="general">通用</button>
-          <button type="button" class="tab" data-pane="keys">快捷键</button>
-          <button type="button" class="tab" data-pane="look">外观</button>
-          <button type="button" class="tab" data-pane="ia" id="tab-ia" hidden>输入助手</button>
-          <button type="button" class="tab" data-pane="mac" id="tab-mac" hidden>系统权限</button>
-          <button type="button" class="tab" data-pane="about">关于</button>
+          <span id="tab-slider" class="tab-slider still" aria-hidden="true"></span>
+          <button type="button" class="tab" data-pane="service"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="m8 8 3.5 6L15 8M9 12h5"/></svg>翻译服务</button>
+          <button type="button" class="tab" data-pane="general"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>通用</button>
+          <button type="button" class="tab" data-pane="keys"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M7 10h.01M11 10h.01M15 10h.01M18 10h-.01M8 14h8"/></svg>快捷键</button>
+          <button type="button" class="tab" data-pane="look"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>外观</button>
+          <button type="button" class="tab" data-pane="ia" id="tab-ia" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6M9 20h6M12 4v16"/><path d="M4 8h2M4 16h2M18 8h2M18 16h2"/></svg>输入助手</button>
+          <button type="button" class="tab" data-pane="mac" id="tab-mac" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>系统权限</button>
+          <button type="button" class="tab" data-pane="about"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>关于</button>
           <span class="spacer"></span>
-          <button type="button" class="tab minor" data-pane="console">运行日志</button>
-          <span id="side-version" class="muted ver"></span>
+          <button type="button" class="tab minor" data-pane="console"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"/></svg>运行日志</button>
         </nav>
 
         <div class="content">
           <section class="pane-body" data-pane="service">
             <h2>翻译服务</h2>
             <p class="muted">选一个你能用的服务。密钥只保存在这台电脑上。</p>
-            <label class="row">使用的服务
-              <select id="s-engine"></select>
-            </label>
+            <select id="s-engine" aria-hidden="true" tabindex="-1" hidden></select>
+            <div id="engines" class="engines" role="radiogroup" aria-label="使用的服务"></div>
             <fieldset data-for="achord_builtin">
-              <legend>Achord 翻译插件</legend>
               <p class="muted">使用独立的 DLX 插件，无需 API 密钥。更新不保证解除上游访问限制。</p>
               <progress id="plugin-progress" class="plugin-progress" max="100" hidden aria-label="插件安装进度"></progress>
               <p id="plugin-detail" class="muted" hidden></p>
               <p id="plugin-status" role="status">正在读取插件状态…</p>
-              <button id="plugin-check" type="button">检查插件更新</button>
-              <button id="plugin-install" type="button" hidden>安装插件</button>
-            </fieldset>
-            <fieldset data-for="google">
-              <p class="muted">不用填任何东西。需要能访问 Google 的网络。</p>
+              <div class="actions left">
+                <button id="plugin-check" type="button" class="ghost">检查插件更新</button>
+                <button id="plugin-install" type="button" class="primary" hidden>安装插件</button>
+              </div>
             </fieldset>
             <fieldset data-for="deepl">
-              <label class="row">API Key <input id="s-deepl-key" type="password" autocomplete="off" /></label>
-              <p class="muted">在 DeepL 官网的账户页面可以免费申请。</p>
-            </fieldset>
-            <fieldset data-for="microsoft">
-              <p class="muted">不用填任何东西。需要能访问 bing.com 的网络。</p>
+              <label class="row"><span>API Key<small class="muted row-hint">在 DeepL 官网的账户页面可以免费申请</small></span><input id="s-deepl-key" type="password" autocomplete="off" /></label>
             </fieldset>
             <fieldset data-for="openai_compat">
-              <label class="row">服务商 <select id="s-vendor"></select></label>
-              <label class="row">API Key <input id="s-ai-key" type="password" autocomplete="off" /></label>
-              <label class="row">模型 <input id="s-model" placeholder="按服务商文档填写，例如 gpt-4o-mini" /></label>
+              <label class="row"><span>服务商</span><select id="s-vendor"></select></label>
+              <label class="row"><span>API Key</span><input id="s-ai-key" type="password" autocomplete="off" /></label>
+              <label class="row"><span>模型</span><input id="s-model" placeholder="按服务商文档填写，例如 gpt-4o-mini" /></label>
               <details class="adv" id="ai-adv">
                 <summary>接口地址</summary>
-                <label class="row">地址 <input id="s-base" placeholder="https://…/v1" /></label>
-                <p class="muted">选好服务商后会自动填好，一般不用改；用中转或自建服务时才需要。</p>
+                <label class="row"><span>地址<small class="muted row-hint">选好服务商后会自动填好，用中转或自建服务时才要改</small></span><input id="s-base" placeholder="https://…/v1" /></label>
               </details>
             </fieldset>
             <fieldset data-for="apple" id="fs-apple" hidden>
-              <p class="muted">在这台 Mac 上离线翻译，不用联网也不用密钥。第一次用某个语言时，系统会提示下载语言包。</p>
+              <p class="muted">第一次用某个语言时，系统会提示下载语言包。</p>
             </fieldset>
           </section>
 
           <section class="pane-body" data-pane="general" hidden>
             <h2>通用</h2>
+            <p class="muted">Tolk 平时待在后台，这里决定它怎么出现。</p>
             <fieldset>
-              <label class="check"><input id="s-autostart" type="checkbox" /> 开机自动启动</label>
+              <label class="check"><input id="s-autostart" type="checkbox" /><span>开机自动启动</span></label>
               <label class="check"><input id="s-mini" type="checkbox" /><span>小窗显示译文<small class="muted">译文出现在鼠标旁边的小窗里，不打开主窗口</small></span></label>
             </fieldset>
           </section>
 
           <section class="pane-body" data-pane="keys" hidden>
             <h2>快捷键</h2>
+            <div class="stage" id="dc-stage">
+              <div id="dc-keys" class="keys" role="img"></div>
+              <p id="dc-note" class="stage-note" role="status"></p>
+            </div>
             <fieldset>
               <legend>复制翻译</legend>
               <label class="check"><input id="s-dc" type="checkbox" /><span id="s-dc-text">选中文字后连按两次复制，立即翻译</span></label>
               <div class="sub" id="dc-sub">
-                <label class="row">连按速度
+                <label class="row compact"><span>连按速度</span>
                   <select id="s-dc-ms"><option value="350">快</option><option value="550">标准</option><option value="800">慢</option></select>
                 </label>
                 <label class="check" id="dc-system-row" hidden><input id="s-hk-dc" type="checkbox" /><span>后台稳定监听<small class="muted">推荐打开。在任何应用里都更灵敏，需要「辅助功能」权限</small></span></label>
@@ -214,9 +221,8 @@
             </fieldset>
             <fieldset id="fs-shot-windows" hidden>
               <legend>截图翻译</legend>
-              <label class="check"><input id="s-win-shot" type="checkbox" /> 按住 Ctrl，550 毫秒内连按两次 X 截图</label>
-              <p>框选后在截图上回贴译文，可对照原文、提取文字、复制图片或钉到屏幕。Esc 或右键退出；第一次 Ctrl+X 保留剪切行为。</p>
-              <p class="muted">使用 Windows 本机 OCR，需安装对应语言的 OCR 语言包；不会上传截图，识别文字交给当前翻译服务。</p>
+              <label class="check"><input id="s-win-shot" type="checkbox" /><span>按住 Ctrl，550 毫秒内连按两次 X 截图<small class="muted">框选后在截图上回贴译文，可对照原文、提取文字、复制图片或钉到屏幕。Esc 或右键退出；第一次 Ctrl+X 保留剪切行为。</small></span></label>
+              <p>使用 Windows 本机 OCR，需安装对应语言的 OCR 语言包；不会上传截图，识别文字交给当前翻译服务。</p>
               <div class="actions left"><button type="button" id="p-shot-windows" class="ghost">框选截图翻译</button></div>
             </fieldset>
             <fieldset id="fs-shot" hidden>
@@ -226,22 +232,21 @@
             </fieldset>
             <fieldset id="fs-ia-key" hidden>
               <legend>输入助手</legend>
-              <label class="row">唤起快捷键 <select id="ia-shortcut"></select></label>
-              <p class="muted">在「输入助手」里打开后生效。</p>
+              <label class="row compact"><span>唤起快捷键<small class="muted row-hint">在「输入助手」里打开后生效</small></span><select id="ia-shortcut"></select></label>
             </fieldset>
           </section>
 
           <section class="pane-body" data-pane="look" hidden>
             <h2>外观</h2>
+            <div class="look-preview" aria-hidden="true"><p>我们明天下午三点见。</p><p>See you at three tomorrow.</p></div>
             <fieldset>
               <legend>主题</legend>
               <div class="themes" id="themes"></div>
             </fieldset>
             <fieldset>
               <legend>文字大小</legend>
-              <label class="row">原文 <span class="inline"><input id="s-src-font" type="range" min="12" max="28" step="1" /> <output id="o-src-font"></output></span></label>
-              <label class="row">译文 <span class="inline"><input id="s-dst-font" type="range" min="12" max="28" step="1" /> <output id="o-dst-font"></output></span></label>
-              <div class="preview card" id="font-preview">预览：你好，世界 Hello, world</div>
+              <label class="row"><span>原文</span><span class="inline"><input id="s-src-font" type="range" min="12" max="28" step="1" aria-label="原文字号" /> <output id="o-src-font"></output></span></label>
+              <label class="row"><span>译文</span><span class="inline"><input id="s-dst-font" type="range" min="12" max="28" step="1" aria-label="译文字号" /> <output id="o-dst-font"></output></span></label>
             </fieldset>
           </section>
 
@@ -249,11 +254,21 @@
             <div class="ia-guide-heading"><h2>输入助手</h2><button type="button" id="open-onboarding" class="ghost" hidden>使用引导</button></div>
             <p class="muted" id="ia-intro"></p>
             <fieldset>
-              <label class="check"><input id="ia-enabled" type="checkbox" /> 打开输入助手</label>
+              <label class="check"><input id="ia-enabled" type="checkbox" /><span>打开输入助手</span></label>
               <div id="ia-body">
-                <div class="stack"><span class="stack-label">翻译成</span><div id="ia-targets" class="langs" role="group" aria-label="目标语言"></div></div>
-                <p class="muted" id="ia-count"></p>
-                <div class="actions left">
+                <div class="ia-compose">
+                  <div class="ia-pick">
+                    <span class="stack-label">翻译成</span>
+                    <div id="ia-targets" class="langs" role="group" aria-label="目标语言"></div>
+                    <p id="ia-count"></p>
+                  </div>
+                  <div class="stage ia-stage" aria-hidden="true">
+                    <p id="ia-line" class="ia-line"></p>
+                    <div id="ia-keys" class="keys small"></div>
+                    <div id="ia-cand" class="cand"></div>
+                  </div>
+                </div>
+                <div class="ia-try">
                   <button type="button" id="ia-test" class="ghost">试一下</button>
                   <span id="ia-status" class="muted ia-status"></span>
                 </div>
@@ -262,8 +277,8 @@
             <details class="adv">
               <summary>更多选项</summary>
               <label class="check"><input id="ia-auto" type="checkbox" /><span id="ia-auto-text"></span></label>
-              <label class="check"><input id="ia-badge" type="checkbox" /> 用到之前翻译过的结果时显示 ⚡ 标记</label>
-              <label class="row">在哪些应用里用 <select id="ia-scope"><option value="global">所有应用</option><option value="allowlist">只在指定的应用</option></select></label>
+              <label class="check"><input id="ia-badge" type="checkbox" /><span>用到之前翻译过的结果时显示 ⚡ 标记</span></label>
+              <label class="row compact"><span>在哪些应用里用</span><select id="ia-scope"><option value="global">所有应用</option><option value="allowlist">只在指定的应用</option></select></label>
               <label class="row top" id="ia-allow-row" hidden><span>指定的应用</span><textarea id="ia-allow" class="list" rows="3" spellcheck="false"></textarea></label>
               <label class="row top"><span id="ia-list-title">不使用的应用</span><textarea id="ia-block" class="list" rows="3" spellcheck="false"></textarea></label>
               <p class="muted" id="ia-list-hint"></p>
@@ -271,11 +286,11 @@
           </section>
 
           <section class="pane-body" data-pane="mac" hidden>
-            <h2>系统权限</h2>
-            <p class="muted">macOS 要你手动允许，Tolk 才能用下面这些功能。点状态可以直接去系统设置里打开。</p>
+            <h2 id="p-title">系统权限</h2>
+            <p class="muted" id="p-summary">macOS 要你手动允许，Tolk 才能用下面这些功能。</p>
             <fieldset>
-              <div class="perm"><span>辅助功能<small class="muted">复制翻译的后台监听、输入助手</small></span><span id="p-ax" class="badge">—</span></div>
-              <div class="perm"><span>屏幕录制<small class="muted">截图翻译</small></span><span id="p-sr" class="badge">—</span></div>
+              <div class="perm"><span>辅助功能<small class="muted">复制翻译的后台监听、输入助手</small></span><button type="button" id="p-ax" class="badge">—</button></div>
+              <div class="perm"><span>屏幕录制<small class="muted">截图翻译</small></span><button type="button" id="p-sr" class="badge">—</button></div>
               <div class="actions left"><button type="button" id="p-guide" class="ghost">一步步教我打开</button></div>
             </fieldset>
           </section>
@@ -288,7 +303,7 @@
                 <option value="all">全部</option><option value="info">信息</option>
                 <option value="warn">警告</option><option value="error">错误</option>
               </select>
-              <input id="c-search" type="search" placeholder="搜索" />
+              <input id="c-search" type="search" placeholder="搜索" aria-label="搜索日志" />
               <span class="spacer"></span>
               <button type="button" id="c-copy" class="ghost">复制</button>
               <button type="button" id="c-clear" class="ghost">清空</button>
@@ -297,29 +312,27 @@
           </section>
 
           <section class="pane-body" data-pane="about" hidden>
-            <h2>关于</h2>
-            <div class="about card about-update">
-              <img src="/icon.png" alt="" width="64" height="64" />
-              <div>
-                <strong id="a-name">Tolk</strong>
-                <div class="muted" id="a-version"></div>
-              </div>
-              <button type="button" id="a-check" class="ghost">检查更新</button>
-              <div class="about-status muted" id="a-status" role="status" tabindex="0" hidden></div>
+            <h2 class="sr-title">关于</h2>
+            <div class="stage about-stage">
+              <button type="button" id="a-mark" class="about-mark" title="Tolk 这个词是什么意思？" aria-label="换一种语言说「口译员」"><img src="/icon.png" alt="" width="64" height="64" /></button>
+              <strong id="a-name">Tolk</strong>
+              <span id="a-word" class="about-word" aria-live="polite">荷兰语里的「口译员」</span>
             </div>
-            <p><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">项目主页</a> · <a href="https://github.com/Achordchan/tolk/issues" target="_blank" rel="noreferrer">问题反馈</a></p>
-            <div class="about card feedback-card">
-              <div>
-                <strong>遇到问题？</strong>
-                <div class="muted">描述一下，Tolk 会附上版本、系统和运行日志一起提交给开发者。</div>
+            <fieldset class="about-rows">
+              <div class="row feedback-row">
+                <div><span id="a-version"></span><span class="about-status muted" id="a-status" role="status" tabindex="0" hidden></span></div>
+                <button type="button" id="a-check" class="ghost">检查更新</button>
               </div>
-              <span class="spacer"></span>
-              <button type="button" id="a-feedback" class="primary">提交问题</button>
-            </div>
-            <label class="check"><input id="a-autoreport" type="checkbox" /><span>出错时自动上传错误报告<small class="muted">只含版本、系统和去掉了密钥、邮箱、用户名的日志，同一种错误一天最多一次</small></span></label>
+              <div class="row feedback-row">
+                <div>遇到问题？<small class="muted row-hint">描述一下，Tolk 会附上版本、系统和运行日志一起提交给开发者</small></div>
+                <button type="button" id="a-feedback" class="ghost">提交问题</button>
+              </div>
+              <label class="check"><input id="a-autoreport" type="checkbox" /><span>出错时自动上传错误报告<small class="muted">只含版本、系统和去掉了密钥、邮箱、用户名的日志，同一种错误一天最多一次</small></span></label>
+            </fieldset>
             <details class="adv">
               <summary>技术信息</summary>
               <dl class="facts">
+                <dt>项目主页</dt><dd><a href="https://github.com/Achordchan/tolk" target="_blank" rel="noreferrer">github.com/Achordchan/tolk</a></dd>
                 <dt>系统</dt><dd id="a-os"></dd>
                 <dt>设置文件</dt><dd id="a-config" class="mono"></dd>
                 <dt id="a-helper-t" hidden>原生助手</dt><dd id="a-helper" hidden></dd>
@@ -329,6 +342,7 @@
 
           <p id="settings-error" class="error" hidden></p>
           <div class="actions" id="settings-actions">
+            <span id="settings-dirty" class="dirty" hidden>有改动还没保存</span>
             <button type="button" id="s-cancel" class="ghost">关闭</button>
             <button type="submit" id="s-save" class="primary">保存</button>
           </div>

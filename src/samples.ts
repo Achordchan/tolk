@@ -1,0 +1,45 @@
+/**
+ * What the 输入助手 preview shows for each language: its code on the panel and
+ * how "明天见" reads there. Same labels as engine.Languages.
+ */
+export const SAMPLE_SOURCE = "明天见";
+
+export const SAMPLES: Record<string, [code: string, text: string]> = {
+  简体中文: ["ZH", "明天见"],
+  繁体中文: ["ZH", "明天見"],
+  英语: ["EN", "See you tomorrow"],
+  日语: ["JA", "また明日"],
+  韩语: ["KO", "내일 봐요"],
+  法语: ["FR", "À demain"],
+  德语: ["DE", "Bis morgen"],
+  西班牙语: ["ES", "Hasta mañana"],
+  俄语: ["RU", "До завтра"],
+  意大利语: ["IT", "A domani"],
+  葡萄牙语: ["PT", "Até amanhã"],
+  越南语: ["VI", "Hẹn gặp lại ngày mai"],
+  泰语: ["TH", "แล้วเจอกันพรุ่งนี้"],
+  阿拉伯语: ["AR", "أراك غدًا"],
+  荷兰语: ["NL", "Tot morgen"],
+  瑞典语: ["SV", "Vi ses imorgon"],
+  丹麦语: ["DA", "Vi ses i morgen"],
+  挪威语: ["NO", "Vi ses i morgen"],
+  芬兰语: ["FI", "Nähdään huomenna"],
+  波兰语: ["PL", "Do jutra"],
+  捷克语: ["CS", "Zítra se uvidíme"],
+  匈牙利语: ["HU", "Holnap találkozunk"],
+  罗马尼亚语: ["RO", "Pe mâine"],
+  保加利亚语: ["BG", "До утре"],
+  希腊语: ["EL", "Τα λέμε αύριο"],
+  乌克兰语: ["UK", "До завтра"],
+  土耳其语: ["TR", "Yarın görüşürüz"],
+  希伯来语: ["HE", "נתראה מחר"],
+  波斯语: ["FA", "فردا می‌بینمت"],
+  印地语: ["HI", "कल मिलते हैं"],
+  孟加拉语: ["BN", "কাল দেখা হবে"],
+  泰米尔语: ["TA", "நாளை சந்திப்போம்"],
+  印尼语: ["ID", "Sampai jumpa besok"],
+  马来语: ["MS", "Jumpa esok"],
+  菲律宾语: ["FIL", "Kita-kita bukas"],
+  乌尔都语: ["UR", "کل ملتے ہیں"],
+  斯瓦希里语: ["SW", "Tuonane kesho"],
+};

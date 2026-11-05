@@ -1,5 +1,7 @@
 import { Tolk, events } from "./mygo";
 import type { MacPane } from "./settings";
+import { drawKeys } from "./keys";
+import { SAMPLES, SAMPLE_SOURCE } from "./samples";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -104,7 +106,34 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
     : "在输入框里选中自己写的文字，按快捷键就能看到几种语言的译文，选一个直接替换原文；替换不了的应用会把译文复制好。需要「辅助功能」权限。";
   $("#ia-auto-text").textContent = win ? "选中文字后自动弹出译文（实验功能，部分应用无效）" : "选中文字后自动弹出译文（实验功能）";
 
+  // The stage beside the languages: the panel these choices make, in this order.
+  const cand = $("#ia-cand");
+  let shownTargets: string[] = [];
+  $("#ia-line").innerHTML = `<mark>${SAMPLE_SOURCE}</mark>`;
+  function drawCandidates() {
+    cand.replaceChildren(
+      ...targetList.map((name) => {
+        const row = document.createElement("div");
+        const [code, text] = SAMPLES[name] ?? [name.slice(0, 2), name];
+        const b = document.createElement("b");
+        b.textContent = code;
+        const s = document.createElement("span");
+        s.textContent = text;
+        row.append(b, s);
+        if (shownTargets.length && !shownTargets.includes(name)) row.className = "fresh";
+        return row;
+      }),
+    );
+    shownTargets = targetList.slice();
+  }
+  function drawPreviewKeys() {
+    const [key, mods] = shortcut.value.split("-").map(Number) as [number, number];
+    drawKeys($("#ia-keys"), shortcutKeys(win, key, mods), win);
+  }
+  shortcut.addEventListener("change", drawPreviewKeys);
+
   function drawTargets() {
+    drawCandidates();
     const full = targetList.length >= MAX_TARGETS;
     targets.replaceChildren(
       ...langs.map((name) => {
@@ -148,7 +177,7 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
       }),
     );
     count.textContent =
-      `已选 ${targetList.length} 个（最多 ${MAX_TARGETS} 个），按勾选顺序排列。` +
+      `已选 ${targetList.length} 个（最多 ${MAX_TARGETS} 个）。` +
       (targetList.length > RECOMMENDED_TARGETS ? `建议不超过 ${RECOMMENDED_TARGETS} 个，挑起来更快。` : "") +
       (targetList.some((n) => packs[n] === "supported") ? "标着「需下载」的语言要先下载语言包，点一下即可。" : "");
   }
@@ -165,6 +194,7 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
     if (!opts.some(([k, m]) => k === key && m === mods)) opts.push([key, mods]); // an imported custom one stays selectable
     shortcut.replaceChildren(...opts.map(([k, m]) => new Option(label(k, m), `${k}-${m}`)));
     shortcut.value = `${key}-${mods}`;
+    drawPreviewKeys();
   }
 
   async function refresh() {
@@ -214,6 +244,7 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
   });
 
   return {
+    draft: () => targetList.join(),
     async load() {
       try {
         langs = await Tolk.languages();
@@ -225,6 +256,7 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
         body.hidden = !c.enabled;
         drawShortcuts(c.shortcutKeyCode, c.shortcutModifiers);
         targetList = c.targets.slice();
+        shownTargets = [];
         apple = !win && (await Tolk.getSettings()).engine === "apple";
         packs = {};
         drawTargets();

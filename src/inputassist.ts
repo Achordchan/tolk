@@ -34,6 +34,13 @@ const WIN_SHORTCUTS: [number, number][] = [
   [38, CONTROL | OPTION],
 ];
 
+/** The keys of a shortcut, one keycap each. */
+export function shortcutKeys(win: boolean, key: number, mods: number): string[] {
+  const name = KEY_NAMES[key] ?? `Key ${key}`;
+  if (win) return [mods & CONTROL && "Ctrl", mods & OPTION && "Alt", mods & SHIFT && "Shift", mods & CMD && "Win", name].filter(Boolean) as string[];
+  return [mods & CONTROL && "⌃", mods & OPTION && "⌥", mods & SHIFT && "⇧", mods & CMD && "⌘", name].filter(Boolean) as string[];
+}
+
 /** 输入助手's tab of the settings sheet, on macOS and Windows. */
 export function inputAssistPane(os: string, toast: (m: string) => void, close: () => void): MacPane {
   const win = os === "windows";
@@ -88,11 +95,7 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
   }
 
   function label(key: number, mods: number) {
-    if (win) {
-      const parts = [mods & CONTROL ? "Ctrl" : "", mods & OPTION ? "Alt" : "", mods & SHIFT ? "Shift" : "", mods & CMD ? "Win" : ""].filter(Boolean);
-      return [...parts, KEY_NAMES[key] ?? `Key ${key}`].join("+");
-    }
-    return (mods & CONTROL ? "⌃" : "") + (mods & OPTION ? "⌥" : "") + (mods & SHIFT ? "⇧" : "") + (mods & CMD ? "⌘" : "") + (KEY_NAMES[key] ?? `Key ${key}`);
+    return shortcutKeys(win, key, mods).join(win ? "+" : "");
   }
 
   // Wording that differs by system.

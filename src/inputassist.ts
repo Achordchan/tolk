@@ -244,6 +244,7 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
   });
 
   return {
+    draft: () => targetList.join(),
     async load() {
       try {
         langs = await Tolk.languages();

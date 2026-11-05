@@ -212,6 +212,7 @@ async function run() {
   const to = target.value;
   const mine = ++seq;
   lastResult = null;
+  showDetected(""); // it described the text before this one
   const hadError = output.classList.contains("error");
   output.classList.remove("error");
   if (!text.trim()) {

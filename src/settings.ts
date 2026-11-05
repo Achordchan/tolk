@@ -26,6 +26,8 @@ interface Hooks {
 export interface MacPane {
   load(): Promise<void>;
   save(): Promise<void>;
+  /** Draft state no single form control holds, for spotting unsaved changes. */
+  draft?(): string;
 }
 
 const message = (e: unknown) => String(e instanceof Error ? e.message : e);
@@ -206,9 +208,38 @@ export function initSettings(h: Hooks) {
   }
   addEventListener("resize", () => moveSlider(false));
 
-  // Nothing is written until 保存, so the footer says when there is something to lose.
-  let dirty = false;
+  // Nothing is written until 保存, so the footer says when there is something to
+  // lose: the draft compared with what the sheet opened with, so undoing a change
+  // by hand clears it again.
   const LIVE = ["c-level", "c-search", "a-autoreport"];
+  let dirty = false;
+  let baseline: Record<string, string> = {};
+  function readDraft() {
+    const draft: Record<string, string> = { theme: draftTheme, ia: h.ia?.draft?.() ?? "" };
+    $("#settings-form")
+      .querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input[id], select[id], textarea[id]")
+      .forEach((c) => {
+        if (LIVE.includes(c.id)) return;
+        draft[c.id] = c instanceof HTMLInputElement && c.type === "checkbox" ? String(c.checked) : c.value;
+      });
+    return draft;
+  }
+  function checkDirty() {
+    const draft = readDraft();
+    dirty = Object.keys(draft).some((k) => draft[k] !== baseline[k]);
+    drawFooter();
+  }
+  /** Take the draft as it stands as the saved state. */
+  function resetDirty() {
+    baseline = readDraft();
+    checkDirty();
+  }
+  /** Changed from the menu bar or tray: that value is saved already, not a draft. */
+  function syncSaved(id: string, value: boolean) {
+    baseline[id] = String(value);
+    if (dlg.open) checkDirty();
+  }
+  events.inputAssistChanged.on((on) => syncSaved("ia-enabled", on));
   const save = $("#s-save");
   /** These panes have nothing of their own to save. */
   const nothingToSave = () => ["console", "about", "mac"].includes(current);
@@ -218,15 +249,7 @@ export function initSettings(h: Hooks) {
     $("#s-cancel").textContent = dirty ? "取消" : "关闭";
     $("#settings-dirty").hidden = !dirty;
   }
-  function markDirty(on: boolean) {
-    dirty = on;
-    drawFooter();
-  }
-  for (const type of ["input", "change"]) {
-    $("#settings-form").addEventListener(type, (e) => {
-      if (!LIVE.includes((e.target as HTMLElement).id)) markDirty(true);
-    });
-  }
+  for (const type of ["input", "change"]) $("#settings-form").addEventListener(type, checkDirty);
 
   // ---- appearance ----
   const themesEl = $("#themes");
@@ -247,10 +270,10 @@ export function initSettings(h: Hooks) {
         const [paper, ink, stage, accent] = SWATCH[id]!;
         b.innerHTML = `<i style="background:${paper};color:${ink};--tile-stage:${stage};--tile-accent:${accent}"><b></b><b></b></i><span>${label}</span>`;
         b.addEventListener("click", () => {
-          if (id !== draftTheme) markDirty(true);
           draftTheme = id;
           drawThemes();
           preview();
+          checkDirty();
         });
         return b;
       }),
@@ -357,7 +380,9 @@ export function initSettings(h: Hooks) {
   events.updateChanged.on(drawUpdate);
   // Mini mode switched from the menu bar / tray while the sheet is open.
   events.prefsChanged.on((p) => {
-    if (dlg.open) sMini.checked = p.miniMode;
+    if (!dlg.open) return;
+    sMini.checked = p.miniMode;
+    syncSaved("s-mini", p.miniMode);
   });
 
   // The icon on 关于 says the app's name in another language at each click.
@@ -443,7 +468,7 @@ export function initSettings(h: Hooks) {
       await h.mac?.load();
       await h.ia?.load();
       syncSections();
-      markDirty(false);
+      resetDirty();
       current = pane;
       show(pane);
       sError.hidden = true;

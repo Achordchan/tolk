@@ -23,6 +23,9 @@ import (
 	"unsafe"
 )
 
+//go:embed internal/screenshot/controls.ps1
+var controlsScript string
+
 //go:embed internal/screenshot/capture.ps1
 var captureScript string
 
@@ -52,7 +55,7 @@ func (Tolk) ScreenshotWindows() error {
 		return err
 	}
 	defer os.Remove(file.Name())
-	if _, err = file.WriteString("\xef\xbb\xbf" + captureScript + "\n" + layoutScript + "\n" + workspaceScript); err != nil {
+	if _, err = file.WriteString("\xef\xbb\xbf" + controlsScript + "\n" + captureScript + "\n" + layoutScript + "\n" + workspaceScript); err != nil {
 		file.Close()
 		return err
 	}
@@ -66,10 +69,7 @@ func (Tolk) ScreenshotWindows() error {
 	cmd.Stderr = &stderr
 	prefs := loadPrefs()
 	languages, _ := json.Marshal(engine.Languages)
-	cmd.Env = append(os.Environ(), "TOLK_SHOT_TARGET="+prefs.TargetLang, "TOLK_SHOT_LANGUAGES="+string(languages))
-	if prefs.Theme == "dark" {
-		cmd.Env = append(cmd.Env, "TOLK_SHOT_DARK=1")
-	}
+	cmd.Env = append(os.Environ(), "TOLK_SHOT_TARGET="+prefs.TargetLang, "TOLK_SHOT_LANGUAGES="+string(languages), "TOLK_SHOT_THEME="+prefs.Theme)
 	output, err := cmd.StdoutPipe()
 	if err != nil {
 		return err

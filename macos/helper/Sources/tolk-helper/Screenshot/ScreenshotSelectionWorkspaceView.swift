@@ -18,6 +18,8 @@ struct ScreenshotSelectionWorkspaceView: View {
 
     @State private var showOCRInfo: Bool = false
 
+    private var palette: ScreenshotPalette { .make(session.appearance, colorScheme) }
+
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
@@ -33,17 +35,16 @@ struct ScreenshotSelectionWorkspaceView: View {
                         toolbar(size: geo.size)
                     }
                 } else {
+                    let frame = displayFrame(containing: nil, containerSize: geo.size)
                     hint
-                        .padding(.top, 18)
-                        .padding(.leading, 18)
+                        .position(x: frame.midX, y: frame.minY + 56)
                 }
 
                 if let toast = session.hudToast,
                    session.selectionRect.width > 1,
                    session.selectionRect.height > 1,
                    session.stage != .selecting {
-                    let rectTopLeft = rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: geo.size)
-                    let p = hudToastPosition(containerSize: geo.size, selectionRectTopLeft: rectTopLeft)
+                    let p = hudToastPosition(containerSize: geo.size)
                     hudToastView(toast)
                         .position(x: p.x, y: p.y)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -68,15 +69,17 @@ struct ScreenshotSelectionWorkspaceView: View {
     }
 
     private var hint: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("拖拽选择要翻译的区域")
-                .font(.system(size: 16, weight: .bold))
-            Text("松开鼠标后会先缓存截图。点击“翻译”才会进行 OCR + 翻译。按 Esc 取消；右键：有选区清空，无选区退出。")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+        VStack(spacing: 3) {
+            Text("拖动框选要翻译的区域")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(palette.fg)
+            Text("Esc 退出，右键清空选区。")
+                .font(.system(size: 13))
+                .foregroundStyle(palette.muted)
         }
-        .padding(12)
-        .dsCard()
+        .padding(.horizontal, 18)
+        .padding(.vertical, 11)
+        .screenshotCard(palette, radius: 12)
     }
 
     private func dragGesture(size: CGSize) -> some Gesture {
@@ -115,12 +118,12 @@ struct ScreenshotSelectionWorkspaceView: View {
     private func maskView(size: CGSize) -> some View {
         Canvas { context, canvasSize in
             let full = Path(CGRect(origin: .zero, size: canvasSize))
-            context.fill(full, with: .color(Color.black.opacity(0.35)))
+            context.fill(full, with: .color(Color.black.opacity(0.42)))
 
             if session.selectionRect.width > 1, session.selectionRect.height > 1 {
                 let rectTopLeft = rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: canvasSize)
                 var hole = Path()
-                hole.addRoundedRect(in: rectTopLeft, cornerSize: CGSize(width: 10, height: 10))
+                hole.addRect(rectTopLeft)
                 context.blendMode = .clear
                 context.fill(hole, with: .color(.black))
                 context.blendMode = .normal
@@ -133,14 +136,10 @@ struct ScreenshotSelectionWorkspaceView: View {
         let rectTopLeft = rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: size)
         let rect = displayRectTopLeft(baseRectTopLeft: rectTopLeft, containerSize: size)
 
-        return RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1)
-                    .padding(1)
-            )
-            .frame(width: rect.width, height: rect.height)
+        // 边框画在选区外面：选区里的像素就是要复制的内容，不能被盖住。
+        return Rectangle()
+            .strokeBorder(palette.accent, lineWidth: 2)
+            .frame(width: rect.width + 4, height: rect.height + 4)
             .position(x: rect.midX, y: rect.midY)
     }
 
@@ -160,56 +159,12 @@ struct ScreenshotSelectionWorkspaceView: View {
                         .resizable()
                         .interpolation(.high)
                         .frame(width: rect.width, height: rect.height)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 } else if session.overlayUnavailable {
                     overlayText(text: session.ocrBlocks.map { session.translations[$0.id] ?? $0.text }.joined(separator: "\n"))
                 }
             } else if session.stage == .ocrReady {
                 // 只提取了原文：列出识别到的文字（已经复制到剪贴板），方便核对。
                 overlayText(text: session.ocrText)
-            } else if case .failed(let message) = session.stage {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text("出错了")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                    }
-
-                    Text(message)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.primary)
-
-                    Text("你可以重新框选一次，或者调整源语言后再试。")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .windowBackgroundColor).opacity(0.92)))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1))
-            } else if session.stage == .ocrRunning {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("正在识别文字…")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                    }
-                    if !session.ocrText.isEmpty {
-                        Text(session.ocrText)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(4)
-                    }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .windowBackgroundColor).opacity(0.92)))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1))
             }
         }
         .frame(width: rect.width, height: rect.height)
@@ -219,178 +174,219 @@ struct ScreenshotSelectionWorkspaceView: View {
     private func overlayText(text: String) -> some View {
         ScrollView {
             Text(text)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
+                .font(.system(size: 15))
+                .foregroundStyle(palette.fg)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
+                .padding(14)
         }
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .windowBackgroundColor).opacity(0.92)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1))
+        .background(palette.card)
     }
 
     private var compareInlineOverlay: some View {
-        VStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("原文")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            compareSection(title: "原文", text: session.ocrText, color: palette.muted)
+            Rectangle().fill(palette.stroke).frame(height: 1)
+            compareSection(title: "译文", text: session.translatedText, color: palette.fg)
+        }
+        .background(palette.card)
+    }
 
-                ScrollView {
-                    Text(session.ocrText)
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                }
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.blue.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1))
-            }
-
-            Divider().opacity(0.35)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("译文")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                ScrollView {
-                    Text(session.translatedText)
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                }
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.green.opacity(0.08)))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1))
+    private func compareSection(title: String, text: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(palette.muted)
+            ScrollView {
+                Text(text)
+                    .font(.system(size: 14))
+                    .foregroundStyle(color)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .windowBackgroundColor).opacity(0.92)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1))
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func toolbar(size: CGSize) -> some View {
-        let rectTopLeft = rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: size)
-        let proposed = toolbarPosition(containerSize: size, selectionRectTopLeft: rectTopLeft)
+        let placement = toolbarPlacement(containerSize: size)
+        let width = toolbarWidth(containerSize: size)
+        let compact = width < Self.fullToolbarWidth
 
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 2) {
                 LanguageSearchPicker(
-                    title: "源",
+                    title: "源语言",
                     allowAuto: true,
                     options: VisionOCRService.selectableSourceLanguages,
                     selection: $session.sourceLanguageCode,
-                    fixedWidth: 170
+                    palette: palette,
+                    showsTitle: !compact
                 )
 
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(palette.muted)
+                    .frame(width: 26)
+
                 LanguageSearchPicker(
-                    title: "目标",
+                    title: "目标语言",
                     allowAuto: false,
                     options: LanguagePreset.common,
                     selection: $session.targetLanguageCode,
-                    fixedWidth: 170
+                    palette: palette,
+                    showsTitle: !compact
                 )
 
-                Spacer(minLength: 0)
+                Spacer(minLength: 10)
 
-                Button {
-                    onPinTapped()
-                } label: {
-                    Image(systemName: "pin.circle.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
+                if !compact {
+                    statusLabel
+                        .padding(.trailing, 8)
                 }
-                .buttonStyle(.plain)
+
+                Button(action: onTranslateTapped) {
+                    Label(translateButtonTitle, systemImage: "translate")
+                }
+                .buttonStyle(ScreenshotButtonStyle(kind: session.stage == .translated ? .soft : .primary, palette: palette, tall: true))
+                .disabled(!canTranslate)
+            }
+
+            Rectangle()
+                .fill(palette.stroke)
+                .frame(height: 1)
+                .padding(.vertical, 8)
+
+            HStack(spacing: 2) {
+                HStack(spacing: 7) {
+                    Toggle("原文对照", isOn: $session.showCompare)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .tint(palette.accent)
+                    Text("原文对照")
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.fg)
+                }
+                .padding(.horizontal, 8)
+                .disabled(session.stage != .translated)
+                .opacity(session.stage == .translated ? 1 : 0.45)
+
+                Button(action: onExtractTapped) {
+                    Label("提取原文", systemImage: "text.viewfinder")
+                }
+                .buttonStyle(ScreenshotButtonStyle(kind: .ghost, palette: palette, iconOnly: compact))
+                .help("提取原文")
+                .disabled(!canExtract)
+
+                Button(action: onPinTapped) {
+                    Label("钉到屏幕", systemImage: "pin")
+                }
+                .buttonStyle(ScreenshotButtonStyle(kind: .ghost, palette: palette, iconOnly: compact))
+                .help("钉到屏幕")
                 // plain 样式加了前景色，禁用时不会自己变淡。
                 .disabled(!session.canExport)
-                .opacity(session.canExport ? 1 : 0.4)
-                .help("钉到屏幕")
+
+                Spacer(minLength: 0)
 
                 Button {
                     showOCRInfo.toggle()
                 } label: {
-                    Image(systemName: "info.circle.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
+                    Label("说明", systemImage: "info.circle")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(ScreenshotButtonStyle(kind: .quiet, palette: palette, iconOnly: compact))
                 .help("关于截图 OCR")
-                .popover(isPresented: $showOCRInfo, arrowEdge: .top) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("关于截图 OCR")
-                            .font(.system(size: 14, weight: .bold))
+                .popover(isPresented: $showOCRInfo, arrowEdge: .top) { ocrInfo }
 
-                        Text("本功能使用 Apple Vision（本地免费 OCR）进行文字识别。")
-                            .font(.system(size: 13, weight: .medium))
-
-                        Text("免费 OCR 的准确度会受截图清晰度、字体、背景、语言等影响，可能出现漏字/错字/断行。")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-
-                        Text("更推荐：优先用 Cmd+C+C（复制文字翻译），通常更稳定、更准确。")
-                            .font(.system(size: 13, weight: .semibold))
-
-                        Divider()
-
-                        Text("小技巧：右键可清空选区或退出。")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(14)
-                    .frame(width: 320)
+                Button(action: onFinishTapped) {
+                    Label("完成", systemImage: "checkmark")
                 }
+                .buttonStyle(ScreenshotButtonStyle(kind: session.stage == .translated ? .primary : .soft, palette: palette))
+                .disabled(!session.canExport)
             }
 
-            HStack(spacing: 10) {
-                Toggle("对照", isOn: $session.showCompare)
-                    .toggleStyle(SwitchToggleStyle())
-                    .controlSize(.mini)
-                    .disabled(session.stage != .translated)
+            if compact, !statusText.isEmpty || session.stage == .ocrRunning || session.stage == .translating {
+                statusLabel
+                    .padding(.top, 8)
+                    .padding(.horizontal, 8)
+            }
 
-                Button {
-                    onExtractTapped()
-                } label: {
-                    Label("提取原文", systemImage: "text.viewfinder")
-                        .font(.system(size: 13, weight: .semibold))
+            if let failure = failureText {
+                // 高度是算出来的，放置工具条时用同一个数；太长的错误在里面滚动，不撑出屏幕。
+                ScrollView {
+                    Text(failure)
+                        .font(Font(Self.failureFont))
+                        .foregroundStyle(palette.err)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
                 }
-                .disabled(!canExtract)
-
-                Button {
-                    onTranslateTapped()
-                } label: {
-                    Label(translateButtonTitle, systemImage: "sparkles")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .disabled(!canTranslate)
-
-                Button {
-                    onFinishTapped()
-                } label: {
-                    Label("完成", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .disabled(!session.canExport)
-
-
-                Spacer(minLength: 0)
-
-                if session.stage == .ocrRunning || session.stage == .translating {
-                    ProgressView().controlSize(.small)
-                }
+                .frame(height: failureHeight(toolbarWidth: width))
+                .padding(.top, 8)
+                .padding(.horizontal, 8)
             }
         }
-        .padding(12)
-        // 工具栏外观要跟随主程序深色主题：使用系统 Material（自动适配深浅色），
-        // 只保留轻描边与更克制的阴影。
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
+        .padding(10)
+        .frame(width: width)
+        .screenshotCard(palette, radius: 14)
+        // 贴着选区的那条边锚定：错误提示让工具条变高时，不会盖到选区上。
+        // 外层固定大小的框把它留在容器内，否则 ZStack 会把工具条算进自己的尺寸，整层跟着移位。
+        .padding(.leading, placement.x)
+        .frame(
+            width: size.width,
+            height: placement.growsUpward ? placement.y : max(0, size.height - placement.y),
+            alignment: placement.growsUpward ? .bottomLeading : .topLeading
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(colorScheme == .dark ? 0.75 : 0.6), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.20 : 0.14), radius: colorScheme == .dark ? 18 : 14, x: 0, y: 10)
-        .frame(width: 420)
-        .position(x: proposed.x, y: proposed.y)
+        .offset(y: placement.growsUpward ? 0 : placement.y)
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        HStack(spacing: 6) {
+            if session.stage == .ocrRunning || session.stage == .translating {
+                ProgressView().controlSize(.small).scaleEffect(0.75).frame(width: 16, height: 16)
+            }
+            Text(statusText)
+                .font(.system(size: 13))
+                .foregroundStyle(palette.muted)
+                .lineLimit(1)
+        }
+    }
+
+    private var statusText: String {
+        switch session.stage {
+        case .selected: return "已框选"
+        case .translated: return "翻译完成"
+        // 进行中按钮上已经写着；提取原文有提示条；失败写在工具条最下面。
+        case .selecting, .ocrRunning, .ocrReady, .translating, .failed: return ""
+        }
+    }
+
+    private var ocrInfo: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("关于截图 OCR")
+                .font(.system(size: 14, weight: .bold))
+
+            Text("本功能使用 Apple Vision（本地免费 OCR）进行文字识别。")
+                .font(.system(size: 13, weight: .medium))
+
+            Text("免费 OCR 的准确度会受截图清晰度、字体、背景、语言等影响，可能出现漏字/错字/断行。")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Text("更推荐：优先用 Cmd+C+C（复制文字翻译），通常更稳定、更准确。")
+                .font(.system(size: 13, weight: .semibold))
+
+            Divider()
+
+            Text("小技巧：右键可清空选区或退出。")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .frame(width: 320)
     }
 
     private func copyToPasteboard(_ text: String) {
@@ -440,36 +436,91 @@ struct ScreenshotSelectionWorkspaceView: View {
         }
     }
 
-    private func toolbarPosition(containerSize: CGSize, selectionRectTopLeft: CGRect) -> CGPoint {
-        // 这里用一个“可用空间优先级”策略：
-        // 右侧优先，其次左侧，其次上方，其次下方。
-        // 目标是尽量不遮挡选框内容。
-        let toolbarSize = CGSize(width: 420, height: 118)
-        let margin: CGFloat = 12
+    private static let fullToolbarWidth: CGFloat = 690
+    private static let toolbarMargin: CGFloat = 10
 
-        let rightSpace = containerSize.width - selectionRectTopLeft.maxX - margin
-        let leftSpace = selectionRectTopLeft.minX - margin
-        let topSpace = selectionRectTopLeft.minY - margin
+    /// 通常是完整宽度；显示器放不下时收窄，语言不写标题，次要操作只留图标。
+    private func toolbarWidth(containerSize: CGSize) -> CGFloat {
+        let selection = rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: containerSize)
+        let frame = displayFrame(containing: selection, containerSize: containerSize)
+        return min(Self.fullToolbarWidth, frame.width - Self.toolbarMargin * 2)
+    }
 
-        let yAligned = clamp(selectionRectTopLeft.minY + 18, min: 60, max: containerSize.height - 60)
+    private struct ToolbarPlacement {
+        let x: CGFloat
+        /// `growsUpward` 时是工具条底边，否则是顶边。
+        let y: CGFloat
+        let growsUpward: Bool
+    }
 
-        if rightSpace >= toolbarSize.width {
-            let x = clamp(selectionRectTopLeft.maxX + margin + toolbarSize.width / 2, min: toolbarSize.width / 2 + margin, max: containerSize.width - toolbarSize.width / 2 - margin)
-            return CGPoint(x: x, y: yAligned)
+    private static let failureFont = NSFont.systemFont(ofSize: 13)
+
+    private var failureText: String? {
+        if case .failed(let message) = session.stage {
+            return "\(message)。可以重新框选，或调整源语言后再试。"
         }
-        if leftSpace >= toolbarSize.width {
-            let x = clamp(selectionRectTopLeft.minX - margin - toolbarSize.width / 2, min: toolbarSize.width / 2 + margin, max: containerSize.width - toolbarSize.width / 2 - margin)
-            return CGPoint(x: x, y: yAligned)
+        return nil
+    }
+
+    /// 错误文字占的高度，最多显示五行。
+    private func failureHeight(toolbarWidth: CGFloat) -> CGFloat {
+        guard let failureText else { return 0 }
+        let bounds = (failureText as NSString).boundingRect(
+            with: CGSize(width: toolbarWidth - 36, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: Self.failureFont]
+        )
+        let lineHeight = ceil(Self.failureFont.ascender - Self.failureFont.descender + Self.failureFont.leading)
+        return min(ceil(bounds.height) + 2, lineHeight * 5 + 2)
+    }
+
+    private func estimatedToolbarHeight(containerSize: CGSize) -> CGFloat {
+        var height: CGFloat = 102
+        if failureText != nil { height += 8 + failureHeight(toolbarWidth: toolbarWidth(containerSize: containerSize)) }
+        if toolbarWidth(containerSize: containerSize) < Self.fullToolbarWidth { height += 26 }
+        return height
+    }
+
+    /// 选区下方优先，放不下放上方，再放不下贴着显示器底边。始终留在选区所在的显示器内。
+    private func toolbarPlacement(containerSize: CGSize) -> ToolbarPlacement {
+        // 对照时选区的显示范围会变大（见 displayRectTopLeft），工具条要让开。
+        let selection = displayRectTopLeft(
+            baseRectTopLeft: rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: containerSize),
+            containerSize: containerSize
+        )
+        let frame = displayFrame(containing: selection, containerSize: containerSize)
+        let width = toolbarWidth(containerSize: containerSize)
+        let height = estimatedToolbarHeight(containerSize: containerSize)
+        let gap = Self.toolbarMargin
+
+        let x = clamp(selection.minX, min: frame.minX + gap, max: frame.maxX - width - gap)
+        if selection.maxY + gap + height <= frame.maxY - gap {
+            return ToolbarPlacement(x: x, y: selection.maxY + gap, growsUpward: false)
         }
-        if topSpace >= toolbarSize.height {
-            let x = clamp(selectionRectTopLeft.midX, min: toolbarSize.width / 2 + margin, max: containerSize.width - toolbarSize.width / 2 - margin)
-            let y = clamp(selectionRectTopLeft.minY - margin - toolbarSize.height / 2, min: toolbarSize.height / 2 + margin, max: containerSize.height - toolbarSize.height / 2 - margin)
-            return CGPoint(x: x, y: y)
+        if selection.minY - gap - height >= frame.minY + gap {
+            return ToolbarPlacement(x: x, y: selection.minY - gap, growsUpward: true)
         }
-        // bottom fallback
-        let x = clamp(selectionRectTopLeft.midX, min: toolbarSize.width / 2 + margin, max: containerSize.width - toolbarSize.width / 2 - margin)
-        let y = clamp(selectionRectTopLeft.maxY + margin + toolbarSize.height / 2, min: toolbarSize.height / 2 + margin, max: containerSize.height - toolbarSize.height / 2 - margin)
-        return CGPoint(x: x, y: y)
+        return ToolbarPlacement(x: x, y: frame.maxY - gap, growsUpward: true)
+    }
+
+    /// 窗口铺满所有显示器，这里算出一个显示器的可用区域（SwiftUI 坐标）。不传选区时取鼠标所在的显示器。
+    private func displayFrame(containing selection: CGRect?, containerSize: CGSize) -> CGRect {
+        let whole = CGRect(origin: .zero, size: containerSize)
+        let virtual = ScreenshotSelectionWindow.fullVirtualScreenFrame()
+        guard abs(virtual.width - containerSize.width) < 1, abs(virtual.height - containerSize.height) < 1 else {
+            return whole
+        }
+        let anchor: CGPoint
+        if let selection {
+            anchor = CGPoint(x: virtual.minX + selection.midX, y: virtual.maxY - selection.midY)
+        } else {
+            anchor = NSEvent.mouseLocation
+        }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(anchor) }) ?? NSScreen.main else {
+            return whole
+        }
+        let visible = screen.visibleFrame
+        return CGRect(x: visible.minX - virtual.minX, y: virtual.maxY - visible.maxY, width: visible.width, height: visible.height)
     }
 
     private func clamp(_ v: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
@@ -492,15 +543,25 @@ struct ScreenshotSelectionWorkspaceView: View {
         return CGRect(x: baseRectTopLeft.minX, y: baseRectTopLeft.minY, width: baseRectTopLeft.width, height: newHeight)
     }
 
-    private func hudToastPosition(containerSize: CGSize, selectionRectTopLeft: CGRect) -> CGPoint {
-        let toolbarSize = CGSize(width: 420, height: 118)
-        let toastSize = CGSize(width: 360, height: 44)
-        let margin: CGFloat = 10
-
-        let toolbarCenter = toolbarPosition(containerSize: containerSize, selectionRectTopLeft: selectionRectTopLeft)
-        let x = clamp(toolbarCenter.x, min: toastSize.width / 2 + 12, max: containerSize.width - toastSize.width / 2 - 12)
-        let y = clamp(toolbarCenter.y + toolbarSize.height / 2 + margin + toastSize.height / 2, min: toastSize.height / 2 + 12, max: containerSize.height - toastSize.height / 2 - 12)
-        return CGPoint(x: x, y: y)
+    /// 工具条外侧优先；那边放不下就放到工具条另一侧，并始终留在显示器内。
+    private func hudToastPosition(containerSize: CGSize) -> CGPoint {
+        let selection = rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: containerSize)
+        let frame = displayFrame(containing: selection, containerSize: containerSize)
+        let placement = toolbarPlacement(containerSize: containerSize)
+        let height = estimatedToolbarHeight(containerSize: containerSize)
+        let halfHeight: CGFloat = 20
+        let margin: CGFloat = 8
+        let top = placement.growsUpward ? placement.y - height : placement.y
+        let bottom = placement.growsUpward ? placement.y : placement.y + height
+        let above = top - margin - halfHeight
+        let below = bottom + margin + halfHeight
+        let preferred = placement.growsUpward ? above : below
+        let fallback = placement.growsUpward ? below : above
+        let fits = preferred - halfHeight >= frame.minY && preferred + halfHeight <= frame.maxY
+        return CGPoint(
+            x: placement.x + toolbarWidth(containerSize: containerSize) / 2,
+            y: clamp(fits ? preferred : fallback, min: frame.minY + halfHeight, max: frame.maxY - halfHeight)
+        )
     }
 
     private func normalizedRectTopLeft(start: CGPoint, current: CGPoint) -> CGRect {
@@ -532,25 +593,18 @@ struct ScreenshotSelectionWorkspaceView: View {
     }
 
     private func hudToastView(_ toast: ScreenshotOCRSession.HUDToast) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: hudIcon(for: toast.style))
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(hudColor(for: toast.style))
             Text(toast.message)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 13))
+                .foregroundStyle(palette.fg)
                 .lineLimit(2)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(hudBackground(for: toast.style))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-        )
-        .foregroundStyle(.white)
-        .shadow(color: .black.opacity(0.25), radius: 18, x: 0, y: 8)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 9)
+        .screenshotCard(palette, radius: 10)
         .animation(.spring(response: 0.35, dampingFraction: 0.9), value: toast.id)
     }
 
@@ -563,12 +617,12 @@ struct ScreenshotSelectionWorkspaceView: View {
         }
     }
 
-    private func hudBackground(for style: ScreenshotOCRSession.HUDToast.Style) -> Color {
+    private func hudColor(for style: ScreenshotOCRSession.HUDToast.Style) -> Color {
         switch style {
-        case .success: return Color.green.opacity(0.92)
-        case .info: return Color.blue.opacity(0.92)
-        case .warning: return Color.orange.opacity(0.92)
-        case .error: return Color.red.opacity(0.92)
+        case .success: return palette.ok
+        case .info: return palette.accent
+        case .warning: return .orange
+        case .error: return palette.err
         }
     }
 }

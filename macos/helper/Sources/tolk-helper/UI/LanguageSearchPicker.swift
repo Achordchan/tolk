@@ -5,7 +5,8 @@ struct LanguageSearchPicker: View {
     let allowAuto: Bool
     let options: [Language]
     @Binding var selection: String
-    var fixedWidth: CGFloat?
+    let palette: ScreenshotPalette
+    var showsTitle: Bool = true
 
     @Environment(\.colorScheme) private var scheme
 
@@ -19,47 +20,38 @@ struct LanguageSearchPicker: View {
             query = ""
             isPresented = true
         } label: {
-            Group {
-                if fixedWidth != nil {
-                    HStack(spacing: 10) {
-                        Text(title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
-
-                        Text(selectedName)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    HStack(spacing: 10) {
-                        Text(title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.secondary)
-
-                        Text(selectedName)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
+            HStack(spacing: 8) {
+                if showsTitle {
+                    Text(title)
+                        .font(.system(size: 13))
+                        .foregroundStyle(palette.muted)
                 }
+
+                Text(selectedName)
+                    .font(.system(size: 14))
+                    .foregroundStyle(palette.fg)
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(palette.muted)
             }
-            .homeToolbarPickerChrome(isHovering: $isHovering)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 11)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isHovering ? palette.control.opacity(0.7) : palette.control)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(palette.controlStroke, lineWidth: 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .onHover { isHovering = $0 }
         }
         .buttonStyle(.plain)
-        .frame(width: fixedWidth, alignment: .leading)
+        .help(title)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             VStack(spacing: 10) {
                 TextField("搜索语言", text: $query)
@@ -81,7 +73,7 @@ struct LanguageSearchPicker: View {
                             if item.code == selection {
                                 Image(systemName: "checkmark")
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(palette.accent)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -108,7 +100,7 @@ struct LanguageSearchPicker: View {
 
     private func rowBackgroundColor(code: String) -> Color {
         if code == selection {
-            return Color.accentColor.opacity(scheme == .dark ? 0.22 : 0.14)
+            return palette.accent.opacity(scheme == .dark ? 0.22 : 0.14)
         }
         if hoveringCode == code {
             return DS.cardBackground(scheme).opacity(1.35)
@@ -125,48 +117,5 @@ struct LanguageSearchPicker: View {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if q.isEmpty { return list }
         return list.filter { $0.name.localizedCaseInsensitiveContains(q) || $0.code.localizedCaseInsensitiveContains(q) }
-    }
-}
-
-struct HomeToolbarPickerChrome: ViewModifier {
-    @Binding var isHovering: Bool
-    @Environment(\.colorScheme) private var scheme
-
-    func body(content: Content) -> some View {
-        content
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: DS.pillCornerRadius, style: .continuous)
-                    .fill(
-                        isHovering
-                            ? DS.cardBackground(scheme).opacity(1.25)
-                            : DS.cardBackground(scheme)
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.pillCornerRadius, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                DS.strokeColor(scheme).opacity(1.0),
-                                Color.accentColor.opacity(scheme == .dark ? 0.22 : 0.12)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: DS.pillCornerRadius, style: .continuous))
-            .onHover { hovering in
-                isHovering = hovering
-            }
-    }
-}
-
-extension View {
-    func homeToolbarPickerChrome(isHovering: Binding<Bool>) -> some View {
-        modifier(HomeToolbarPickerChrome(isHovering: isHovering))
     }
 }

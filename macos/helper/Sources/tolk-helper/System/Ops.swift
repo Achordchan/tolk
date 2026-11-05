@@ -204,7 +204,9 @@ enum Ops {
         guard let mode = ScreenshotOCRCoordinator.Mode(rawValue: modeRaw) else {
             throw OpFailure("mode 必须是 translate 或 ocr")
         }
-        switch await screenshot.start(sourceLanguageCode: source, targetLanguageCode: target, mode: mode) {
+        // 没传或不认识就跟随系统：老版本主程序不带这个字段。
+        let appearance = params["appearance"]?.stringValue.flatMap(InputAssistAppearance.init(rawValue:)) ?? .system
+        switch await screenshot.start(sourceLanguageCode: source, targetLanguageCode: target, mode: mode, appearance: appearance) {
         case .started:
             return [:]
         case .failed(let message, _):

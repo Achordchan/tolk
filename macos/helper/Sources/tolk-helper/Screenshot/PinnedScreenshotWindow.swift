@@ -18,7 +18,7 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
     private let onRequestClose: () -> Void
     private let onRequestCloseAll: () -> Void
 
-    init(image: NSImage, initialRect: CGRect, onRequestClose: @escaping () -> Void, onRequestCloseAll: @escaping () -> Void) {
+    init(image: NSImage, initialRect: CGRect, palette: ScreenshotPalette, onRequestClose: @escaping () -> Void, onRequestCloseAll: @escaping () -> Void) {
         self.model = Model()
         self.onRequestClose = onRequestClose
         self.onRequestCloseAll = onRequestCloseAll
@@ -47,6 +47,7 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
         let view = PinnedScreenshotView(
             image: image,
             model: model,
+            accent: palette.accent,
             onClose: { [weak self] in
                 self?.close()
             },
@@ -87,6 +88,7 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
 struct PinnedScreenshotView: View {
     let image: NSImage
     @ObservedObject var model: PinnedScreenshotWindow.Model
+    let accent: Color
     let onClose: () -> Void
     let onCloseAll: () -> Void
     let onToggleAlwaysOnTop: () -> Void
@@ -139,7 +141,7 @@ struct PinnedScreenshotView: View {
         )
         .overlay(
             Rectangle()
-                .strokeBorder(Color.green.opacity(0.9), lineWidth: (model.isAlwaysOnTop && glowOn) ? 2 : 0)
+                .strokeBorder(accent.opacity(0.9), lineWidth: (model.isAlwaysOnTop && glowOn) ? 2 : 0)
         )
         .onHover { hovering in
             isHovering = hovering

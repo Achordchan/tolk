@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -140,12 +141,12 @@ func main() {
 			current.AutoDisabled = true
 		}
 		if !current.AutoDisabled {
-			r := report.Report{Kind: report.Crash, Title: "[崩溃] 主程序异常退出", Description: fmt.Sprintf("主程序启动或运行失败：%v", err), InstallID: st.InstallID, SubmissionID: id, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH, Attachments: []report.Attachment{{Name: "启动与退出日志", Body: body, KeepHead: true}}}
 			if headline == "" {
-				headline = crashDiagnostic(body, r.Description)
+				headline = crashDiagnostic(body, "")
 			}
-			r.Description += "\n" + headline
-			r.Fingerprint = report.Fingerprint(report.Crash, headline)
+			title, description, source := exitSummary(err, headline)
+			r := report.Report{Kind: report.Crash, Title: title, Description: description, InstallID: st.InstallID, SubmissionID: id, Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH, Attachments: []report.Attachment{{Name: "启动与退出日志", Body: body, KeepHead: true}}}
+			r.Fingerprint = report.Fingerprint(report.Crash, source)
 			if e := reserveCrash(dir, r); e != nil {
 				fmt.Fprintln(os.Stderr, e)
 			}
@@ -175,6 +176,22 @@ func main() {
 	if err == nil {
 		_ = os.Remove(logPath)
 	}
+}
+
+// exitSummary words the report of a failed run. Exiting without a crash headline
+// is not evidence of a crash: a window closed after "not responding" and a
+// forced end from Task Manager look the same from here. source is what the
+// report is fingerprinted by.
+func exitSummary(err error, headline string) (title, description, source string) {
+	failure := fmt.Sprintf("主程序启动或运行失败：%v", err)
+	if headline != "" {
+		return "[崩溃] 主程序异常退出", failure + "\n" + headline, headline
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return "[异常退出] 主程序没有留下崩溃信息", failure + "\n没有崩溃信息：可能是界面未响应后被关闭、被强制结束，或原生代码崩溃。", failure
+	}
+	return "[崩溃] 主程序无法启动", failure, failure
 }
 
 // Use the panic/fatal headline rather than generic exit status or volatile logs.

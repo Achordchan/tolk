@@ -41,6 +41,13 @@ func (b *Buffer) OnError(fn func(Entry)) {
 // every line (stderr, in the app).
 func New(max int, tee io.Writer) *Buffer { return &Buffer{max: max, next: 1, tee: tee} }
 
+// SetTee changes where lines are copied to.
+func (b *Buffer) SetTee(tee io.Writer) {
+	b.mu.Lock()
+	b.tee = tee
+	b.mu.Unlock()
+}
+
 var secretRes = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._\-]{8,}`),
 	regexp.MustCompile(`(?i)(api[_-]?key["':= ]+)[A-Za-z0-9._\-]{8,}`),

@@ -163,8 +163,10 @@ function Render($texts) {
    $x=[Math]::Max(0,[int]$block.X-2);$y=[Math]::Max(0,[int]$block.Y-2)
    $w=[Math]::Min($image.Width-$x,[int]$block.W+4);$h=[Math]::Min($image.Height-$y,[int]$block.H+4)
    $left=[float]$block.X
-   if($null -ne $previousLeft -and [Math]::Abs($left-$previousLeft) -le $lineHeight*0.25){$left=$previousLeft}
+   # Snapping never leaves the text less room than OCR gave it, so a narrow block can't end up inverted.
+   if($null -ne $previousLeft -and [Math]::Abs($left-$previousLeft) -le $lineHeight*0.25 -and ($x+$w-$previousLeft) -ge $block.W){$left=$previousLeft}
    $previousLeft=$left
+   if($left -lt $x){$w+=[int][Math]::Ceiling($x-$left);$x=[int][Math]::Floor($left)}
    $textRect=New-Object Drawing.RectangleF($left,[float]$block.Y,([float]$x+$w-$left),([float]$y+$h-[float]$block.Y))
    $text=[string]$texts[$i]
    $size=FitSize $g $text $textRect ($lineHeight*1.15) $typeset

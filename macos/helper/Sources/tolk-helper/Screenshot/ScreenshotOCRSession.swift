@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import TolkHelperCore
 
 @MainActor
 final class ScreenshotOCRSession: ObservableObject {
@@ -30,6 +31,9 @@ final class ScreenshotOCRSession: ObservableObject {
         case translated
         case failed(String)
     }
+
+    /// Tolk 当前的主题，决定工作区的配色和窗口外观。
+    let appearance: InputAssistAppearance
 
     @Published var stage: Stage = .selecting
 
@@ -78,7 +82,8 @@ final class ScreenshotOCRSession: ObservableObject {
     /// 免得旧选区的结果盖掉新选区。
     private(set) var generation: Int = 0
 
-    init(sourceLanguageCode: String, targetLanguageCode: String) {
+    init(sourceLanguageCode: String, targetLanguageCode: String, appearance: InputAssistAppearance = .system) {
+        self.appearance = appearance
         self.sourceLanguageCode = sourceLanguageCode
         self.targetLanguageCode = targetLanguageCode
     }

@@ -409,7 +409,7 @@ func macSimple(op string, params map[string]any) error {
 
 func macScreenshot(mode string) error {
 	p := currentPrefs()
-	return macSimple("screenshot.start", map[string]any{"source": p.SourceLang, "target": p.TargetLang, "mode": mode})
+	return macSimple("screenshot.start", map[string]any{"source": p.SourceLang, "target": p.TargetLang, "mode": mode, "appearance": p.Theme})
 }
 
 func appleCall(ctx context.Context, texts []string, source, target string) ([]string, error) {

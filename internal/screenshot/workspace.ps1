@@ -7,61 +7,79 @@ $script:readTask = $null
 $script:pins = New-Object System.Collections.Generic.List[System.Windows.Forms.Form]
 $script:fullTranslation = ''
 $script:working = $false
-$bar = New-Object System.Windows.Forms.FlowLayoutPanel
-$bar.AutoSize = $true
-$bar.WrapContents = $true
-$bar.MaximumSize = New-Object Drawing.Size(([Math]::Min(900,$bounds.Width)),0)
-$bar.Padding = New-Object System.Windows.Forms.Padding(8)
-$bar.BackColor = [Drawing.Color]::FromArgb(245,245,245)
-$bar.Visible = $false
+$bar = New-Object ShotBar($form,$palette)
 $form.Controls.Add($bar)
-function Button($label, $action) {
- $button = New-Object System.Windows.Forms.Button
- $button.Text=$label; $button.AutoSize=$true; $button.MinimumSize=New-Object Drawing.Size(78,36)
- $button.FlatStyle='Flat';$button.FlatAppearance.BorderSize=0
- $button.Padding=New-Object Windows.Forms.Padding(10,5,10,5)
- $button.Margin=New-Object Windows.Forms.Padding(4)
- $button.Cursor=[Windows.Forms.Cursors]::Hand
- $button.Add_Click($action)
- [void]$bar.Controls.Add($button)
+function NewButton($label,$kind,$glyph) {
+ $button=New-Object ShotButton
+ $button.Text=$label;$button.Kind=$kind;$button.Glyph=$glyph
  return $button
 }
-$source = New-Object System.Windows.Forms.ComboBox
-$source.DropDownStyle='DropDownList';$source.Width=150
+$source = New-Object ShotPicker
+$source.Label='源语言'
 [void]$source.Items.Add('自动检测')
 $script:sourceTags=@('')
 $source.SelectedIndex=0
-$source.FlatStyle='Flat';$source.Margin=New-Object Windows.Forms.Padding(4,8,8,4)
-[void]$bar.Controls.Add($source)
-$target = New-Object System.Windows.Forms.ComboBox
-$target.DropDownStyle='DropDownList';$target.Width=130
+$bar.AddTop($source)
+$bar.AddTop((New-Object ShotArrow))
+$target = New-Object ShotPicker
+$target.Label='目标语言'
 foreach ($name in ($env:TOLK_SHOT_LANGUAGES | ConvertFrom-Json)) { [void]$target.Items.Add([string]$name) }
-$target.FlatStyle='Flat';$target.Margin=New-Object Windows.Forms.Padding(4,8,8,4)
 $target.SelectedItem=$env:TOLK_SHOT_TARGET
 if ($target.SelectedIndex -lt 0) { $target.SelectedIndex=0 }
-[void]$bar.Controls.Add($target)
-$hint = New-Object System.Windows.Forms.Label
-$hint.AutoSize=$false;$hint.Height=60;$hint.Width=600
-$hint.BackColor=[Drawing.Color]::FromArgb(245,245,245)
-$hint.ForeColor=[Drawing.Color]::FromArgb(40,40,40)
-$hint.Padding=New-Object System.Windows.Forms.Padding(8)
-$hint.Text='拖动框选区域；Esc 退出。截图和识别在本机完成，仅识别文字发送给当前翻译服务。'
-$hint.Location=New-Object Drawing.Point(20,20)
-$form.Controls.Add($hint)
-function Status($text) { $hint.Text=$text }
+$bar.AddTop($target)
+$translate=NewButton '翻译' ([ShotKind]::Primary) 'translate'
+$bar.SetAction($translate)
+$compare=New-Object ShotToggle
+$compare.Text='原文对照';$compare.Enabled=$false
+$bar.AddBottomLeft($compare)
+$extract=NewButton '提取原文' ([ShotKind]::Ghost) 'extract'
+$bar.AddBottomLeft($extract)
+$viewText=NewButton '查看译文' ([ShotKind]::Ghost) 'text'
+$viewText.Enabled=$false
+$bar.AddBottomLeft($viewText)
+$pin=NewButton '钉到屏幕' ([ShotKind]::Ghost) 'pin'
+$bar.AddBottomLeft($pin)
+$reselect=NewButton '重新框选' ([ShotKind]::Ghost) 'reselect'
+$bar.AddBottomLeft($reselect)
+$close=NewButton '退出' ([ShotKind]::Quiet) ''
+$bar.AddBottomRight($close)
+$finish=NewButton '复制完成' ([ShotKind]::Soft) 'check'
+$bar.AddBottomRight($finish)
+$script:workArea=[Drawing.Rectangle]::Empty
+function CursorArea {
+ $p=[Windows.Forms.Cursor]::Position
+ $area=[Windows.Forms.Screen]::FromPoint($p).WorkingArea
+ $area.Offset(-$bounds.Left,-$bounds.Top)
+ return $area
+}
+function ShowHint($title) {
+ $p=[Windows.Forms.Cursor]::Position
+ $form.SetHint($title,'Esc 退出。截图和识别在本机完成，仅识别文字发送给当前翻译服务。',(CursorArea),[CaptureDpi]::ScaleAt($p.X,$p.Y))
+}
+function Status($text,$failed=$false) {
+ if(!$bar.Visible){ShowHint $text;return}
+ $bar.SetStatus($text,[bool]$failed)
+ $bar.Place($script:selection,$script:workArea)
+}
+function Failed($text) {Status $text $true}
+function SyncOverlay {
+ if($script:crop -and $script:translated -and !$compare.Checked){$form.SetOverlay($script:translated)}else{$form.SetOverlay($null)}
+}
 function Busy($on) {
  $script:working=$on
  $translate.Enabled=!$on;$extract.Enabled=!$on;$finish.Enabled=!$on;$pin.Enabled=!$on
  $source.Enabled=!$on;$target.Enabled=!$on
- if ($reselect) {$reselect.Enabled=!$on}
+ $reselect.Enabled=!$on
+ $viewText.Enabled=(!$on -and $script:fullTranslation)
  $compare.Enabled=(!$on -and $null -ne $script:translated)
 }
 function ClearTranslation {
  $script:fullTranslation=''
- if($viewText){$viewText.Enabled=$false}
+ $viewText.Enabled=$false
+ $form.SetOverlay($null)
  if ($script:translated) {$script:translated.Dispose();$script:translated=$null}
  $compare.Checked=$false;$compare.Enabled=$false
- $form.Invalidate()
+ $translate.Text='翻译'
 }
 function Recognize {
  LoadOCR
@@ -124,12 +142,8 @@ function Render($texts) {
  } catch {$image.Dispose();throw} finally {$g.Dispose()}
  return $image
 }
-$compare=New-Object Windows.Forms.CheckBox
-$compare.Text='原文对照';$compare.AutoSize=$true;$compare.Enabled=$false
-$compare.Margin=New-Object Windows.Forms.Padding(8,10,8,4)
-$compare.Add_CheckedChanged({$form.Invalidate()})
-[void]$bar.Controls.Add($compare)
-$translate=Button '翻译' {
+$compare.Add_CheckedChanged({SyncOverlay})
+$translate.Add_Click({
  try {
   Busy $true;Status '正在识别文字…';$form.Refresh()
   Recognize
@@ -143,26 +157,37 @@ $translate=Button '翻译' {
   [Console]::Out.WriteLine($json);[Console]::Out.Flush()
   $script:readTask=[CaptureDpi]::ReadReply()
   Status ('正在翻译 '+$script:blocks.Count+' 个文字区域…')
- } catch {Status $_.Exception.Message;Busy $false}
-}
-$extract=Button '提取原文' {
- try{Busy $true;Status '正在识别文字…';$form.Refresh();Recognize;[Windows.Forms.Clipboard]::SetText(($script:blocks | ForEach-Object {$_.Text}) -join "`r`n");Status '原文已复制'}catch{Status $_.Exception.Message}finally{Busy $false}
-}
+ } catch {Failed $_.Exception.Message;Busy $false}
+})
+$extract.Add_Click({
+ try{Busy $true;Status '正在识别文字…';$form.Refresh();Recognize;[Windows.Forms.Clipboard]::SetText(($script:blocks | ForEach-Object {$_.Text}) -join "`r`n");Status '原文已复制'}catch{Failed $_.Exception.Message}finally{Busy $false}
+})
 function ExportImage {if($script:translated -and !$compare.Checked){return $script:translated};return $script:crop}
-$viewText=Button '查看译文' {
+$viewText.Add_Click({
+ try {
+ $scale=[CaptureDpi]::ScaleAt($bounds.X+$script:selection.X,$bounds.Y+$script:selection.Y)
  $textWindow=New-Object Windows.Forms.Form
- $textWindow.Text='完整译文';$textWindow.Size=New-Object Drawing.Size(560,400);$textWindow.StartPosition='CenterParent'
+ $textWindow.Text='完整译文';$textWindow.AutoScaleMode='None'
+ $textWindow.ClientSize=New-Object Drawing.Size([int](560*$scale),[int](400*$scale))
+ $textWindow.StartPosition='CenterParent';$textWindow.BackColor=$palette.Card;$textWindow.KeyPreview=$true;$textWindow.ShowInTaskbar=$false
+ # The workspace is topmost; this window has to stay above it.
+ $textWindow.TopMost=$true
+ $textWindow.Padding=New-Object Windows.Forms.Padding([int](18*$scale))
+ $textWindow.Add_KeyDown({if($_.KeyCode -eq 'Escape'){$this.Close()}})
  $textBox=New-Object Windows.Forms.TextBox
- $textBox.Multiline=$true;$textBox.ReadOnly=$true;$textBox.ScrollBars='Vertical';$textBox.Dock='Fill';$textBox.Text=$script:fullTranslation
- $textBox.Font=New-Object Drawing.Font('Microsoft YaHei',11)
+ $textBox.Multiline=$true;$textBox.ReadOnly=$true;$textBox.ScrollBars='Vertical';$textBox.Dock='Fill';$textBox.BorderStyle='None'
+ $textBox.BackColor=$palette.Card;$textBox.ForeColor=$palette.Fg;$textBox.Text=$script:fullTranslation
+ $textBox.Font=[ShotPaint]::FontPx(15*$scale,[Drawing.FontStyle]::Regular)
  $textWindow.Controls.Add($textBox)
+ $textWindow.Add_Shown({$textBox.SelectionStart=0;$textBox.SelectionLength=0})
+ [CaptureDpi]::DarkCaption($textWindow.Handle,$palette.Dark)
  try{[void]$textWindow.ShowDialog($form)}finally{$textBox.Font.Dispose();$textWindow.Dispose()}
-}
-$viewText.Enabled=$false
-$finish=Button '复制完成'  {
- try {[Windows.Forms.Clipboard]::SetImage((ExportImage));$form.Close()}catch{Status ('复制失败：'+$_.Exception.Message)}
-}
-$pin=Button '钉到屏幕' {
+ } catch {Failed ('无法打开译文窗口：'+$_.Exception.Message)}
+})
+$finish.Add_Click({
+ try {[Windows.Forms.Clipboard]::SetImage((ExportImage));$form.Close()}catch{Failed ('复制失败：'+$_.Exception.Message)}
+})
+$pin.Add_Click({
  $window=New-Object Windows.Forms.Form
  $window.Text='Tolk 截图 · Esc 关闭';$window.TopMost=$true;$window.KeyPreview=$true
  $window.StartPosition='Manual';$window.Location=New-Object Drawing.Point(($bounds.X+$script:selection.X),($bounds.Y+$script:selection.Y))
@@ -170,22 +195,17 @@ $pin=Button '钉到屏幕' {
  $window.BackgroundImage=New-Object Drawing.Bitmap((ExportImage));$window.BackgroundImageLayout='Zoom'
  $window.Add_KeyDown({if($_.KeyCode -eq 'Escape'){$this.Close()}})
  $window.Add_FormClosed({$this.BackgroundImage.Dispose()})
+ [CaptureDpi]::DarkCaption($window.Handle,$palette.Dark)
  [void]$script:pins.Add($window);$window.Show();$form.Close()
-}
+})
 function ResetSelection {
  $script:requestId++;$script:start=$null;$script:selection=[Drawing.Rectangle]::Empty
+ $form.SetSelection($script:selection)
  if($script:crop){$script:crop.Dispose();$script:crop=$null}
- $script:blocks=@();ClearTranslation;$bar.Visible=$false;Status '拖动重新框选；Esc 退出';$form.Invalidate()
+ $script:blocks=@();ClearTranslation;$bar.Visible=$false;ShowHint '拖动重新框选';$form.Invalidate()
 }
-$reselect=Button '重新框选' { ResetSelection }
-$close=Button '退出' {$form.Close()}
-$dark=$env:TOLK_SHOT_DARK -eq '1'
-$surface=if($dark){[Drawing.Color]::FromArgb(36,38,42)}else{[Drawing.Color]::FromArgb(249,250,252)}
-$controlColor=if($dark){[Drawing.Color]::FromArgb(54,57,63)}else{[Drawing.Color]::FromArgb(232,236,242)}
-$foreground=if($dark){[Drawing.Color]::FromArgb(235,237,241)}else{[Drawing.Color]::FromArgb(35,39,47)}
-$bar.BackColor=$surface;$hint.BackColor=$surface;$hint.ForeColor=$foreground
-foreach($control in $bar.Controls){$control.BackColor=$controlColor;$control.ForeColor=$foreground}
-$translate.BackColor=[Drawing.Color]::FromArgb(10,132,255);$translate.ForeColor=[Drawing.Color]::White
+$reselect.Add_Click({ResetSelection})
+$close.Add_Click({$form.Close()})
 $form.Add_Shown({
  [Console]::Out.WriteLine('{"ready":true}');[Console]::Out.Flush()
 })
@@ -199,14 +219,11 @@ $ocrInit.Add_Tick({
   foreach($language in [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages){
    [void]$source.Items.Add($language.DisplayName);$script:sourceTags+=$language.LanguageTag
   }
- } catch {Status ('OCR 初始化失败：'+$_.Exception.Message)}
+ } catch {Failed ('OCR 初始化失败：'+$_.Exception.Message)}
 })
 $ocrInit.Start()
 $source.Add_SelectedIndexChanged({$script:requestId++;$script:blocks=@();ClearTranslation;Status '源语言已更改，请重新识别';Busy $false})
 $target.Add_SelectedIndexChanged({$script:requestId++;ClearTranslation;Status '目标语言已更改，请重新翻译';Busy $false})
-$form.Add_Paint({
- if($script:crop -and $script:translated -and !$compare.Checked){$_.Graphics.DrawImage($script:translated,$script:selection)}
-})
 $form.Add_MouseUp({
  if($_.Button -ne 'Left'){return}
  $hadStart=$null -ne $script:start
@@ -215,20 +232,15 @@ $form.Add_MouseUp({
  if($script:crop){$script:crop.Dispose()}
  $script:crop=$screen.Clone($script:selection,$screen.PixelFormat)
  $script:blocks=@();ClearTranslation
- $bar.Visible=$true;$bar.PerformLayout()
  $center=New-Object Drawing.Point(($bounds.X+$script:selection.X+[int]($script:selection.Width/2)),($bounds.Y+$script:selection.Y+[int]($script:selection.Height/2)))
  $monitor=[Windows.Forms.Screen]::FromPoint($center).WorkingArea
- $left=$monitor.Left-$bounds.Left;$top=$monitor.Top-$bounds.Top
- $right=$monitor.Right-$bounds.Left;$bottom=$monitor.Bottom-$bounds.Top
- $bar.MaximumSize=New-Object Drawing.Size($monitor.Width,0);$bar.PerformLayout()
- $x=[Math]::Max($left,[Math]::Min($script:selection.X,$right-$bar.Width))
- $y=$script:selection.Bottom+8
- if($y+$bar.Height+70 -gt $bottom){$y=[Math]::Max($top,$script:selection.Top-$bar.Height-70)}
- $bar.Location=New-Object Drawing.Point($x,$y)
- $hint.Width=[Math]::Min($bar.Width,$monitor.Width)
- $hint.Location=New-Object Drawing.Point($x,([Math]::Max($top,[Math]::Min($bottom-$hint.Height,$y+$bar.Height+4))))
- Status '已框选。点击翻译回贴译文，或提取文字、复制原图、钉到屏幕。'
- Busy $false;$form.Invalidate()
+ $script:workArea=New-Object Drawing.Rectangle(($monitor.X-$bounds.X),($monitor.Y-$bounds.Y),$monitor.Width,$monitor.Height)
+ $form.SelectionScale=[CaptureDpi]::ScaleAt($center.X,$center.Y)
+ $form.SetHint('','',[Drawing.Rectangle]::Empty,1)
+ $bar.Arrange($form.SelectionScale,$monitor.Width)
+ $bar.Visible=$true
+ Status '已框选，可以翻译或提取文字'
+ Busy $false
 })
 # The pipe is event-driven; the UI timer only marshals a completed read task onto
 # the WinForms UI thread. It never sends network/status polling requests.
@@ -244,13 +256,14 @@ $timer.Add_Tick({
   if($reply.error){throw [string]$reply.error}
   if(@($reply.texts).Count -ne $script:blocks.Count){throw '翻译返回的区域数量不一致'}
   $script:fullTranslation=(@($reply.texts) -join "`r`n")
-  $viewText.Enabled=$true
   $script:translated=Render @($reply.texts)
-  Status '翻译完成。可切换原文对照，或复制、钉住当前图片。'
-  $form.Invalidate()
- } catch {Status $_.Exception.Message} finally {Busy $false}
+  $translate.Text='重新翻译'
+  SyncOverlay
+  Status '翻译完成，可以复制或钉住'
+ } catch {Failed $_.Exception.Message} finally {Busy $false}
 })
 $timer.Start()
+ShowHint '拖动框选要翻译的区域'
 try {
  [void]$form.ShowDialog()
  [Console]::Out.WriteLine('{"closed":true}');[Console]::Out.Flush()
@@ -259,5 +272,5 @@ try {
  $timer.Stop();$timer.Dispose();$ocrInit.Stop();$ocrInit.Dispose()
  if($script:crop){$script:crop.Dispose()};if($script:translated){$script:translated.Dispose()}
  foreach($window in $script:pins){if(!$window.IsDisposed){$window.Close()}}
- $screen.Dispose();$form.Dispose()
+ $screen.Dispose();$form.Dimmed.Dispose();$form.Dispose()
 }

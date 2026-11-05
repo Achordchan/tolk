@@ -41,7 +41,7 @@ final class ScreenshotOCRCoordinator {
 
     // MARK: - 对外入口
 
-    func start(sourceLanguageCode: String, targetLanguageCode: String, mode: Mode) async -> StartResult {
+    func start(sourceLanguageCode: String, targetLanguageCode: String, mode: Mode, appearance: InputAssistAppearance = .system) async -> StartResult {
         if isRunning {
             cancelAll()
         }
@@ -66,7 +66,8 @@ final class ScreenshotOCRCoordinator {
         presentSelection(
             sourceLanguageCode: sourceLanguageCode,
             targetLanguageCode: targetLanguageCode,
-            frozenBackgrounds: frozen
+            frozenBackgrounds: frozen,
+            appearance: appearance
         )
         Bridge.emit("screenshot.state", ["state": "selecting"])
         return .started
@@ -109,7 +110,8 @@ final class ScreenshotOCRCoordinator {
     private func presentSelection(
         sourceLanguageCode: String,
         targetLanguageCode: String,
-        frozenBackgrounds: [ScreenshotOCRSession.FrozenBackground]
+        frozenBackgrounds: [ScreenshotOCRSession.FrozenBackground],
+        appearance: InputAssistAppearance
     ) {
         if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
            pid != NSRunningApplication.current.processIdentifier {
@@ -126,7 +128,8 @@ final class ScreenshotOCRCoordinator {
 
         let session = ScreenshotOCRSession(
             sourceLanguageCode: source,
-            targetLanguageCode: targetLanguageCode
+            targetLanguageCode: targetLanguageCode,
+            appearance: appearance
         )
         session.frozenBackgrounds = frozenBackgrounds
         self.session = session
@@ -415,6 +418,7 @@ final class ScreenshotOCRCoordinator {
         let pinned = PinnedScreenshotWindow(
             image: image,
             initialRect: initialRect,
+            palette: .make(session.appearance, NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light),
             onRequestClose: { [weak self] in
                 guard let self else { return }
                 if let w = windowToRemove {

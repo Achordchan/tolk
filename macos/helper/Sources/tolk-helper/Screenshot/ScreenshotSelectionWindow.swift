@@ -43,6 +43,7 @@ final class ScreenshotSelectionWindow: NSWindow {
             defer: false
         )
 
+        appearance = session.appearance.nsAppearance
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false

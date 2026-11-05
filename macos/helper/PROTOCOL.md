@@ -28,7 +28,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 | `permissions` | 无 | `{"accessibility":bool,"screenRecording":bool}`，不弹窗 |
 | `permissions.request` | `kind`: `accessibility` \| `screenRecording` | `{}`，触发系统授权提示；已拒绝时打开对应系统设置页 |
 | `permissions.guide` | 无 | `{}`，显示 bagayalu 里 `PermissionGuideView` 同款授权引导窗口（缺哪个讲哪个） |
-| `screenshot.start` | `source`, `target`, `mode`: `translate`（默认）\| `ocr`（只识别文字） | 立即回 `{}` 表示选区层已显示；之后用事件汇报 |
+| `screenshot.start` | `source`, `target`, `mode`: `translate`（默认）\| `ocr`（只识别文字）；`appearance`（可省略）：`system`\|`light`\|`dark`\|`pink`，选区层的配色 | 立即回 `{}` 表示选区层已显示；之后用事件汇报 |
 | `screenshot.cancel` | 无 | `{}` |
 | `selection.get` | 无 | `{"text":"…","app":"<前台 App 的 bundle id>"}`；读不到时 `ok:false` |
 | `selection.replace` | `text` | `{}`，优先走辅助功能写入，不行再用粘贴兜底（与 bagayalu `InputAssistTextReplaceEngine` 一致） |

@@ -92,6 +92,7 @@ public static class ShotPaint {
    case "reselect": return new float[][] { new float[] { 0, 4, 9, 4, 4, 9, 4 }, new float[] { 0, 15, 4, 20, 4, 20, 9 }, new float[] { 0, 20, 15, 20, 20, 15, 20 }, new float[] { 0, 9, 20, 4, 20, 4, 15 } };
    case "translate": return new float[][] { new float[] { 0, 3.5f, 6, 12.5f, 6 }, new float[] { 0, 8, 4, 8, 6 }, new float[] { 0, 10.5f, 6, 9.2f, 9.5f, 7, 12.3f, 4, 14.5f }, new float[] { 0, 5.5f, 9.5f, 7.5f, 12, 11, 14.5f }, new float[] { 0, 13, 21, 17, 11, 21, 21 }, new float[] { 0, 14.3f, 18, 19.7f, 18 } };
    case "copy": return new float[][] { new float[] { 1, 9, 9, 20, 9, 20, 20, 9, 20 }, new float[] { 0, 5.5f, 15, 4, 15, 4, 4, 15, 4, 15, 5.5f } };
+   case "close": return new float[][] { new float[] { 0, 6, 6, 18, 18 }, new float[] { 0, 18, 6, 6, 18 } };
    case "check": return new float[][] { new float[] { 0, 5, 12.5f, 9.5f, 17, 19, 7 } };
    case "chevron": return new float[][] { new float[] { 0, 6, 9, 12, 15, 18, 9 } };
    case "arrow": return new float[][] { new float[] { 0, 5, 12, 19, 12 }, new float[] { 0, 13, 6, 19, 12, 13, 18 } };
@@ -214,7 +215,11 @@ public enum ShotKind { Primary, Soft, Ghost, Quiet }
 public class ShotButton : Button, IShotScaled {
  public ShotKind Kind = ShotKind.Ghost;
  public string Glyph = "";
+ /// <summary>Shown in place of the words when the toolbar is compact, for buttons that normally have no icon.</summary>
+ public string CompactGlyph = "";
  public bool IconOnly;
+ public bool CanCompact { get { return Glyph.Length > 0 || CompactGlyph.Length > 0; } }
+ string CurrentGlyph { get { return IconOnly && Glyph.Length == 0 ? CompactGlyph : Glyph; } }
  protected ShotPalette palette; protected float scale = 1;
  protected bool hover; protected bool down;
  public ShotButton() {
@@ -227,7 +232,7 @@ public class ShotButton : Button, IShotScaled {
  public virtual void SetScale(float s) { scale = s; Font = ShotPaint.FontPx((FixedHeight > 0 ? 14 : 13) * s, FontStyle.Regular); }
  public virtual int RowHeight() { return (int)((FixedHeight > 0 ? FixedHeight : 32) * scale); }
  public virtual int RowWidth() {
-  int icon = Glyph.Length > 0 ? (int)(16 * scale) : 0;
+  int icon = CurrentGlyph.Length > 0 ? (int)(16 * scale) : 0;
   if (IconOnly && icon > 0) { return (int)(32 * scale); }
   int text = TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
   int gap = icon > 0 ? (int)(6 * scale) : 0;
@@ -266,12 +271,13 @@ public class ShotButton : Button, IShotScaled {
    if (Kind == ShotKind.Quiet) { text = palette.Muted; }
   }
   if (Kind != ShotKind.Primary) { text = Dim(text); glyph = Dim(glyph); }
-  int icon = Glyph.Length > 0 ? (int)(16 * scale) : 0;
+  string glyphName = CurrentGlyph;
+  int icon = glyphName.Length > 0 ? (int)(16 * scale) : 0;
   bool only = IconOnly && icon > 0;
   int textW = only ? 0 : TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width;
   int gap = icon > 0 && !only ? (int)(6 * scale) : 0;
   int x = (Width - icon - gap - textW) / 2;
-  if (icon > 0) { ShotPaint.Icon(g, Glyph, new RectangleF(x, (Height - icon) / 2f, icon, icon), glyph, 1.6f * scale); }
+  if (icon > 0) { ShotPaint.Icon(g, glyphName, new RectangleF(x, (Height - icon) / 2f, icon, icon), glyph, 1.6f * scale); }
   Ring(g, r, radius);
   g.SmoothingMode = SmoothingMode.None;
   if (!only) {
@@ -416,13 +422,17 @@ public class ShotMenuRenderer : ToolStripRenderer {
 /// <summary>A switch that keeps CheckBox's Checked and CheckedChanged.</summary>
 public class ShotToggle : CheckBox, IShotScaled {
  ShotPalette palette; float scale = 1; bool hover;
+ public bool IconOnly;
  public ShotToggle() {
   SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
   Cursor = Cursors.Default; AutoSize = false;
  }
  public void Theme(ShotPalette p) { palette = p; BackColor = p.Card; ForeColor = p.Fg; }
  public void SetScale(float s) { scale = s; Font = ShotPaint.FontPx(13 * s, FontStyle.Regular); }
- public int RowWidth() { return (int)(46 * scale) + TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width + (int)(8 * scale); }
+ public int RowWidth() {
+  if (IconOnly) { return (int)(46 * scale); }
+  return (int)(46 * scale) + TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPrefix).Width + (int)(8 * scale);
+ }
  public int RowHeight() { return (int)(32 * scale); }
  protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
  protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
@@ -446,6 +456,7 @@ public class ShotToggle : CheckBox, IShotScaled {
   using (SolidBrush b = new SolidBrush(Enabled ? Color.White : Mix(back, Color.White, .7f))) { g.FillEllipse(b, kx, y + 2 * scale, knob, knob); }
   if (Focused && ShowFocusCues) { using (Pen pen = new Pen(palette.Accent, 2 * scale)) { g.DrawRectangle(pen, scale, scale, Width - 2 * scale, Height - 2 * scale); } }
   g.SmoothingMode = SmoothingMode.None;
+  if (IconOnly) { return; }
   TextRenderer.DrawText(g, Text, Font, new Rectangle((int)(x + w + 7 * scale), 0, Width - (int)(x + w + 7 * scale), Height), Enabled ? palette.Fg : Mix(back, palette.Fg, .5f), back, TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
  }
 }
@@ -488,7 +499,7 @@ public class ShotBar : Panel {
    l.BackColor = p.Card; l.ForeColor = p.Muted; l.UseMnemonic = false; l.AutoSize = false; Controls.Add(l);
   }
   status.TextAlign = ContentAlignment.MiddleRight; status.AutoEllipsis = true;
-  detail.TextAlign = ContentAlignment.TopLeft; detail.Visible = false;
+  detail.TextAlign = ContentAlignment.TopLeft; detail.Visible = false; detail.AutoEllipsis = true;
  }
  void Own(Control c) { ((IShotScaled)c).Theme(palette); Controls.Add(c); }
  public void AddTop(Control c) { top.Add(c); Own(c); }
@@ -497,6 +508,13 @@ public class ShotBar : Panel {
  public void AddBottomRight(Control c) { bottomRight.Add(c); Own(c); }
  static int W(Control c) { ShotButton b = c as ShotButton; if (b != null) { return b.RowWidth(); } ShotToggle t = c as ShotToggle; if (t != null) { return t.RowWidth(); } return ((ShotArrow)c).RowWidth(); }
  static int H(Control c) { ShotButton b = c as ShotButton; if (b != null) { return b.RowHeight(); } ShotToggle t = c as ShotToggle; if (t != null) { return t.RowHeight(); } return ((ShotArrow)c).RowHeight(); }
+ void SetCompact(Control c, bool compact) {
+  ShotButton b = c as ShotButton;
+  if (b != null) { b.IconOnly = compact && b.CanCompact; }
+  ShotToggle t = c as ShotToggle;
+  if (t != null) { t.IconOnly = compact; }
+  tips.SetToolTip(c, compact ? c.Text : "");
+ }
  int TopWidth(int gapSmall) { int total = 0; foreach (Control c in top) { total += W(c) + (c is ShotArrow ? 0 : gapSmall); } return total; }
  static int PickerWidth(List<ShotPicker> pickers) { int total = 0; foreach (ShotPicker p in pickers) { total += p.RowWidth(); } return total; }
  void ScaleAll() {
@@ -514,13 +532,10 @@ public class ShotBar : Panel {
   int contentW = width - inner * 2;
   // Row 2 falls back to icons with tooltips when a narrow monitor cannot hold its words.
   List<Control> second = new List<Control>(bottomLeft); second.AddRange(bottomRight);
-  foreach (Control c in second) { ShotButton b = c as ShotButton; if (b != null) { b.IconOnly = false; } }
+  foreach (Control c in second) { SetCompact(c, false); }
   int need = 0; foreach (Control c in second) { need += W(c) + gapSmall; }
   bool compact = need > contentW - gap;
-  foreach (Control c in second) {
-   ShotButton b = c as ShotButton;
-   if (b != null) { b.IconOnly = compact && b.Glyph.Length > 0; tips.SetToolTip(b, compact ? b.Text : ""); }
-  }
+  foreach (Control c in second) { SetCompact(c, compact); }
   int x = inner + shadow; int y = inner + shadow; int rowOne = (int)(36 * s);
   // Row 1 gives way before anything overlaps the action: captions go first, then the pills narrow.
   int actionW = action == null ? 0 : W(action);
@@ -556,7 +571,10 @@ public class ShotBar : Panel {
   if (wrap) {
    detail.Text = statusText; detail.ForeColor = statusError ? palette.Err : palette.Muted;
    int lineW = contentW - (int)(16 * s);
-   int detailH = TextRenderer.MeasureText(statusText, detail.Font, new Size(lineW, 0), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height + (int)(2 * s);
+   // At most five lines, so a long provider error can't push the toolbar off the monitor; the tooltip has the rest.
+   int lineH = TextRenderer.MeasureText("译", detail.Font).Height;
+   int detailH = Math.Min(TextRenderer.MeasureText(statusText, detail.Font, new Size(lineW, 0), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height, lineH * 5) + (int)(2 * s);
+   tips.SetToolTip(detail, statusText);
    detail.SetBounds(inner + shadow + (int)(5 * s), rowTwoY + rowTwo + (int)(4 * s), lineW, detailH);
    bottom = detail.Bottom + inner;
   }

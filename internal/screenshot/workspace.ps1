@@ -43,6 +43,7 @@ $bar.AddBottomLeft($pin)
 $reselect=NewButton '重新框选' ([ShotKind]::Ghost) 'reselect'
 $bar.AddBottomLeft($reselect)
 $close=NewButton '退出' ([ShotKind]::Quiet) ''
+$close.CompactGlyph='close'
 $bar.AddBottomRight($close)
 $finish=NewButton '复制完成' ([ShotKind]::Soft) 'copy'
 $bar.AddBottomRight($finish)

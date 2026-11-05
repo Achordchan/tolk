@@ -313,14 +313,19 @@ struct ScreenshotSelectionWorkspaceView: View {
                     .padding(.horizontal, 8)
             }
 
-            if case .failed(let message) = session.stage {
-                Text("\(message)。可以重新框选，或调整源语言后再试。")
-                    .font(.system(size: 13))
-                    .foregroundStyle(palette.err)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 8)
-                    .padding(.horizontal, 8)
-                    .textSelection(.enabled)
+            if let failure = failureText {
+                // 高度是算出来的，放置工具条时用同一个数；太长的错误在里面滚动，不撑出屏幕。
+                ScrollView {
+                    Text(failure)
+                        .font(Font(Self.failureFont))
+                        .foregroundStyle(palette.err)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                .frame(height: failureHeight(toolbarWidth: width))
+                .padding(.top, 8)
+                .padding(.horizontal, 8)
             }
         }
         .padding(10)
@@ -448,9 +453,30 @@ struct ScreenshotSelectionWorkspaceView: View {
         let growsUpward: Bool
     }
 
+    private static let failureFont = NSFont.systemFont(ofSize: 13)
+
+    private var failureText: String? {
+        if case .failed(let message) = session.stage {
+            return "\(message)。可以重新框选，或调整源语言后再试。"
+        }
+        return nil
+    }
+
+    /// 错误文字占的高度，最多显示五行。
+    private func failureHeight(toolbarWidth: CGFloat) -> CGFloat {
+        guard let failureText else { return 0 }
+        let bounds = (failureText as NSString).boundingRect(
+            with: CGSize(width: toolbarWidth - 36, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: Self.failureFont]
+        )
+        let lineHeight = ceil(Self.failureFont.ascender - Self.failureFont.descender + Self.failureFont.leading)
+        return min(ceil(bounds.height) + 2, lineHeight * 5 + 2)
+    }
+
     private func estimatedToolbarHeight(containerSize: CGSize) -> CGFloat {
         var height: CGFloat = 102
-        if case .failed = session.stage { height += 38 }
+        if failureText != nil { height += 8 + failureHeight(toolbarWidth: toolbarWidth(containerSize: containerSize)) }
         if toolbarWidth(containerSize: containerSize) < Self.fullToolbarWidth { height += 26 }
         return height
     }

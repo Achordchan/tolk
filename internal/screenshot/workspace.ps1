@@ -121,11 +121,16 @@ function Recognize {
  if (!$script:blocks.Count) {throw '未识别到文字。请重新框选或切换源语言后重试。'}
 }
 function FitSize($g,$text,$rect,$largest,$typeset) {
- # GDI+ measures long text slowly. Rule out what cannot fit by area, then bisect the size,
- # so an oversized translation fails at once instead of freezing the workspace.
+ # GDI+ measures long text slowly, so an oversized translation is ruled out on a prefix (if the
+ # start does not fit, the whole cannot), then the size is bisected instead of stepped down.
  $smallest=6
  $largest=[Math]::Max($smallest,$largest)
- if(($text.Length*$smallest*$smallest*0.45) -gt ($rect.Width*$rect.Height)){return 0}
+ if($text.Length -gt 600){
+  $font=New-Object Drawing.Font('Microsoft YaHei',[single]$smallest,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)
+  $measured=$g.MeasureString($text.Substring(0,600),$font,[int]$rect.Width,$typeset)
+  $font.Dispose()
+  if($measured.Height -gt $rect.Height -or $measured.Width -gt $rect.Width){return 0}
+ }
  $fits=0;$trial=$smallest
  for($step=0;$step -lt 8;$step++){
   $font=New-Object Drawing.Font('Microsoft YaHei',[single]$trial,[Drawing.FontStyle]::Regular,[Drawing.GraphicsUnit]::Pixel)

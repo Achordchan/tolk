@@ -91,14 +91,20 @@ func prewarmScreenshot(forShortcut bool) {
 	go func() {
 		w, err := p.WaitWarm(warmTimeout)
 		if err != nil {
-			Logs.Warnf("截图预热失败：%v %s", err, p.Stderr())
+			// Clean up only while it is still the spare. Once a screenshot
+			// has taken it, that screenshot waits with its own deadline and
+			// owns the process, including killing it.
 			shotSpare.Lock()
-			if shotSpare.p == p {
+			owned := shotSpare.p == p
+			if owned {
 				shotSpare.p = nil
 			}
 			shotSpare.Unlock()
-			p.Kill()
-			_ = p.Wait()
+			if owned {
+				Logs.Warnf("截图预热失败：%v %s", err, p.Stderr())
+				p.Kill()
+				_ = p.Wait()
+			}
 			return
 		}
 		Logs.Infof("截图工作区已预热，用时 %d 毫秒（%s）", time.Since(p.Started()).Milliseconds(), typesLabel(w))

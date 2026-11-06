@@ -11,6 +11,7 @@ import (
 )
 
 type Request struct {
+	Warm   bool     `json:"warm"`
 	Ready  bool     `json:"ready"`
 	Closed bool     `json:"closed"`
 	ID     int      `json:"id"`
@@ -39,6 +40,10 @@ func Serve(in io.Reader, out io.Writer, translate func(context.Context, string, 
 		var req Request
 		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
 			return fmt.Errorf("invalid screenshot request: %w", err)
+		}
+		if req.Warm {
+			// The launch handshake (Process.WaitWarm); never a translation request.
+			continue
 		}
 		if req.Ready {
 			if len(onClose) > 1 {

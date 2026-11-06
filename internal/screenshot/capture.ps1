@@ -12,13 +12,14 @@ Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 # Compiling the controls runs csc.exe and takes seconds, so the result is kept as a DLL named after
 # a hash of the source (TOLK_SHOT_DLL). A DLL that cannot be loaded (AppLocker, a torn file) falls
-# back to compiling again, and that to compiling in memory as before. The return value says which.
+# back to compiling again, and that to compiling in memory as before. The return value says which,
+# so nothing else in here may write to the pipeline.
 function LoadControls {
  $refs='System.Windows.Forms','System.Drawing'
  $dll=$env:TOLK_SHOT_DLL
  if($dll){
   if(Test-Path -LiteralPath $dll){
-   try{Add-Type -LiteralPath $dll;return 'cache'}catch{}
+   try{$null=Add-Type -LiteralPath $dll;return 'cache'}catch{}
   }
   try{
    # Compile into a private folder: a concurrent start must never load a half-written file.
@@ -26,17 +27,17 @@ function LoadControls {
    [void](New-Item -ItemType Directory -Force -Path $work)
    $out=Join-Path $work (Split-Path -Leaf $dll)
    Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
-   Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource -OutputAssembly $out -OutputType Library
+   $null=Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource -OutputAssembly $out -OutputType Library
    $next=$dll+'.'+$PID+'.tmp'
-   Copy-Item -LiteralPath $out -Destination $next -Force
+   $null=Copy-Item -LiteralPath $out -Destination $next -Force
    # Move refuses an existing target: another start got there first with the same source.
    try{[IO.File]::Move($next,$dll)}catch{Remove-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue}
-   if(!('CaptureDpi' -as [type])){Add-Type -LiteralPath $out}
+   if(!('CaptureDpi' -as [type])){$null=Add-Type -LiteralPath $out}
    return 'compiled'
   }catch{}
  }
  if('CaptureDpi' -as [type]){return 'compiled'}
- Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource
+ $null=Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource
  return 'memory'
 }
 $script:typesStarted=[Diagnostics.Stopwatch]::StartNew()
@@ -54,12 +55,33 @@ function Await($operation, $type) {
  $task.GetAwaiter().GetResult()
 }
 
+$script:ocrLoaded=$false
+function LoadOCR {
+ if($script:ocrLoaded){return}
+ Add-Type -AssemblyName System.Runtime.WindowsRuntime
+[Windows.Media.Ocr.OcrEngine,Windows.Media.Ocr,ContentType=WindowsRuntime] | Out-Null
+[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
+[Windows.Storage.Streams.InMemoryRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime] | Out-Null
+[Windows.Globalization.Language,Windows.Globalization,ContentType=WindowsRuntime] | Out-Null
+[Windows.Media.Ocr.OcrResult,Windows.Media.Ocr,ContentType=WindowsRuntime] | Out-Null
+[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
+ $script:ocrLoaded=$true
+}
+# Everything above is the same for every screenshot, so Tolk starts this process ahead of time
+# and it waits here. OCR is loaded now too; if that fails, the workspace reports it after start.
+try{LoadOCR}catch{}
+[Console]::Out.WriteLine((@{warm=$true;types=$script:typesFrom;typesMs=$script:typesMs} | ConvertTo-Json -Compress));[Console]::Out.Flush()
+# The start message carries what may have changed while waiting: target language and theme.
+$startLine=[Console]::In.ReadLine()
+if(!$startLine){exit 0}
+$shot=$startLine | ConvertFrom-Json
+
 $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $screen = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
 $graphics = [System.Drawing.Graphics]::FromImage($screen)
 $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
 $graphics.Dispose()
-$themeName=$env:TOLK_SHOT_THEME
+$themeName=[string]$shot.theme
 if($themeName -ne 'dark' -and $themeName -ne 'light' -and $themeName -ne 'pink'){
  $themeName='light'
  try{ if((Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme') -eq 0){$themeName='dark'} }catch{}
@@ -94,15 +116,3 @@ $form.Add_MouseMove({
  $form.SetSelection($script:selection)
 })
 
-$script:ocrLoaded=$false
-function LoadOCR {
- if($script:ocrLoaded){return}
- Add-Type -AssemblyName System.Runtime.WindowsRuntime
-[Windows.Media.Ocr.OcrEngine,Windows.Media.Ocr,ContentType=WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
-[Windows.Storage.Streams.InMemoryRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime] | Out-Null
-[Windows.Globalization.Language,Windows.Globalization,ContentType=WindowsRuntime] | Out-Null
-[Windows.Media.Ocr.OcrResult,Windows.Media.Ocr,ContentType=WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
- $script:ocrLoaded=$true
-}

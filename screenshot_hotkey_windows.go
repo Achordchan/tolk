@@ -61,6 +61,10 @@ var shotCallback = syscall.NewCallback(func(code int32, w, l uintptr) uintptr {
 // since it sees every key anyway, Ctrl+C+C.
 func setupScreenshotShortcut() {
 	shotEnabled.Store(loadPrefs().ScreenshotHotkey)
+	if shotEnabled.Load() {
+		// Late enough not to slow Tolk's own start.
+		time.AfterFunc(5*time.Second, prewarmScreenshot)
+	}
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
@@ -92,5 +96,10 @@ func (Tolk) SetWindowsScreenshotHotkey(on bool) error {
 		return err
 	}
 	shotEnabled.Store(on)
+	if on {
+		go prewarmScreenshot()
+	} else {
+		discardScreenshotSpare()
+	}
 	return nil
 }

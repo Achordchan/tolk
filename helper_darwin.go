@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -151,6 +154,16 @@ func superviseHelper() {
 // firstRun shows the permission guide when neither permission is granted
 // yet (an update keeps its grants).
 func firstRun() {
+	// Relaunched from the guide (Screen Recording only takes effect then):
+	// show it again so the user sees where things stand.
+	if marker, err := reopenGuideMarker(); err == nil {
+		if os.Remove(marker) == nil {
+			if err := macSimple("permissions.guide", map[string]any{"appearance": currentPrefs().Theme}); err != nil {
+				Logs.Warnf("授权引导：%v", err)
+			}
+			return
+		}
+	}
 	st := macStatus()
 	if st.Running && !st.Accessibility && !st.ScreenRecording {
 		if err := macSimple("permissions.guide", map[string]any{"appearance": currentPrefs().Theme}); err != nil {
@@ -161,6 +174,12 @@ func firstRun() {
 
 func helperHandle(ctx context.Context, op string, params json.RawMessage) (any, error) {
 	switch op {
+	case "app.relaunch":
+		var in struct {
+			ReopenGuide bool `json:"reopenGuide"`
+		}
+		_ = json.Unmarshal(params, &in)
+		return map[string]any{}, relaunchApp(in.ReopenGuide)
 	case "inputassist.engine":
 		fp, title := currentEngineIdentity()
 		return map[string]any{"fingerprint": fp, "title": title}, nil
@@ -485,4 +504,49 @@ func macWatchMouse(on bool) {
 	if err := c.Call(ctx, "mouse.watch", map[string]any{"on": on}, nil); err != nil {
 		Logs.Warnf("Mini 点击窗外关闭：%v", err)
 	}
+}
+
+// reopenGuideMarker is left by relaunchApp so the next start opens the
+// permission guide again.
+func reopenGuideMarker() (string, error) {
+	home, err := legacy.Home()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "reopen-permission-guide"), nil
+}
+
+// relaunchApp quits Tolk and opens it again: macOS applies a newly granted
+// Screen Recording permission only to a fresh process. A detached shell waits
+// for this process to exit, then opens the bundle.
+func relaunchApp(reopenGuide bool) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("没能重新打开 Tolk：%v", err)
+	}
+	i := strings.Index(exe, ".app/")
+	if i < 0 {
+		return errors.New("Tolk 不是从应用包启动的，请手动退出再打开")
+	}
+	app := exe[:i+len(".app")]
+	if reopenGuide {
+		if marker, err := reopenGuideMarker(); err == nil {
+			_ = os.WriteFile(marker, nil, 0o600)
+		}
+	}
+	// Give up waiting after 30 s; opening then just brings the old window forward.
+	cmd := exec.Command("/bin/sh", "-c",
+		`i=0; while kill -0 "$0" 2>/dev/null && [ $i -lt 150 ]; do i=$((i+1)); sleep 0.2; done; open "$1"`,
+		strconv.Itoa(os.Getpid()), app)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("没能重新打开 Tolk：%v", err)
+	}
+	_ = cmd.Process.Release()
+	Logs.Infof("重新打开 Tolk，让屏幕录制权限生效")
+	go func() {
+		time.Sleep(300 * time.Millisecond) // let the reply reach the helper first
+		mygo.App.Quit()
+	}()
+	return nil
 }

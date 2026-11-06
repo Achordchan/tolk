@@ -28,6 +28,9 @@ var shotCallback = syscall.NewCallback(func(code int32, w, l uintptr) uintptr {
 		if event.Flags&0x10 == 0 {
 			down := w == 0x100 || w == 0x104
 			x := event.Key == 0x58
+			held := func(key uintptr) bool { v, _, _ := shotKey.Call(key); return v&0x8000 != 0 }
+			ctrlOnly := held(0x11) && !held(0x12) && !held(0x10) && !held(0x5B) && !held(0x5C)
+			observeCopyKey(event.Key, down, ctrlOnly) // Ctrl+C+C, doublecopy_windows.go; never swallowed
 			if x && !down && shotSwallowed {
 				shotSwallowed = false
 				shotDetector.Observe(true, false, false, time.Now())
@@ -36,10 +39,9 @@ var shotCallback = syscall.NewCallback(func(code int32, w, l uintptr) uintptr {
 			if x && down && shotSwallowed {
 				return 1
 			}
-			held := func(key uintptr) bool { v, _, _ := shotKey.Call(key); return v&0x8000 != 0 }
 			if !shotEnabled.Load() {
 				shotDetector = doublekey.Detector{}
-			} else if shotDetector.Observe(x, down, held(0x11) && !held(0x12) && !held(0x10) && !held(0x5B) && !held(0x5C), time.Now()) {
+			} else if shotDetector.Observe(x, down, ctrlOnly, time.Now()) {
 				shotSwallowed = true
 				go func() {
 					if err := (Tolk{}).ScreenshotWindows(); err != nil {
@@ -55,6 +57,8 @@ var shotCallback = syscall.NewCallback(func(code int32, w, l uintptr) uintptr {
 	return r
 })
 
+// setupScreenshotShortcut installs the keyboard hook behind Ctrl+X+X and,
+// since it sees every key anyway, Ctrl+C+C.
 func setupScreenshotShortcut() {
 	shotEnabled.Store(loadPrefs().ScreenshotHotkey)
 	go func() {
@@ -62,11 +66,14 @@ func setupScreenshotShortcut() {
 		defer runtime.UnlockOSThread()
 		mod, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetModuleHandleW").Call(0)
 		hook, _, err := shotUser.NewProc("SetWindowsHookExW").Call(13, shotCallback, mod, 0)
+		keyHookOK.Store(hook != 0)
+		close(keyHookDone)
 		if hook == 0 {
-			Logs.Errorf("Ctrl+X、X 截图快捷键注册失败：%v", err)
+			Logs.Errorf("键盘钩子安装失败，Ctrl+X、X 截图不可用：%v", err)
 			return
 		}
 		defer shotUser.NewProc("UnhookWindowsHookEx").Call(hook)
+		defer watchForeground()() // same thread: it pumps the messages both hooks need
 		tid := windows.GetCurrentThreadId()
 		var msg [8]uintptr
 		shotUser.NewProc("PeekMessageW").Call(uintptr(unsafe.Pointer(&msg[0])), 0, 0, 0, 0)

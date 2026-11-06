@@ -66,6 +66,16 @@ jobs:
         run: |
           APP="$(find build -maxdepth 3 -name '*.app' -print -quit)"
           test -x "$(find "$APP" -name tolk-helper -type f -print -quit)"
+      # 用真的 ISCC 编一遍安装器（中文语言文件、图标都在这一步出错），装包也放到 proto 里方便实测。
+      - name: Installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $v = (Select-String -Path version.go -Pattern 'const Version = "(.+)"').Matches[0].Groups[1].Value
+          $exe = (Resolve-Path build\windows-amd64\Tolk.exe).Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$v" "/DSourceExe=$exe" installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         continue-on-error: true # the account's Actions artifact quota may be spent
         with:
@@ -85,5 +95,6 @@ jobs:
             GOOS=darwin GOARCH=arm64 go build -o out/tolk-release-macos-arm64 ./cmd/tolk-release
           else
             powershell.exe -NoProfile -Command "Compress-Archive -Path build/windows-amd64/Tolk.exe,build/windows-amd64/Tolk-core.exe,build/windows-amd64/icon.png -DestinationPath out/Tolk-windows.zip -Force"
+            cp dist/Tolk-setup-windows_*.exe out/Tolk-setup-windows.exe
           fi
           gh release upload proto out/* --clobber

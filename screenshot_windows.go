@@ -4,8 +4,8 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
+	"path/filepath"
 
 	"encoding/json"
 	"github.com/egoist/mygo"
@@ -23,18 +23,22 @@ import (
 	"unsafe"
 )
 
-//go:embed internal/screenshot/controls.ps1
-var controlsScript string
-
-//go:embed internal/screenshot/capture.ps1
-var captureScript string
-
-//go:embed internal/screenshot/workspace.ps1
-var workspaceScript string
-
-//go:embed internal/screenshot/layout.ps1
-var layoutScript string
 var captureBusy atomic.Bool
+
+// shotDLL is where the workspace keeps its compiled controls ("" compiles
+// in memory every time, as before). The folder is swept once per run.
+var shotDLL = sync.OnceValue(func() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	dll, err := screenshot.PrepareCache(filepath.Join(dir, "Tolk", "screenshot"))
+	if err != nil {
+		Logs.Warnf("截图控件缓存不可用，每次都会重新编译：%v", err)
+		return ""
+	}
+	return dll
+})
 
 func (Tolk) ScreenshotWindows() error {
 	if !captureBusy.CompareAndSwap(false, true) {
@@ -49,13 +53,12 @@ func (Tolk) ScreenshotWindows() error {
 	defer cancel()
 	off := mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { cancel() })
 	defer off()
-	// A UTF-8 BOM is required by Windows PowerShell 5.1 for Chinese literals.
 	file, err := os.CreateTemp("", "tolk-screenshot-*.ps1")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(file.Name())
-	if _, err = file.WriteString("\xef\xbb\xbf" + controlsScript + "\n" + captureScript + "\n" + layoutScript + "\n" + workspaceScript); err != nil {
+	if _, err = file.WriteString(screenshot.Script()); err != nil {
 		file.Close()
 		return err
 	}
@@ -69,7 +72,7 @@ func (Tolk) ScreenshotWindows() error {
 	cmd.Stderr = &stderr
 	prefs := loadPrefs()
 	languages, _ := json.Marshal(engine.Languages)
-	cmd.Env = append(os.Environ(), "TOLK_SHOT_TARGET="+prefs.TargetLang, "TOLK_SHOT_LANGUAGES="+string(languages), "TOLK_SHOT_THEME="+prefs.Theme)
+	cmd.Env = append(os.Environ(), "TOLK_SHOT_TARGET="+prefs.TargetLang, "TOLK_SHOT_LANGUAGES="+string(languages), "TOLK_SHOT_THEME="+prefs.Theme, "TOLK_SHOT_DLL="+shotDLL())
 	output, err := cmd.StdoutPipe()
 	if err != nil {
 		return err

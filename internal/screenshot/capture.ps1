@@ -10,7 +10,38 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
-Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition $script:controlsSource
+# Compiling the controls runs csc.exe and takes seconds, so the result is kept as a DLL named after
+# a hash of the source (TOLK_SHOT_DLL). A DLL that cannot be loaded (AppLocker, a torn file) falls
+# back to compiling again, and that to compiling in memory as before. The return value says which.
+function LoadControls {
+ $refs='System.Windows.Forms','System.Drawing'
+ $dll=$env:TOLK_SHOT_DLL
+ if($dll){
+  if(Test-Path -LiteralPath $dll){
+   try{Add-Type -LiteralPath $dll;return 'cache'}catch{}
+  }
+  try{
+   # Compile into a private folder: a concurrent start must never load a half-written file.
+   $work=Join-Path (Split-Path -Parent $dll) ('build-'+$PID)
+   [void](New-Item -ItemType Directory -Force -Path $work)
+   $out=Join-Path $work (Split-Path -Leaf $dll)
+   Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+   Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource -OutputAssembly $out -OutputType Library
+   $next=$dll+'.'+$PID+'.tmp'
+   Copy-Item -LiteralPath $out -Destination $next -Force
+   # Move refuses an existing target: another start got there first with the same source.
+   try{[IO.File]::Move($next,$dll)}catch{Remove-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue}
+   if(!('CaptureDpi' -as [type])){Add-Type -LiteralPath $out}
+   return 'compiled'
+  }catch{}
+ }
+ if('CaptureDpi' -as [type]){return 'compiled'}
+ Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource
+ return 'memory'
+}
+$script:typesStarted=[Diagnostics.Stopwatch]::StartNew()
+$script:typesFrom=LoadControls
+$script:typesMs=$script:typesStarted.ElapsedMilliseconds
 [CaptureDpi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
 function Await($operation, $type) {
  $method = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' } | Select-Object -First 1

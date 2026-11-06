@@ -23,8 +23,8 @@ $bar.AddTop($source)
 $bar.AddTop((New-Object ShotArrow))
 $target = New-Object ShotPicker
 $target.Label='目标语言'
-foreach ($name in ($env:TOLK_SHOT_LANGUAGES | ConvertFrom-Json)) { [void]$target.Items.Add([string]$name) }
-$target.SelectedItem=$env:TOLK_SHOT_TARGET
+foreach ($name in @($shot.languages)) { [void]$target.Items.Add([string]$name) }
+$target.SelectedItem=[string]$shot.target
 if ($target.SelectedIndex -lt 0) { $target.SelectedIndex=0 }
 $bar.AddTop($target)
 $translate=NewButton '翻译' ([ShotKind]::Primary) 'translate'

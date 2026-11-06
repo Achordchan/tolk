@@ -10,7 +10,49 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
-Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition $script:controlsSource
+# Compiling the controls runs csc.exe and takes seconds, so the result is kept as a DLL named after
+# a hash of the source (TOLK_SHOT_DLL). A cached DLL that will not load (a torn file) is compiled
+# again and replaced. If Windows refuses to load DLLs from there at all (AppLocker), a .blocked
+# marker skips the cache until Tolk next starts and sweeps the folder, and the controls are compiled
+# in memory as before. The return value says which, so nothing else in here may write to the pipeline.
+function LoadControls {
+ $refs='System.Windows.Forms','System.Drawing'
+ $dll=$env:TOLK_SHOT_DLL
+ if($dll -and !(Test-Path -LiteralPath ($dll+'.blocked'))){
+  $stale=$false
+  if(Test-Path -LiteralPath $dll){
+   try{$null=Add-Type -LiteralPath $dll;return 'cache'}catch{$stale=$true}
+  }
+  try{
+   # Compile into a private folder: a concurrent start must never load a half-written file.
+   $work=Join-Path (Split-Path -Parent $dll) ('build-'+$PID)
+   [void](New-Item -ItemType Directory -Force -Path $work)
+   $out=Join-Path $work (Split-Path -Leaf $dll)
+   Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+   $null=Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource -OutputAssembly $out -OutputType Library
+   $next=$dll+'.'+$PID+'.tmp'
+   $null=Copy-Item -LiteralPath $out -Destination $next -Force
+   # The file that failed to load is replaced. Otherwise Move refusing an existing target means
+   # another start published the same source first, and its file is kept.
+   if($stale){Remove-Item -LiteralPath $dll -Force -ErrorAction SilentlyContinue}
+   try{[IO.File]::Move($next,$dll)}catch{Remove-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue}
+   if(!('CaptureDpi' -as [type])){
+    try{$null=Add-Type -LiteralPath $out}catch{
+     # A DLL compiled a moment ago failed to load: the location is refused, not the file.
+     [void](New-Item -ItemType File -Force -Path ($dll+'.blocked'))
+     throw
+    }
+   }
+   return 'compiled'
+  }catch{}
+ }
+ if('CaptureDpi' -as [type]){return 'compiled'}
+ $null=Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource
+ return 'memory'
+}
+$script:typesStarted=[Diagnostics.Stopwatch]::StartNew()
+$script:typesFrom=LoadControls
+$script:typesMs=$script:typesStarted.ElapsedMilliseconds
 [CaptureDpi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
 function Await($operation, $type) {
  $method = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' } | Select-Object -First 1
@@ -23,12 +65,33 @@ function Await($operation, $type) {
  $task.GetAwaiter().GetResult()
 }
 
+$script:ocrLoaded=$false
+function LoadOCR {
+ if($script:ocrLoaded){return}
+ Add-Type -AssemblyName System.Runtime.WindowsRuntime
+[Windows.Media.Ocr.OcrEngine,Windows.Media.Ocr,ContentType=WindowsRuntime] | Out-Null
+[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
+[Windows.Storage.Streams.InMemoryRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime] | Out-Null
+[Windows.Globalization.Language,Windows.Globalization,ContentType=WindowsRuntime] | Out-Null
+[Windows.Media.Ocr.OcrResult,Windows.Media.Ocr,ContentType=WindowsRuntime] | Out-Null
+[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
+ $script:ocrLoaded=$true
+}
+# Everything above is the same for every screenshot, so Tolk starts this process ahead of time
+# and it waits here. OCR is loaded now too; if that fails, the workspace reports it after start.
+try{LoadOCR}catch{}
+[Console]::Out.WriteLine((@{warm=$true;types=$script:typesFrom;typesMs=$script:typesMs} | ConvertTo-Json -Compress));[Console]::Out.Flush()
+# The start message carries what may have changed while waiting: target language and theme.
+$startLine=[Console]::In.ReadLine()
+if(!$startLine){exit 0}
+$shot=$startLine | ConvertFrom-Json
+
 $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $screen = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
 $graphics = [System.Drawing.Graphics]::FromImage($screen)
 $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
 $graphics.Dispose()
-$themeName=$env:TOLK_SHOT_THEME
+$themeName=[string]$shot.theme
 if($themeName -ne 'dark' -and $themeName -ne 'light' -and $themeName -ne 'pink'){
  $themeName='light'
  try{ if((Get-ItemPropertyValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme') -eq 0){$themeName='dark'} }catch{}
@@ -63,15 +126,3 @@ $form.Add_MouseMove({
  $form.SetSelection($script:selection)
 })
 
-$script:ocrLoaded=$false
-function LoadOCR {
- if($script:ocrLoaded){return}
- Add-Type -AssemblyName System.Runtime.WindowsRuntime
-[Windows.Media.Ocr.OcrEngine,Windows.Media.Ocr,ContentType=WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.BitmapDecoder,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
-[Windows.Storage.Streams.InMemoryRandomAccessStream,Windows.Storage.Streams,ContentType=WindowsRuntime] | Out-Null
-[Windows.Globalization.Language,Windows.Globalization,ContentType=WindowsRuntime] | Out-Null
-[Windows.Media.Ocr.OcrResult,Windows.Media.Ocr,ContentType=WindowsRuntime] | Out-Null
-[Windows.Graphics.Imaging.SoftwareBitmap,Windows.Graphics.Imaging,ContentType=WindowsRuntime] | Out-Null
- $script:ocrLoaded=$true
-}

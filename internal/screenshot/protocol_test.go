@@ -80,6 +80,18 @@ func TestReadyDoesNotCloseOrTranslate(t *testing.T) {
 	}
 }
 
+func TestWarmLineIsNeverATranslationRequest(t *testing.T) {
+	var out bytes.Buffer
+	err := Serve(strings.NewReader("{\"warm\":true,\"types\":\"cache\",\"typesMs\":12}\n"), &out, func(context.Context, string, string, string) (string, error) {
+		t.Fatal("warm translated")
+		return "", nil
+	}, func() { t.Fatal("warm closed") }, func() { t.Fatal("warm counted as ready") })
+	// A reply here would be read by the workspace as its start message.
+	if err != nil || out.Len() != 0 {
+		t.Fatalf("error=%v out=%s", err, out.String())
+	}
+}
+
 func TestCloseCancelsActiveTranslation(t *testing.T) {
 	reader, writer := io.Pipe()
 	defer reader.Close()

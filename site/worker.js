@@ -24,16 +24,19 @@ async function latest(ctx) {
   const hit = await cache.match(CACHE_KEY);
   if (hit) return hit.json();
   const d = await fetchLatest();
-  if (d !== FALLBACK) {
-    const res = new Response(JSON.stringify(d), { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=600" } });
-    ctx.waitUntil(cache.put(CACHE_KEY, res));
-  }
+  // The fallback is kept briefly too, so an outage costs one slow request a
+  // minute rather than one per visitor.
+  const ttl = d === FALLBACK ? 60 : 600;
+  const res = new Response(JSON.stringify(d), { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=" + ttl } });
+  ctx.waitUntil(cache.put(CACHE_KEY, res));
   return d;
 }
 
 async function fetchLatest() {
   try {
-    const r = await fetch(LATEST_JSON, { headers: { "User-Agent": "tolk-site" } });
+    // The deadline covers reading the body as well: a stalled GitHub must not
+    // hold downloads (mirror ones included) hostage.
+    const r = await fetch(LATEST_JSON, { headers: { "User-Agent": "tolk-site" }, signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw new Error("latest.json " + r.status);
     const d = await r.json();
     const pick = (re) => {

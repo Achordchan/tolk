@@ -37,6 +37,7 @@ var (
 	// Hook thread only.
 	copyDetector doublekey.Detector
 	copyPressSeq uint64 // clipboard counter at the last Ctrl+C press
+	copyPressTxn uint64 // 输入助手's finished clipboard transactions then
 
 	// copyPoll is set while the window in front is above Tolk's integrity
 	// level; then the clipboard is polled and the hook leaves Ctrl+C alone,
@@ -189,16 +190,17 @@ func observeCopyKey(key uint32, down, ctrlOnly bool) {
 	}
 	c := key == 0x43
 	fresh := c && down && ctrlOnly && !copyDetector.Down // not key repeat
-	var seq uint64
+	var seq, txn uint64
 	if fresh {
 		seq, _ = doublecopy.Sequence()
+		txn = inputAssistClipboardTransactions()
 	}
 	copyDetector.Window = time.Duration(p.DoubleCopyMs) * time.Millisecond
 	if copyDetector.Observe(c, down, ctrlOnly, time.Now()) {
-		go finishDoubleCopy(*fire, copyPressSeq, seq)
+		go finishDoubleCopy(*fire, copyPressSeq, seq, copyPressTxn)
 	}
 	if fresh {
-		copyPressSeq = seq
+		copyPressSeq, copyPressTxn = seq, txn
 	}
 }
 
@@ -206,9 +208,20 @@ func observeCopyKey(key uint32, down, ctrlOnly bool) {
 // second press before the app copies, so wait for the clipboard to change.
 // An app may leave unchanged text alone; then it is enough that the first
 // press copied. If neither did, what is on the clipboard is old text.
-func finishDoubleCopy(fire func(string), first, second uint64) {
+//
+// 输入助手 also writes the clipboard and puts the user's text back. A
+// transaction of its own that started (txn moved) or is running since the
+// first press would pass the counter checks above with text nobody copied,
+// so the gesture is dropped then, as the poller does.
+func finishDoubleCopy(fire func(string), first, second, txn uint64) {
+	borrowed := func() bool {
+		return inputAssistClipboardBusy() || inputAssistClipboardTransactions() != txn
+	}
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for {
+		if borrowed() {
+			return
+		}
 		seq, _ := doublecopy.Sequence()
 		if seq != second {
 			break
@@ -223,10 +236,14 @@ func finishDoubleCopy(fire func(string), first, second uint64) {
 	}
 	// The app may still hold the clipboard open while it writes.
 	for range 6 {
-		if inputAssistClipboardBusy() {
+		if borrowed() {
 			return
 		}
-		if text := strings.TrimSpace(mygo.Clipboard.ReadText()); text != "" {
+		text := strings.TrimSpace(mygo.Clipboard.ReadText())
+		if borrowed() { // the read may have raced a transaction
+			return
+		}
+		if text != "" {
 			fire(text)
 			return
 		}

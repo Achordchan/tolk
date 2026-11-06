@@ -3,6 +3,8 @@
 package main
 
 import (
+	"unsafe"
+
 	"github.com/egoist/mygo"
 	"golang.org/x/sys/windows"
 )
@@ -17,6 +19,7 @@ var (
 	frontIsIconic                 = frontUser32.NewProc("IsIconic")
 	frontShowWindow               = frontUser32.NewProc("ShowWindow")
 	frontAllowSetForegroundWindow = frontUser32.NewProc("AllowSetForegroundWindow")
+	frontSendMessageTimeout       = frontUser32.NewProc("SendMessageTimeoutW")
 )
 
 const (
@@ -35,6 +38,12 @@ const (
 // button flashing, or comes back behind the window the user is in. Joining
 // the foreground thread's input queue for the duration lends Tolk that
 // thread's right to change the foreground.
+//
+// Joined queues share activation: were that thread hung, the calls below
+// would wait on it and freeze Tolk's UI with it. So it is joined only once it
+// answers a message within a short time; a hung app is left alone, and the
+// window then just may not come to the front. An app that hangs in the
+// microseconds between that check and the activation is not covered.
 func bringToFront(win *mygo.Window) {
 	mygo.RunOnMain(func() {
 		hwnd := win.NativeHandle()
@@ -47,7 +56,7 @@ func bringToFront(win *mygo.Window) {
 		if fg != hwnd && fg != 0 {
 			self := uintptr(windows.GetCurrentThreadId())
 			other, _, _ := frontGetWindowThreadProcess.Call(fg, 0)
-			if other != 0 && other != self {
+			if other != 0 && other != self && responsive(fg) {
 				if r, _, _ := frontAttachThreadInput.Call(self, other, 1); r != 0 {
 					defer frontAttachThreadInput.Call(self, other, 0)
 				}
@@ -63,6 +72,14 @@ func bringToFront(win *mygo.Window) {
 		frontSetForegroundWindow.Call(hwnd)
 		win.Focus() // keyboard focus into the page
 	})
+}
+
+// responsive reports whether hwnd's thread handles a message within 150 ms.
+func responsive(hwnd uintptr) bool {
+	const smtoAbortIfHung = 0x2
+	var result uintptr
+	r, _, _ := frontSendMessageTimeout.Call(hwnd, 0 /* WM_NULL */, 0, 0, smtoAbortIfHung, 150, uintptr(unsafe.Pointer(&result)))
+	return r != 0
 }
 
 // allowForegroundHandoff lets the instance already running take the

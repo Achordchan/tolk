@@ -93,9 +93,15 @@ func clampFont(n int) int {
 }
 
 var (
-	prefsMu sync.Mutex
+	prefsMu sync.Mutex // held by loadPrefs while it reads the settings file
 	prefs   = defaultPrefs()
+	// prefsNow is the last loaded prefs, published so currentPrefs never
+	// waits on that file: the Windows keyboard hook reads it on every key,
+	// and Windows drops a hook that is slow to answer.
+	prefsNow atomic.Pointer[Prefs]
 )
+
+func init() { p := prefs; prefsNow.Store(&p) }
 
 func loadPrefs() Prefs {
 	prefsMu.Lock()
@@ -149,14 +155,12 @@ func loadPrefs() Prefs {
 		}
 	}
 	prefs = out
+	prefsNow.Store(&out)
 	return out
 }
 
-func currentPrefs() Prefs {
-	prefsMu.Lock()
-	defer prefsMu.Unlock()
-	return prefs
-}
+// currentPrefs is the last loaded prefs, without blocking.
+func currentPrefs() Prefs { return *prefsNow.Load() }
 
 func validLang(l string, allowAuto bool) bool {
 	if allowAuto && l == engine.Auto {

@@ -22,7 +22,19 @@ func TestWorkspaceStartsWarm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ dll, types string }{{dll, "compiled"}, {dll, "cache"}, {"", "memory"}} {
+	torn := func() {
+		if err := os.WriteFile(dll, []byte("not an assembly"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A torn cache file is compiled again and replaced, so the start after it reads the cache.
+	for _, c := range []struct {
+		dll, types string
+		before     func()
+	}{{dll, "compiled", nil}, {dll, "cache", nil}, {dll, "compiled", torn}, {dll, "cache", nil}, {"", "memory", nil}} {
+		if c.before != nil {
+			c.before()
+		}
 		p, err := Launch(c.dll)
 		if err != nil {
 			t.Fatal(err)

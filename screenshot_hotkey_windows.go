@@ -63,7 +63,7 @@ func setupScreenshotShortcut() {
 	shotEnabled.Store(loadPrefs().ScreenshotHotkey)
 	if shotEnabled.Load() {
 		// Late enough not to slow Tolk's own start.
-		time.AfterFunc(5*time.Second, prewarmScreenshot)
+		time.AfterFunc(5*time.Second, func() { prewarmScreenshot(true) })
 	}
 	go func() {
 		runtime.LockOSThread()
@@ -97,7 +97,7 @@ func (Tolk) SetWindowsScreenshotHotkey(on bool) error {
 	}
 	shotEnabled.Store(on)
 	if on {
-		go prewarmScreenshot()
+		go prewarmScreenshot(true)
 	} else {
 		discardScreenshotSpare()
 	}

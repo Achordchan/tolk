@@ -64,10 +64,13 @@ func typesLabel(w screenshot.Warm) string {
 	}
 }
 
-func prewarmScreenshot() {
+// prewarmScreenshot starts the spare. forShortcut is for the starts made
+// on the shortcut's behalf; it is checked under the same lock that turning
+// the shortcut off takes, so a delayed start cannot outlive that.
+func prewarmScreenshot(forShortcut bool) {
 	shotSpare.Lock()
 	defer shotSpare.Unlock()
-	if shotSpare.p != nil || shotSpare.quitting {
+	if shotSpare.p != nil || shotSpare.quitting || forShortcut && !shotEnabled.Load() {
 		return
 	}
 	if !shotSpare.quitHook {
@@ -190,7 +193,7 @@ func (Tolk) ScreenshotWindows() error {
 		Logs.Infof("截图选区已就绪，启动耗时 %d 毫秒（%s，%s）", time.Since(started).Milliseconds(), how, typesLabel(w))
 		// The next screenshot gets its own spare; this one now belongs to
 		// the selection and to any pin made from it.
-		go prewarmScreenshot()
+		go prewarmScreenshot(false)
 	})
 	if protocolErr != nil {
 		p.Kill()

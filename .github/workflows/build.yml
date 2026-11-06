@@ -44,7 +44,7 @@ jobs:
         if: runner.os == 'Windows'
         env:
           TOLK_WIN_E2E: "1"
-        run: go test -count=1 -timeout 8m -v ./internal/winsel ./internal/screenshot
+        run: go test -p 1 -count=1 -timeout 8m -v ./internal/winsel ./internal/screenshot # -p 1: both need the foreground
       - name: Build the native helper into the app (macOS)
         if: runner.os == 'macOS'
         working-directory: macos/helper

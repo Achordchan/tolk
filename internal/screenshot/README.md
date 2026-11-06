@@ -11,8 +11,10 @@ engine. Images never go to the translation service. Translation is drawn back
 into the crop; the main translation editor is never modified.
 
 Surface: `controls.ps1` holds the owner-drawn C# controls. Add-Type compiles them once per version
-into `%LOCALAPPDATA%\Tolk\screenshot\controls-<hash>.dll` and later starts load that file; a DLL that
-cannot be loaded is compiled again, then compiled in memory as before. The controls are
+into `%LOCALAPPDATA%\Tolk\screenshot\controls-<hash>.dll` and later starts load that file; a cached
+DLL that does not load is compiled again and replaced. If loading from that folder is refused
+altogether (AppLocker), a `.blocked` marker skips the cache until Tolk next starts and sweeps the
+folder, and the controls are compiled in memory as before. The controls are
 a dimmed copy of the frozen desktop, the two-row toolbar, language pills with themed
 menus, all scaled per monitor. Colours are the main window's tokens (`theme` in the start message:
 light, dark, pink; anything else follows the Windows app theme). The GDI+ ceiling is

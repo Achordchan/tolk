@@ -11,15 +11,17 @@ Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 [System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 # Compiling the controls runs csc.exe and takes seconds, so the result is kept as a DLL named after
-# a hash of the source (TOLK_SHOT_DLL). A DLL that cannot be loaded (AppLocker, a torn file) falls
-# back to compiling again, and that to compiling in memory as before. The return value says which,
-# so nothing else in here may write to the pipeline.
+# a hash of the source (TOLK_SHOT_DLL). A cached DLL that will not load (a torn file) is compiled
+# again and replaced. If Windows refuses to load DLLs from there at all (AppLocker), a .blocked
+# marker skips the cache until Tolk next starts and sweeps the folder, and the controls are compiled
+# in memory as before. The return value says which, so nothing else in here may write to the pipeline.
 function LoadControls {
  $refs='System.Windows.Forms','System.Drawing'
  $dll=$env:TOLK_SHOT_DLL
- if($dll){
+ if($dll -and !(Test-Path -LiteralPath ($dll+'.blocked'))){
+  $stale=$false
   if(Test-Path -LiteralPath $dll){
-   try{$null=Add-Type -LiteralPath $dll;return 'cache'}catch{}
+   try{$null=Add-Type -LiteralPath $dll;return 'cache'}catch{$stale=$true}
   }
   try{
    # Compile into a private folder: a concurrent start must never load a half-written file.
@@ -30,9 +32,17 @@ function LoadControls {
    $null=Add-Type -ReferencedAssemblies $refs -TypeDefinition $script:controlsSource -OutputAssembly $out -OutputType Library
    $next=$dll+'.'+$PID+'.tmp'
    $null=Copy-Item -LiteralPath $out -Destination $next -Force
-   # Move refuses an existing target: another start got there first with the same source.
+   # The file that failed to load is replaced. Otherwise Move refusing an existing target means
+   # another start published the same source first, and its file is kept.
+   if($stale){Remove-Item -LiteralPath $dll -Force -ErrorAction SilentlyContinue}
    try{[IO.File]::Move($next,$dll)}catch{Remove-Item -LiteralPath $next -Force -ErrorAction SilentlyContinue}
-   if(!('CaptureDpi' -as [type])){$null=Add-Type -LiteralPath $out}
+   if(!('CaptureDpi' -as [type])){
+    try{$null=Add-Type -LiteralPath $out}catch{
+     # A DLL compiled a moment ago failed to load: the location is refused, not the file.
+     [void](New-Item -ItemType File -Force -Path ($dll+'.blocked'))
+     throw
+    }
+   }
    return 'compiled'
   }catch{}
  }

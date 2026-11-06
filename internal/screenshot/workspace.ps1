@@ -235,14 +235,10 @@ $finish.Add_Click({
  try {[Windows.Forms.Clipboard]::SetImage((ExportImage));$form.Close()}catch{Failed ('复制失败：'+$_.Exception.Message)}
 })
 $pin.Add_Click({
- $window=New-Object Windows.Forms.Form
- $window.Text='Tolk 截图 · Esc 关闭';$window.TopMost=$true;$window.KeyPreview=$true
- $window.StartPosition='Manual';$window.Location=New-Object Drawing.Point(($bounds.X+$script:selection.X),($bounds.Y+$script:selection.Y))
- $window.ClientSize=$script:crop.Size
- $window.BackgroundImage=New-Object Drawing.Bitmap((ExportImage));$window.BackgroundImageLayout='Zoom'
- $window.Add_KeyDown({if($_.KeyCode -eq 'Escape'){$this.Close()}})
- $window.Add_FormClosed({$this.BackgroundImage.Dispose()})
- [CaptureDpi]::DarkCaption($window.Handle,$palette.Dark)
+ $scale=[CaptureDpi]::ScaleAt($bounds.X+$script:selection.X,$bounds.Y+$script:selection.Y)
+ $image=New-Object Drawing.Bitmap((ExportImage))
+ $window=New-Object ShotPin -ArgumentList $image,$palette,$scale
+ $window.Location=New-Object Drawing.Point(($bounds.X+$script:selection.X),($bounds.Y+$script:selection.Y))
  [void]$script:pins.Add($window);$window.Show();$form.Close()
 })
 function ResetSelection {

@@ -613,4 +613,159 @@ public class ShotBar : Panel {
   using (Pen pen = new Pen(palette.Stroke, Math.Max(1, scale))) { g.DrawLine(pen, card.X + inner, divider, card.Right - inner, divider); }
  }
 }
+
+/// <summary>The pinned image's right-click menu: the toolbar's menu colours, with the hovered row filled.</summary>
+public class ShotPinMenuRenderer : ShotMenuRenderer {
+ readonly ShotPalette p;
+ public ShotPinMenuRenderer(ShotPalette palette) : base(palette) { p = palette; }
+ protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e) {
+  if (!e.Item.Selected || !e.Item.Enabled) { return; }
+  e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+  ShotPaint.Fill(e.Graphics, new RectangleF(1, 0, e.Item.Width - 2, e.Item.Height), 6, p.Control, p.Control, 0);
+ }
+ protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) { e.TextColor = p.Fg; base.OnRenderItemText(e); }
+}
+
+/// <summary>A screenshot pinned to the screen. No title bar and no frame: the image fills the window and
+/// only the drop shadow sets it off from what is behind. Drag it to move it, drag an edge to resize it
+/// (the aspect is kept), double-click or Esc closes it; a close button shows while the pointer is over
+/// it, and right-click copies or saves the image.</summary>
+public class ShotPin : Form {
+ const int WM_NCHITTEST = 0x84, WM_SIZING = 0x214, WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 2;
+ [DllImport("user32.dll")] static extern bool ReleaseCapture();
+ [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+ [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+ readonly Bitmap image; readonly ShotPalette palette; readonly float scale; readonly float aspect;
+ bool hover, overClose;
+ DateTime lastDown = DateTime.MinValue; Point lastDownAt;
+ public ShotPin(Bitmap image, ShotPalette palette, float scale) {
+  this.image = image; this.palette = palette; this.scale = scale;
+  aspect = image.Width / (float)Math.Max(1, image.Height);
+  SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+  AutoScaleMode = AutoScaleMode.None;
+  FormBorderStyle = FormBorderStyle.None;
+  StartPosition = FormStartPosition.Manual;
+  TopMost = true; KeyPreview = true; ShowIcon = false;
+  Text = "Tolk 截图";
+  BackColor = palette.Card;
+  ClientSize = image.Size;
+  ContextMenuStrip = BuildMenu();
+ }
+ // CS_DROPSHADOW: the system shadow, the window's only edge.
+ protected override CreateParams CreateParams { get { CreateParams cp = base.CreateParams; cp.ClassStyle |= 0x20000; return cp; } }
+ Rectangle CloseBox {
+  get { int size = (int)(26 * scale), inset = (int)(8 * scale); return new Rectangle(ClientSize.Width - size - inset, inset, size, size); }
+ }
+ ContextMenuStrip BuildMenu() {
+  ContextMenuStrip menu = new ContextMenuStrip();
+  menu.Renderer = new ShotPinMenuRenderer(palette);
+  menu.BackColor = palette.Card;
+  menu.ShowImageMargin = false;
+  menu.Padding = new Padding((int)(4 * scale));
+  menu.Font = ShotPaint.FontPx(14 * scale, FontStyle.Regular);
+  AddItem(menu, "复制", delegate { CopyImage(); });
+  AddItem(menu, "另存为…", delegate { SaveImage(); });
+  AddItem(menu, "关闭", delegate { Close(); });
+  return menu;
+ }
+ void AddItem(ContextMenuStrip menu, string text, EventHandler click) {
+  ToolStripMenuItem item = new ToolStripMenuItem(text);
+  item.ForeColor = palette.Fg;
+  item.Padding = new Padding((int)(6 * scale), (int)(4 * scale), (int)(16 * scale), (int)(4 * scale));
+  item.Click += click;
+  menu.Items.Add(item);
+ }
+ void CopyImage() {
+  try { Clipboard.SetImage(image); } catch (Exception ex) { MessageBox.Show(this, "复制失败：" + ex.Message, "Tolk"); }
+ }
+ void SaveImage() {
+  using (SaveFileDialog dialog = new SaveFileDialog()) {
+   dialog.Filter = "PNG 图片|*.png";
+   dialog.FileName = "Tolk_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".png";
+   if (dialog.ShowDialog(this) != DialogResult.OK) { return; }
+   try { image.Save(dialog.FileName, ImageFormat.Png); } catch (Exception ex) { MessageBox.Show(this, "保存失败：" + ex.Message, "Tolk"); }
+  }
+ }
+ protected override bool ProcessCmdKey(ref Message msg, Keys keyData) {
+  if (keyData == Keys.Escape) { Close(); return true; }
+  if (keyData == (Keys.Control | Keys.C)) { CopyImage(); return true; }
+  return base.ProcessCmdKey(ref msg, keyData);
+ }
+ protected override void OnPaint(PaintEventArgs e) {
+  Graphics g = e.Graphics;
+  bool actual = ClientSize == image.Size;
+  g.InterpolationMode = actual ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
+  g.PixelOffsetMode = PixelOffsetMode.Half;
+  g.DrawImage(image, new Rectangle(Point.Empty, ClientSize));
+  if (!hover) { return; }
+  Rectangle box = CloseBox;
+  g.SmoothingMode = SmoothingMode.AntiAlias;
+  g.PixelOffsetMode = PixelOffsetMode.Default;
+  using (SolidBrush b = new SolidBrush(Color.FromArgb(overClose ? 210 : 150, 0, 0, 0))) { g.FillEllipse(b, box); }
+  ShotPaint.Icon(g, "close", box, Color.White, Math.Max(1.5f, 1.8f * scale));
+ }
+ void RepaintClose() { Rectangle r = CloseBox; r.Inflate(2, 2); Invalidate(r); }
+ protected override void OnMouseMove(MouseEventArgs e) {
+  base.OnMouseMove(e);
+  bool over = CloseBox.Contains(e.Location);
+  if (!hover || over != overClose) { hover = true; overClose = over; RepaintClose(); }
+  Cursor = over ? Cursors.Hand : Cursors.Default;
+ }
+ protected override void OnMouseLeave(EventArgs e) {
+  base.OnMouseLeave(e);
+  if (hover) { hover = false; overClose = false; RepaintClose(); }
+ }
+ protected override void OnMouseDown(MouseEventArgs e) {
+  base.OnMouseDown(e);
+  if (e.Button != MouseButtons.Left || CloseBox.Contains(e.Location)) { return; }
+  // Counted here: the move loop below swallows the button-up, so WinForms never sees a double-click.
+  Size slop = SystemInformation.DoubleClickSize;
+  bool twice = (DateTime.Now - lastDown).TotalMilliseconds <= SystemInformation.DoubleClickTime
+   && Math.Abs(e.X - lastDownAt.X) <= slop.Width && Math.Abs(e.Y - lastDownAt.Y) <= slop.Height;
+  if (twice) { Close(); return; }
+  lastDown = DateTime.Now; lastDownAt = e.Location;
+  Point before = Location;
+  ReleaseCapture();
+  SendMessage(Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero); // returns once the button is up
+  if (Location != before) { lastDown = DateTime.MinValue; } // a drag, not the first half of a double-click
+ }
+ protected override void OnMouseUp(MouseEventArgs e) {
+  base.OnMouseUp(e);
+  if (e.Button == MouseButtons.Left && CloseBox.Contains(e.Location)) { Close(); }
+ }
+ protected override void WndProc(ref Message m) {
+  if (m.Msg == WM_NCHITTEST) {
+   base.WndProc(ref m);
+   int lp = unchecked((int)m.LParam.ToInt64());
+   Point p = PointToClient(new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF)));
+   int grip = Math.Max(4, (int)(6 * scale));
+   bool l = p.X < grip, r = p.X >= ClientSize.Width - grip, t = p.Y < grip, b = p.Y >= ClientSize.Height - grip;
+   int hit = t && l ? 13 : t && r ? 14 : b && l ? 16 : b && r ? 17 : l ? 10 : r ? 11 : t ? 12 : b ? 15 : 0;
+   if (hit != 0) { m.Result = (IntPtr)hit; }
+   return;
+  }
+  if (m.Msg == WM_SIZING) {
+   // Keep the image's aspect while an edge is dragged; the opposite edge stays put.
+   RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
+   int edge = m.WParam.ToInt32();
+   float min = 40 * scale;
+   float w = rc.Right - rc.Left, h = rc.Bottom - rc.Top;
+   if (edge == 3 || edge == 6) { w = h * aspect; } else { h = w / aspect; }
+   if (h < min) { h = min; w = h * aspect; }
+   if (w < min) { w = min; h = w / aspect; }
+   int iw = (int)Math.Round(w), ih = (int)Math.Round(h);
+   if (edge == 1 || edge == 4 || edge == 7) { rc.Left = rc.Right - iw; } else { rc.Right = rc.Left + iw; }
+   if (edge == 3 || edge == 4 || edge == 5) { rc.Top = rc.Bottom - ih; } else { rc.Bottom = rc.Top + ih; }
+   Marshal.StructureToPtr(rc, m.LParam, false);
+   m.Result = (IntPtr)1;
+   return;
+  }
+  base.WndProc(ref m);
+ }
+ protected override void OnFormClosed(FormClosedEventArgs e) {
+  base.OnFormClosed(e);
+  if (ContextMenuStrip != null) { ContextMenuStrip.Dispose(); }
+  image.Dispose();
+ }
+}
 '@

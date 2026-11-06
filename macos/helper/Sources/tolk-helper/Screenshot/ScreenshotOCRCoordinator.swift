@@ -418,7 +418,6 @@ final class ScreenshotOCRCoordinator {
         let pinned = PinnedScreenshotWindow(
             image: image,
             initialRect: initialRect,
-            palette: .make(session.appearance, NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light),
             onRequestClose: { [weak self] in
                 guard let self else { return }
                 if let w = windowToRemove {

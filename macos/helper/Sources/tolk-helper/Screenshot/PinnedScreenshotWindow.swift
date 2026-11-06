@@ -18,7 +18,7 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
     private let onRequestClose: () -> Void
     private let onRequestCloseAll: () -> Void
 
-    init(image: NSImage, initialRect: CGRect, palette: ScreenshotPalette, onRequestClose: @escaping () -> Void, onRequestCloseAll: @escaping () -> Void) {
+    init(image: NSImage, initialRect: CGRect, onRequestClose: @escaping () -> Void, onRequestCloseAll: @escaping () -> Void) {
         self.model = Model()
         self.onRequestClose = onRequestClose
         self.onRequestCloseAll = onRequestCloseAll
@@ -47,7 +47,6 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
         let view = PinnedScreenshotView(
             image: image,
             model: model,
-            accent: palette.accent,
             onClose: { [weak self] in
                 self?.close()
             },
@@ -88,14 +87,11 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
 struct PinnedScreenshotView: View {
     let image: NSImage
     @ObservedObject var model: PinnedScreenshotWindow.Model
-    let accent: Color
     let onClose: () -> Void
     let onCloseAll: () -> Void
     let onToggleAlwaysOnTop: () -> Void
 
     @State private var isHovering: Bool = false
-    @State private var glowOn: Bool = false
-    @State private var glowPulseTask: Task<Void, Never>? = nil
 
     @State private var exportDocument = PNGDocument(data: Data())
     @State private var exportFilename: String = "PinnedScreenshot.png"
@@ -106,7 +102,6 @@ struct PinnedScreenshotView: View {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
-                .padding(6)
 
             HStack(spacing: 8) {
                 Button {
@@ -135,30 +130,9 @@ struct PinnedScreenshotView: View {
             )
             .opacity((isHovering || model.isFocused) ? 1.0 : 0.0)
         }
-        .overlay(
-            Rectangle()
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.14), lineWidth: 1)
-        )
-        .overlay(
-            Rectangle()
-                .strokeBorder(accent.opacity(0.9), lineWidth: (model.isAlwaysOnTop && glowOn) ? 2 : 0)
-        )
+        // 图铺满窗口，不加描边：和背后内容的区分只靠窗口阴影。
         .onHover { hovering in
             isHovering = hovering
-        }
-        .onAppear {
-            if model.isAlwaysOnTop {
-                startGlowPulse()
-            }
-        }
-        .onChange(of: model.isAlwaysOnTop) { enabled in
-            if enabled {
-                startGlowPulse()
-            } else {
-                glowPulseTask?.cancel()
-                glowPulseTask = nil
-                glowOn = false
-            }
         }
         .contextMenu {
             Button("复制") {
@@ -183,27 +157,6 @@ struct PinnedScreenshotView: View {
             contentType: .png,
             defaultFilename: exportFilename
         ) { _ in }
-    }
-
-    private func startGlowPulse() {
-        glowPulseTask?.cancel()
-        glowPulseTask = Task { @MainActor in
-            glowOn = false
-            // 只闪两下：2 次“亮->灭”。
-            for _ in 0..<2 {
-                withAnimation(.easeInOut(duration: 0.42)) {
-                    glowOn = true
-                }
-                try? await Task.sleep(nanoseconds: 420_000_000)
-                if Task.isCancelled { return }
-
-                withAnimation(.easeInOut(duration: 0.42)) {
-                    glowOn = false
-                }
-                try? await Task.sleep(nanoseconds: 420_000_000)
-                if Task.isCancelled { return }
-            }
-        }
     }
 
     private func copyImageToPasteboard(_ image: NSImage) {

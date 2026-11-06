@@ -19,6 +19,9 @@ import (
 var Copied = mygo.NewEvent[string]("copied")
 
 func main() {
+	// Before the lock: a second launch hands over to the first instance,
+	// which must be allowed to come to the front.
+	allowForegroundHandoff()
 	if !mygo.App.RequestSingleInstanceLock() {
 		return
 	}
@@ -60,7 +63,8 @@ func main() {
 		mainWindow.Store(win)
 		tintTitleBar(loadPrefs().Theme == "pink")
 
-		showMain := func() { win.Show(); win.Focus() }
+		// Also restores the window when it was minimized rather than closed.
+		showMain := func() { bringToFront(win) }
 		mygo.App.OnSecondInstance(func(_ []string, _ string) {
 			mygo.RunOnMain(showMain)
 		})
@@ -164,11 +168,16 @@ func firstShow(win *mygo.Window) {
 // Call it from App.WhenReady, before the window can be ready.
 func afterFirstShow(fn func()) { afterShown = append(afterShown, fn) }
 
-// watchDoubleCopy polls the clipboard change counter, as the Mac app does.
-// Reading the counter is nearly free, so it is sampled every 40 ms: two copies
-// closer together than that are not something a hand can produce, and the
-// clipboard text is only read when the counter actually moved.
+// watchDoubleCopy polls the clipboard change counter: the fallback, on both
+// systems, when the Ctrl/⌘+C presses themselves cannot be watched. Reading
+// the counter is nearly free, so it is sampled every 40 ms: two copies closer
+// together than that are not something a hand can produce, and the clipboard
+// text is only read when the counter actually moved.
 func watchDoubleCopy(fire func(text string)) {
+	// Windows watches the Ctrl+C presses instead (doublecopy_windows.go):
+	// the clipboard is only polled while they cannot be seen, with no
+	// keyboard hook or a window run as administrator in front.
+	watchCopyKeys(fire)
 	if _, ok := doublecopy.Sequence(); !ok {
 		log.Println("double copy: clipboard counter unavailable on this system")
 		return
@@ -176,6 +185,10 @@ func watchDoubleCopy(fire func(text string)) {
 	d := &doublecopy.Detector{}
 	var seen uint64
 	for range time.Tick(40 * time.Millisecond) {
+		if waitWhileKeysCover() {
+			d, seen = &doublecopy.Detector{}, inputAssistClipboardTransactions()
+			continue
+		}
 		p := currentPrefs()
 		// A transaction that began and ended between two polls leaves the
 		// same text behind under a new counter, which is not a second copy.

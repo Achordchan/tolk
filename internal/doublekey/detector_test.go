@@ -35,3 +35,19 @@ func TestExpiredAndInterrupted(t *testing.T) {
 		}
 	}
 }
+
+func TestWindow(t *testing.T) {
+	d := Detector{Window: 900 * time.Millisecond}
+	n := time.Now()
+	d.Observe(true, true, true, n)
+	d.Observe(true, false, true, n)
+	if !d.Observe(true, true, true, n.Add(800*time.Millisecond)) {
+		t.Fatal("inside a longer window")
+	}
+	d = Detector{Window: 300 * time.Millisecond}
+	d.Observe(true, true, true, n)
+	d.Observe(true, false, true, n)
+	if d.Observe(true, true, true, n.Add(400*time.Millisecond)) {
+		t.Fatal("outside a shorter window")
+	}
+}

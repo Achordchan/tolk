@@ -19,7 +19,9 @@ rounded corners and layered shadows, with no blur or animation.
 Actions: translate, choose installed OCR language and target language, compare
 original, extract original text, inspect full translation, copy the displayed
 image, pin the image, reselect, exit. A pin closes selection but keeps its own
-window alive. New selections can be opened while pins remain. Export is disabled
+window alive: borderless and topmost with only the system drop shadow; drag to
+move, drag an edge to resize at the image's aspect, double-click or Esc to close,
+right-click to copy or save. New selections can be opened while pins remain. Export is disabled
 during recognition/translation. Overflow that cannot fit without clipping
 retains the original image and exposes the complete translated text explicitly.
 

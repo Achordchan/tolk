@@ -78,7 +78,8 @@ enum Ops {
             return [:]
 
         case "permissions.guide":
-            guide.show()
+            // 没传或不认识就跟随系统：老版本主程序不带这个字段。
+            guide.show(appearance: params["appearance"]?.stringValue.flatMap(InputAssistAppearance.init(rawValue:)) ?? .system)
             return [:]
 
         case "screenshot.start":
@@ -222,6 +223,7 @@ enum Ops {
         do {
             let config = try InputAssistConfig.parse(params)
             status = inputAssist.configure(config)
+            guide.apply(appearance: config.appearance) // 主题一变，开着的权限窗口跟着变
             rejection = nil
         } catch let failure as InputAssistConfigError {
             status = inputAssist.currentStatus()

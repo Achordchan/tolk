@@ -41,7 +41,9 @@ func (Tolk) MacRequestPermission(kind string) error {
 }
 
 // MacGuide opens the helper's permission guide window.
-func (Tolk) MacGuide() error { return macSimple("permissions.guide", nil) }
+func (Tolk) MacGuide() error {
+	return macSimple("permissions.guide", map[string]any{"appearance": currentPrefs().Theme})
+}
 
 // MacScreenshot starts screenshot translation ("translate") or text
 // extraction ("ocr") with the current language pair.

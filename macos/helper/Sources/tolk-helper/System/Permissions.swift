@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import TolkHelperCore
 
 enum PermissionKind: String {
     case accessibility
@@ -72,6 +73,7 @@ enum ParentApp {
 final class PermissionGuideModel: ObservableObject {
     @Published var needsAccessibility = !AXIsProcessTrusted()
     @Published var needsScreenRecording = !CGPreflightScreenCaptureAccess()
+    @Published var appearance: InputAssistAppearance = .system
     private var timer: Timer?
 
     func startRefreshing() {
@@ -99,9 +101,10 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let model = PermissionGuideModel()
 
-    func show() {
+    func show(appearance: InputAssistAppearance) {
         model.refresh()
         if let window {
+            apply(appearance: appearance)
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             return
@@ -111,21 +114,39 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
             onClose: { [weak self] in self?.close() }
         )
         let hosting = NSHostingView(rootView: root)
+        hosting.sizingOptions = [] // 窗口尺寸写死；不让它把标题栏的安全区再算进窗口高度
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 590),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(origin: .zero, size: PermissionGuideView.windowSize),
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "Tolk 权限"
+        // 着色舞台一直铺到窗口顶，标题栏只留红绿灯；只有关闭一个按钮有用。
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.contentView = hosting
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
         self.window = window
+        apply(appearance: appearance)
         model.startRefreshing()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// 跟随 Tolk 的主题。「跟随系统」时 `nsAppearance` 为 nil，系统切换深浅色会自己传下来。
+    func apply(appearance: InputAssistAppearance) {
+        model.appearance = appearance
+        guard let window else { return }
+        window.appearance = appearance.nsAppearance
+        window.backgroundColor = NSColor(name: nil) { current in
+            let isDark = current.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(ScreenshotPalette.make(appearance, isDark ? .dark : .light).stage)
+        }
     }
 
     func close() {
@@ -152,6 +173,7 @@ private struct PermissionGuideContainer: View {
             needsAccessibility: model.needsAccessibility,
             needsScreenRecording: model.needsScreenRecording,
             showsScreenRecordingPermission: true,
+            appearance: model.appearance,
             onOpenAccessibility: { PermissionRequester.openSettings(.accessibility) },
             onOpenScreenRecording: { PermissionRequester.openSettings(.screenRecording) },
             onClose: onClose

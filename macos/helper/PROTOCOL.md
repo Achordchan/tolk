@@ -27,7 +27,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 | `hello` | 无 | `{"version":"1","macos":"15.1","capabilities":["ocr","pin","selection","apple"]}`；`apple` 仅在系统 ≥ 15.1 时列出 |
 | `permissions` | 无 | `{"accessibility":bool,"screenRecording":bool}`，不弹窗 |
 | `permissions.request` | `kind`: `accessibility` \| `screenRecording` | `{}`，触发系统授权提示；已拒绝时打开对应系统设置页 |
-| `permissions.guide` | 无 | `{}`，显示 bagayalu 里 `PermissionGuideView` 同款授权引导窗口（缺哪个讲哪个） |
+| `permissions.guide` | `appearance`（可省略）：`system`\|`light`\|`dark`\|`pink`，窗口的配色 | `{}`，显示授权引导窗口（一次讲一项，缺哪个讲哪个）；窗口开着时再调用只更新配色并提到最前，主题变化时 `inputassist.configure` 也会更新它 |
 | `screenshot.start` | `source`, `target`, `mode`: `translate`（默认）\| `ocr`（只识别文字）；`appearance`（可省略）：`system`\|`light`\|`dark`\|`pink`，选区层的配色 | 立即回 `{}` 表示选区层已显示；之后用事件汇报 |
 | `screenshot.cancel` | 无 | `{}` |
 | `selection.get` | 无 | `{"text":"…","app":"<前台 App 的 bundle id>"}`；读不到时 `ok:false` |

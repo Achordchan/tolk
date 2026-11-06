@@ -153,7 +153,7 @@ func superviseHelper() {
 func firstRun() {
 	st := macStatus()
 	if st.Running && !st.Accessibility && !st.ScreenRecording {
-		if err := macSimple("permissions.guide", nil); err != nil {
+		if err := macSimple("permissions.guide", map[string]any{"appearance": currentPrefs().Theme}); err != nil {
 			Logs.Warnf("授权引导：%v", err)
 		}
 	}

@@ -11,7 +11,7 @@ import TolkHelperCore
 @MainActor
 final class ScreenshotOCRCoordinator {
     enum Mode: String {
-        /// 框选后自动识别并翻译（默认）。
+        /// 框选后识别并翻译（默认）。`autoTranslate` 关掉时等用户点「翻译」。
         case translate
         /// 框选后只识别文字，复制到剪贴板。
         case ocr
@@ -25,6 +25,8 @@ final class ScreenshotOCRCoordinator {
     private(set) var isRunning: Bool = false
 
     private var mode: Mode = .translate
+    /// `mode == .translate` 时框选松手就翻译；false 时停在「已框选」，等用户点「翻译」。
+    private var autoTranslate: Bool = true
     private var session: ScreenshotOCRSession?
     private var selectionWindow: ScreenshotSelectionWindow?
     private var pinnedWindows: [PinnedScreenshotWindow] = []
@@ -41,11 +43,12 @@ final class ScreenshotOCRCoordinator {
 
     // MARK: - 对外入口
 
-    func start(sourceLanguageCode: String, targetLanguageCode: String, mode: Mode, appearance: InputAssistAppearance = .system) async -> StartResult {
+    func start(sourceLanguageCode: String, targetLanguageCode: String, mode: Mode, appearance: InputAssistAppearance = .system, autoTranslate: Bool = true) async -> StartResult {
         if isRunning {
             cancelAll()
         }
         self.mode = mode
+        self.autoTranslate = autoTranslate
 
         // 截图依赖屏幕录制权限。没有就触发系统授权（第一次弹窗，之后打开系统设置），并告诉主程序缺什么。
         guard ScreenCapturePermission.hasPermission() else {
@@ -265,10 +268,12 @@ final class ScreenshotOCRCoordinator {
             return
         }
 
-        // 协议里截图是一气呵成的：框完自动识别（+翻译）。
+        // 设置里打开「框选后自动翻译」时框完直接识别并翻译；关着就停在「已框选」，等用户点「翻译」。
         switch mode {
         case .translate:
-            await runOCRAndTranslateIfPossible()
+            if autoTranslate {
+                await runOCRAndTranslateIfPossible()
+            }
         case .ocr:
             if await extractOCRToPasteboardIfPossible() {
                 emitDone()

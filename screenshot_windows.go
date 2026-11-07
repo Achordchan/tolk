@@ -173,7 +173,7 @@ func (Tolk) ScreenshotWindows() error {
 	off := mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting.Store(true); p.Kill() })
 	defer off()
 	prefs := loadPrefs()
-	if err = p.Begin(screenshot.Start{Target: prefs.TargetLang, Theme: prefs.Theme, Languages: engine.Languages}); err != nil {
+	if err = p.Begin(screenshot.Start{Target: prefs.TargetLang, Theme: prefs.Theme, Languages: engine.Languages, AutoTranslate: prefs.ScreenshotAutoTranslate}); err != nil {
 		return failed(p, err)
 	}
 	protocolErr := screenshot.Serve(p.Output(), p.Input(), func(requestCtx context.Context, text, source, target string) (string, error) {

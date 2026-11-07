@@ -54,14 +54,28 @@ function CursorArea {
  $area.Offset(-$bounds.Left,-$bounds.Top)
  return $area
 }
+$script:hintTitle=''
+$hintDetail='Esc 退出。截图和识别在本机完成，仅识别文字发送给当前翻译服务。'
 function ShowHint($title) {
+ $script:hintTitle=$title
  $p=[Windows.Forms.Cursor]::Position
- $form.SetHint($title,'Esc 退出。截图和识别在本机完成，仅识别文字发送给当前翻译服务。',(CursorArea),[CaptureDpi]::ScaleAt($p.X,$p.Y))
+ $form.SetHint($title,$hintDetail,(CursorArea),[CaptureDpi]::ScaleAt($p.X,$p.Y))
+}
+# The hint gets out of the way while a region is dragged (capture.ps1 hides it on mouse-down) and
+# comes back once the drag ends; with a selection it stays only where it covers neither the
+# selection nor the toolbar.
+function SelectedHint {
+ # While recognizing or translating, right-click closes the workspace instead, so the hint would mislead.
+ if($script:working){$form.SetHint('','',[Drawing.Rectangle]::Empty,1);return}
+ $form.SetHint('右键可重新框选',$hintDetail,$script:workArea,$form.SelectionScale)
+ $hint=$form.HintBounds
+ if($hint.IntersectsWith($script:selection) -or $hint.IntersectsWith($bar.Bounds)){$form.SetHint('','',[Drawing.Rectangle]::Empty,1)}
 }
 function Status($text,$failed=$false) {
  if(!$bar.Visible){ShowHint $text;return}
  $bar.SetStatus($text,[bool]$failed)
  $bar.Place($script:selection,$script:workArea)
+ SelectedHint
 }
 function Failed($text) {Status $text $true}
 function SyncOverlay {
@@ -74,6 +88,7 @@ function Busy($on) {
  $reselect.Enabled=!$on
  $viewText.Enabled=(!$on -and $script:fullTranslation)
  $compare.Enabled=(!$on -and $null -ne $script:translated)
+ if($bar.Visible){SelectedHint}
 }
 function SetLead($translated) {
  # The one strong button is what the user does next: translate, then keep the result.
@@ -186,7 +201,7 @@ function Render($texts) {
  return $image
 }
 $compare.Add_CheckedChanged({SyncOverlay})
-$translate.Add_Click({
+function TranslateNow {
  try {
   Busy $true;Status '正在识别文字…';$form.Refresh()
   Recognize
@@ -201,7 +216,8 @@ $translate.Add_Click({
   $script:readTask=[CaptureDpi]::ReadReply()
   Status ('正在翻译 '+$script:blocks.Count+' 个文字区域…')
  } catch {Failed $_.Exception.Message;Busy $false}
-})
+}
+$translate.Add_Click({TranslateNow})
 $extract.Add_Click({
  try{Busy $true;Status '正在识别文字…';$form.Refresh();Recognize;[Windows.Forms.Clipboard]::SetText(($script:blocks | ForEach-Object {$_.Text}) -join "`r`n");Status '原文已复制'}catch{Failed $_.Exception.Message}finally{Busy $false}
 })
@@ -271,7 +287,13 @@ $form.Add_MouseUp({
  if($_.Button -ne 'Left'){return}
  $hadStart=$null -ne $script:start
  $script:start=$null
- if(!$hadStart -or $script:selection.Width -le 4 -or $script:selection.Height -le 4){return}
+ if(!$hadStart){return}
+ if($script:selection.Width -le 4 -or $script:selection.Height -le 4){
+  # A click or a tiny drag is not a selection: clear it and put the hint back.
+  $script:selection=[Drawing.Rectangle]::Empty;$form.SetSelection($script:selection)
+  ShowHint $script:hintTitle
+  return
+ }
  if($script:crop){$script:crop.Dispose()}
  $script:crop=$screen.Clone($script:selection,$screen.PixelFormat)
  $script:blocks=@();ClearTranslation
@@ -284,6 +306,8 @@ $form.Add_MouseUp({
  $bar.Visible=$true
  Status '已框选'
  Busy $false
+ # Settings > 框选后自动翻译: translate right away instead of waiting for the button.
+ if($shot.autoTranslate){TranslateNow}
 })
 # The pipe is event-driven; the UI timer only marshals a completed read task onto
 # the WinForms UI thread. It never sends network/status polling requests.

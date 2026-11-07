@@ -134,6 +134,12 @@ export interface Prefs {
   systemHotkey: boolean;
   screenshotHotkey: boolean;
   screenshotKeyCode: number;
+  /**
+   * ScreenshotAutoTranslate translates as soon as a region is selected, on
+   * both platforms; off waits for the 翻译 button. Off by default: the
+   * manual flow is what Windows always did and what users preferred.
+   */
+  screenshotAutoTranslate: boolean;
   sourceLang: string;
   targetLang: string;
   /** Theme is "system", "light", "dark" or "pink" (dazuo-win's three themes). */
@@ -431,6 +437,13 @@ export const Tolk = {
   /** SetMini turns the Mini bubble on or off. */
   setMini(on: boolean): Promise<void> {
     return call("Tolk.SetMini", on);
+  },
+  /**
+   * SetScreenshotAutoTranslate sets whether a screenshot translates as soon as
+   * the region is selected. It applies from the next screenshot.
+   */
+  setScreenshotAutoTranslate(on: boolean): Promise<void> {
+    return call("Tolk.SetScreenshotAutoTranslate", on);
   },
   setWindowsScreenshotHotkey(arg0: boolean): Promise<void> {
     return call("Tolk.SetWindowsScreenshotHotkey", arg0);

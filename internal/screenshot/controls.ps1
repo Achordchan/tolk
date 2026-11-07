@@ -143,6 +143,8 @@ public class ShotForm : Form {
   Overlay = image;
   if (!Selection.IsEmpty) { Invalidate(Selection); }
  }
+ /// <summary>Where the hint card is drawn, its shadow included; empty while it is hidden.</summary>
+ public Rectangle HintBounds { get { return hintRect; } }
  /// <summary>Shows the hint on a work area given in this surface's coordinates; an empty title hides it.</summary>
  public void SetHint(string title, string detail, Rectangle area, float scale) {
   if (!hintRect.IsEmpty) { Invalidate(hintRect); }
@@ -528,14 +530,24 @@ public class ShotBar : Panel {
   SuspendLayout();
   ScaleAll();
   int shadow = (int)(16 * s); int inner = (int)(10 * s); int gap = (int)(8 * s); int gapSmall = (int)(2 * s);
-  int width = Math.Min((int)(700 * s), Math.Max((int)(320 * s), maxWidth - shadow * 2));
+  int width = Math.Min((int)(780 * s), Math.Max((int)(320 * s), maxWidth - shadow * 2));
   int contentW = width - inner * 2;
-  // Row 2 falls back to icons with tooltips when a narrow monitor cannot hold its words.
+  // Row 2 keeps its words. Only when a narrow monitor cannot hold them do buttons fall back to an
+  // icon with a tooltip, one at a time and as few as needed: 退出 first, then the tools from the
+  // right, and the finishing action last.
   List<Control> second = new List<Control>(bottomLeft); second.AddRange(bottomRight);
   foreach (Control c in second) { SetCompact(c, false); }
   int need = 0; foreach (Control c in second) { need += W(c) + gapSmall; }
-  bool compact = need > contentW - gap;
-  foreach (Control c in second) { SetCompact(c, compact); }
+  List<Control> order = new List<Control>();
+  for (int i = 0; i < bottomRight.Count - 1; i++) { order.Add(bottomRight[i]); }
+  for (int i = bottomLeft.Count - 1; i >= 0; i--) { order.Add(bottomLeft[i]); }
+  if (bottomRight.Count > 0) { order.Add(bottomRight[bottomRight.Count - 1]); }
+  foreach (Control c in order) {
+   if (need <= contentW - gap) { break; }
+   int before = W(c);
+   SetCompact(c, true);
+   need -= before - W(c);
+  }
   int x = inner + shadow; int y = inner + shadow; int rowOne = (int)(36 * s);
   // Row 1 gives way before anything overlaps the action: captions go first, then the pills narrow.
   int actionW = action == null ? 0 : W(action);
@@ -628,16 +640,22 @@ public class ShotPinMenuRenderer : ShotMenuRenderer {
 
 /// <summary>A screenshot pinned to the screen. No title bar and no frame: the image fills the window and
 /// only the drop shadow sets it off from what is behind. Drag it to move it, drag an edge to resize it
-/// (the aspect is kept), double-click or Esc closes it; a close button shows while the pointer is over
-/// it, and right-click copies or saves the image.</summary>
+/// (the aspect is kept), double-click or Esc closes it. While the pointer is over it, a 置于最前 toggle and a
+/// close button show in its top-right corner (the same as on macOS); right-click copies or saves the image
+/// or toggles 置于最前. Its edge flashes twice when it appears, so pinning is seen to have worked.</summary>
 public class ShotPin : Form {
  const int WM_NCHITTEST = 0x84, WM_SIZING = 0x214, WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 2;
  [DllImport("user32.dll")] static extern bool ReleaseCapture();
  [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
  [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
  readonly Bitmap image; readonly ShotPalette palette; readonly float scale; readonly float aspect;
- bool hover, overClose;
+ bool hover, overClose, overTop, onTop = true;
  DateTime lastDown = DateTime.MinValue; Point lastDownAt;
+ readonly ToolTip tips = new ToolTip();
+ ToolStripMenuItem topItem;
+ readonly System.Windows.Forms.Timer flash = new System.Windows.Forms.Timer();
+ int flashStep;
+ const int FlashSteps = 12;
  public ShotPin(Bitmap image, ShotPalette palette, float scale) {
   this.image = image; this.palette = palette; this.scale = scale;
   aspect = image.Width / (float)Math.Max(1, image.Height);
@@ -650,12 +668,28 @@ public class ShotPin : Form {
   BackColor = palette.Card;
   ClientSize = image.Size;
   ContextMenuStrip = BuildMenu();
+  flash.Interval = 60;
+  flash.Tick += delegate { flashStep++; if (flashStep >= FlashSteps) { flash.Stop(); } Invalidate(); };
  }
+ protected override void OnShown(EventArgs e) { base.OnShown(e); flashStep = 0; flash.Start(); }
  // CS_DROPSHADOW: the system shadow, the window's only edge.
  protected override CreateParams CreateParams { get { CreateParams cp = base.CreateParams; cp.ClassStyle |= 0x20000; return cp; } }
  Rectangle CloseBox {
   get { int size = (int)(26 * scale), inset = (int)(8 * scale); return new Rectangle(ClientSize.Width - size - inset, inset, size, size); }
  }
+ Rectangle TopBox {
+  get { Rectangle c = CloseBox; int gap = (int)(6 * scale); return new Rectangle(c.X - gap - c.Width, c.Y, c.Width, c.Height); }
+ }
+ /// <summary>A pin too narrow for both buttons keeps only the close button; 置于最前 stays in the menu.</summary>
+ bool ShowsTop { get { return TopBox.X >= (int)(8 * scale); } }
+ void ToggleTop() {
+  onTop = !onTop;
+  TopMost = onTop;
+  if (topItem != null) { topItem.Checked = onTop; }
+  if (overTop) { ShowTopTip(); }
+  RepaintButtons();
+ }
+ void ShowTopTip() { Rectangle b = TopBox; tips.Show(onTop ? "取消置于最前" : "置于最前", this, b.X, b.Bottom + (int)(6 * scale), 2000); }
  ContextMenuStrip BuildMenu() {
   ContextMenuStrip menu = new ContextMenuStrip();
   menu.Renderer = new ShotPinMenuRenderer(palette);
@@ -665,15 +699,18 @@ public class ShotPin : Form {
   menu.Font = ShotPaint.FontPx(14 * scale, FontStyle.Regular);
   AddItem(menu, "复制", delegate { CopyImage(); });
   AddItem(menu, "另存为…", delegate { SaveImage(); });
+  topItem = AddItem(menu, "置于最前", delegate { ToggleTop(); });
+  topItem.Checked = onTop;
   AddItem(menu, "关闭", delegate { Close(); });
   return menu;
  }
- void AddItem(ContextMenuStrip menu, string text, EventHandler click) {
+ ToolStripMenuItem AddItem(ContextMenuStrip menu, string text, EventHandler click) {
   ToolStripMenuItem item = new ToolStripMenuItem(text);
   item.ForeColor = palette.Fg;
   item.Padding = new Padding((int)(6 * scale), (int)(4 * scale), (int)(16 * scale), (int)(4 * scale));
   item.Click += click;
   menu.Items.Add(item);
+  return item;
  }
  void CopyImage() {
   try { Clipboard.SetImage(image); } catch (Exception ex) { MessageBox.Show(this, "复制失败：" + ex.Message, "Tolk"); }
@@ -697,27 +734,45 @@ public class ShotPin : Form {
   g.InterpolationMode = actual ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
   g.PixelOffsetMode = PixelOffsetMode.Half;
   g.DrawImage(image, new Rectangle(Point.Empty, ClientSize));
-  if (!hover) { return; }
-  Rectangle box = CloseBox;
-  g.SmoothingMode = SmoothingMode.AntiAlias;
   g.PixelOffsetMode = PixelOffsetMode.Default;
+  if (flash.Enabled && flashStep > 0) {
+   // Two pulses of the accent along the edge, fading in and out.
+   int alpha = (int)(255 * Math.Abs(Math.Sin(flashStep * Math.PI / 6)));
+   float w = Math.Max(2, 3 * scale);
+   using (Pen pen = new Pen(Color.FromArgb(alpha, palette.Accent), w)) { g.DrawRectangle(pen, w / 2, w / 2, ClientSize.Width - w, ClientSize.Height - w); }
+  }
+  if (!hover) { return; }
+  g.SmoothingMode = SmoothingMode.AntiAlias;
+  float stroke = Math.Max(1.5f, 1.8f * scale);
+  if (ShowsTop) {
+   Rectangle top = TopBox;
+   Color fill = onTop ? Color.FromArgb(overTop ? 255 : 225, palette.Accent) : Color.FromArgb(overTop ? 210 : 150, 0, 0, 0);
+   using (SolidBrush b = new SolidBrush(fill)) { g.FillEllipse(b, top); }
+   RectangleF glyph = new RectangleF(top.X + top.Width * 0.18f, top.Y + top.Height * 0.18f, top.Width * 0.64f, top.Height * 0.64f);
+   ShotPaint.Icon(g, "pin", glyph, Color.White, stroke);
+  }
+  Rectangle box = CloseBox;
   using (SolidBrush b = new SolidBrush(Color.FromArgb(overClose ? 210 : 150, 0, 0, 0))) { g.FillEllipse(b, box); }
-  ShotPaint.Icon(g, "close", box, Color.White, Math.Max(1.5f, 1.8f * scale));
+  ShotPaint.Icon(g, "close", box, Color.White, stroke);
  }
- void RepaintClose() { Rectangle r = CloseBox; r.Inflate(2, 2); Invalidate(r); }
+ void RepaintButtons() { Rectangle r = Rectangle.Union(TopBox, CloseBox); r.Inflate(2, 2); Invalidate(r); }
+ bool OverTop(Point p) { return ShowsTop && TopBox.Contains(p); }
  protected override void OnMouseMove(MouseEventArgs e) {
   base.OnMouseMove(e);
   bool over = CloseBox.Contains(e.Location);
-  if (!hover || over != overClose) { hover = true; overClose = over; RepaintClose(); }
-  Cursor = over ? Cursors.Hand : Cursors.Default;
+  bool top = OverTop(e.Location);
+  if (top != overTop) { if (top) { ShowTopTip(); } else { tips.Hide(this); } }
+  if (!hover || over != overClose || top != overTop) { hover = true; overClose = over; overTop = top; RepaintButtons(); }
+  Cursor = over || top ? Cursors.Hand : Cursors.Default;
  }
  protected override void OnMouseLeave(EventArgs e) {
   base.OnMouseLeave(e);
-  if (hover) { hover = false; overClose = false; RepaintClose(); }
+  if (overTop) { tips.Hide(this); }
+  if (hover) { hover = false; overClose = false; overTop = false; RepaintButtons(); }
  }
  protected override void OnMouseDown(MouseEventArgs e) {
   base.OnMouseDown(e);
-  if (e.Button != MouseButtons.Left || CloseBox.Contains(e.Location)) { return; }
+  if (e.Button != MouseButtons.Left || CloseBox.Contains(e.Location) || OverTop(e.Location)) { return; }
   // Counted here: the move loop below swallows the button-up, so WinForms never sees a double-click.
   Size slop = SystemInformation.DoubleClickSize;
   bool twice = (DateTime.Now - lastDown).TotalMilliseconds <= SystemInformation.DoubleClickTime
@@ -731,7 +786,8 @@ public class ShotPin : Form {
  }
  protected override void OnMouseUp(MouseEventArgs e) {
   base.OnMouseUp(e);
-  if (e.Button == MouseButtons.Left && CloseBox.Contains(e.Location)) { Close(); }
+  if (e.Button != MouseButtons.Left) { return; }
+  if (CloseBox.Contains(e.Location)) { Close(); } else if (OverTop(e.Location)) { ToggleTop(); }
  }
  protected override void WndProc(ref Message m) {
   if (m.Msg == WM_NCHITTEST) {
@@ -764,6 +820,7 @@ public class ShotPin : Form {
  }
  protected override void OnFormClosed(FormClosedEventArgs e) {
   base.OnFormClosed(e);
+  flash.Stop(); flash.Dispose(); tips.Dispose();
   if (ContextMenuStrip != null) { ContextMenuStrip.Dispose(); }
   image.Dispose();
  }

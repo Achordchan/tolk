@@ -28,7 +28,7 @@ Tolk 主程序（Go / mygo）以子进程方式启动它，两边通过 **stdin 
 | `permissions` | 无 | `{"accessibility":bool,"screenRecording":bool}`，不弹窗 |
 | `permissions.request` | `kind`: `accessibility` \| `screenRecording` | `{}`，触发系统授权提示；已拒绝时打开对应系统设置页 |
 | `permissions.guide` | `appearance`（可省略）：`system`\|`light`\|`dark`\|`pink`，窗口的配色 | `{}`，显示授权引导窗口（一次讲一项，缺哪个讲哪个）；窗口开着时再调用只更新配色并提到最前，主题变化时 `inputassist.configure` 也会更新它 |
-| `screenshot.start` | `source`, `target`, `mode`: `translate`（默认）\| `ocr`（只识别文字）；`appearance`（可省略）：`system`\|`light`\|`dark`\|`pink`，选区层的配色 | 立即回 `{}` 表示选区层已显示；之后用事件汇报 |
+| `screenshot.start` | `source`, `target`, `mode`: `translate`（默认）\| `ocr`（只识别文字）；`appearance`（可省略）：`system`\|`light`\|`dark`\|`pink`，选区层的配色；`autoTranslate`（可省略，默认 true）：`mode:translate` 时框选松手是否直接识别并翻译 | 立即回 `{}` 表示选区层已显示；之后用事件汇报 |
 | `screenshot.cancel` | 无 | `{}` |
 | `selection.get` | 无 | `{"text":"…","app":"<前台 App 的 bundle id>"}`；读不到时 `ok:false` |
 | `selection.replace` | `text` | `{}`，优先走辅助功能写入，不行再用粘贴兜底（与 bagayalu `InputAssistTextReplaceEngine` 一致） |
@@ -106,7 +106,7 @@ helper → Go：
 ## 实现补充（helper 端的具体行为）
 
 - `screenshot.start` 缺屏幕录制权限时：回 `ok:false`（`error` 为中文说明），同时发 `screenshot.error`（带 `needs:"screenRecording"`），并触发系统授权提示（第一次弹窗，之后打开系统设置）。
-- `screenshot.start` 的 `mode:translate` 框选松手后自动识别并翻译；`mode:ocr` 自动识别并把原文复制到剪贴板，随后结束并发 `screenshot.done`。
+- `screenshot.start` 的 `mode:translate`：`autoTranslate` 为 true（或没传）时框选松手后自动识别并翻译，为 false 时停在「已框选」，等用户点「翻译」（Tolk 设置里的「框选后自动翻译」，默认关）；`mode:ocr` 自动识别并把原文复制到剪贴板，随后结束并发 `screenshot.done`。
 - `screenshot.error`（识别不到文字、翻译失败）发出后选区层不会自动关闭，用户可重新框选；最终仍会以 `screenshot.done` 或 `screenshot.cancelled` 收尾。
 - `screenshot.done` 在会话结束时发一次（点「完成」、钉到屏幕、有结果时按 Esc / 右键退出）。只提取了原文没翻译时 `mode` 为 `ocr` 且无 `translated`；段落间用空行分隔。
 - `selection.replace`：取词后原应用若已不在前台，helper 会先尝试把它激活再校验焦点控件与选区；校验不过或无法原位替换时把译文复制到剪贴板，并回 `ok:false`（`error` 说明已复制）。没有先 `selection.get` 时对当前焦点控件的选区直接替换。

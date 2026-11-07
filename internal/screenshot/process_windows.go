@@ -38,6 +38,9 @@ type Start struct {
 	Target    string   `json:"target"`
 	Theme     string   `json:"theme"`
 	Languages []string `json:"languages"`
+	// AutoTranslate translates as soon as the region is selected instead of
+	// waiting for the 翻译 button.
+	AutoTranslate bool `json:"autoTranslate"`
 }
 
 // Process is one workspace: launched ahead of time, it captures the screen

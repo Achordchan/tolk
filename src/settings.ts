@@ -25,6 +25,8 @@ interface Hooks {
 
 export interface MacPane {
   load(): Promise<void>;
+  /** Keep the pane's live status current while the sheet is open; called once it is. */
+  watch?(): void;
   save(): Promise<void>;
   /** Draft state no single form control holds, for spotting unsaved changes. */
   draft?(): string;
@@ -481,6 +483,8 @@ export function initSettings(h: Hooks) {
       show(pane);
       sError.hidden = true;
       dlg.showModal();
+      h.mac?.watch?.();
+      h.ia?.watch?.();
       // Keyboard focus starts on the sheet itself, not outlined on the first tab.
       dlg.focus();
       moveSlider(false);

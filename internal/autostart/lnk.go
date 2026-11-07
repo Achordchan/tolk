@@ -11,6 +11,10 @@ const (
 	lnkHeaderSize      = 0x4C
 	lnkHasTargetIDList = 0x01
 	lnkHasLinkInfo     = 0x02
+	// Windows resolves a link with any of these some other way than by its
+	// LinkInfo: ForceNoLinkInfo, HasExpString (an environment-variable
+	// target), HasDarwinID (an installer component), PreferEnvironmentPath.
+	lnkResolvedElsewhere = 0x100 | 0x200 | 0x1000 | 0x2000000
 	// LinkInfo flag: the target is on a local volume and LocalBasePath is set.
 	linkInfoLocalPath = 0x01
 	// LinkInfo header sizes from this one on carry the Unicode path offsets.
@@ -34,6 +38,9 @@ func lnkTarget(b []byte, ansi func([]byte) (string, error)) (string, error) {
 			return "", errLnk
 		}
 		off += 2 + int(binary.LittleEndian.Uint16(b[off:]))
+	}
+	if flags&lnkResolvedElsewhere != 0 {
+		return "", errLnk // the caller's full resolver handles these
 	}
 	if flags&lnkHasLinkInfo == 0 || off+0x1C > len(b) {
 		return "", errLnk

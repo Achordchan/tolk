@@ -105,7 +105,16 @@ func TestLnkTargetRejectsBadInput(t *testing.T) {
 	good := shellLink(nil, linkInfo(`C:\Tolk.exe`, "", "", ""))
 	noInfo := append([]byte(nil), good...)
 	copy(noInfo[0x14:], le32(0))
+	withFlag := func(f int) []byte {
+		b := append([]byte(nil), good...)
+		copy(b[0x14:], le32(lnkHasLinkInfo|f))
+		return b
+	}
 	cases := map[string][]byte{
+		"ForceNoLinkInfo":       withFlag(0x100),
+		"HasExpString":          withFlag(0x200),
+		"HasDarwinID":           withFlag(0x1000),
+		"PreferEnvironmentPath": withFlag(0x2000000),
 		"empty":       nil,
 		"not a link":  []byte("<?xml version=\"1.0\"?><plist></plist>" + string(make([]byte, 80))),
 		"no linkinfo": noInfo,

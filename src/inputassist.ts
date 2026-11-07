@@ -272,6 +272,8 @@ export function inputAssistPane(os: string, toast: (m: string) => void, close: (
         toast(String(e instanceof Error ? e.message : e));
       }
       void refresh().catch(() => {}); // the status line can fill in after the sheet opens
+    },
+    watch() {
       window.clearInterval(timer);
       timer = window.setInterval(() => {
         if (!$("#settings").hasAttribute("open")) return window.clearInterval(timer);

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -58,7 +59,7 @@ func Migrate() error {
 	if _, err := os.Stat(lnk); err != nil {
 		return nil
 	}
-	target, err := run(`(New-Object -ComObject WScript.Shell).CreateShortcut($env:TOLK_LNK).TargetPath`, "TOLK_LNK="+lnk)
+	target, err := shortcutTarget(lnk)
 	if err != nil || !strings.EqualFold(filepath.Base(target), oldExeName) {
 		return nil
 	}
@@ -134,6 +135,37 @@ func dropApproval(name string) {
 	_ = k.DeleteValue(name)
 }
 
+// shortcutTarget is where a shortcut points. The file is read directly:
+// asking PowerShell takes a second or so to start it, which the settings sheet
+// used to wait for on every open. PowerShell remains for links this cannot read.
+func shortcutTarget(lnk string) (string, error) {
+	if b, err := os.ReadFile(lnk); err == nil {
+		if target, err := lnkTarget(b, systemCodePage); err == nil {
+			return target, nil
+		}
+	}
+	return run(`(New-Object -ComObject WScript.Shell).CreateShortcut($env:TOLK_LNK).TargetPath`, "TOLK_LNK="+lnk)
+}
+
+// systemCodePage decodes a string in the system's ANSI code page, which is
+// what shortcuts store a path in when every character of it fits there.
+func systemCodePage(b []byte) (string, error) {
+	if len(b) == 0 {
+		return "", nil
+	}
+	const errInvalidChars = 0x08 // MB_ERR_INVALID_CHARS: fail rather than guess
+	acp := windows.GetACP()
+	n, err := windows.MultiByteToWideChar(acp, errInvalidChars, &b[0], int32(len(b)), nil, 0)
+	if err != nil {
+		return "", err
+	}
+	u := make([]uint16, n)
+	if _, err := windows.MultiByteToWideChar(acp, errInvalidChars, &b[0], int32(len(b)), &u[0], n); err != nil {
+		return "", err
+	}
+	return windows.UTF16ToString(u), nil
+}
+
 func run(script string, env ...string) (string, error) {
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script)
 	cmd.Env = append(os.Environ(), env...)
@@ -155,7 +187,7 @@ func Enabled() bool {
 	if err != nil {
 		return false
 	}
-	target, err := run(`(New-Object -ComObject WScript.Shell).CreateShortcut($env:TOLK_LNK).TargetPath`, "TOLK_LNK="+lnk)
+	target, err := shortcutTarget(lnk)
 	if err != nil {
 		return true // present but unreadable: do not claim it is off
 	}

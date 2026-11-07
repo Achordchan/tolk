@@ -358,6 +358,13 @@ export const Tolk = {
   miniReady(): Promise<void> {
     return call("Tolk.MiniReady");
   },
+  /**
+   * MiniToMain closes the bubble and translates its text in the main window,
+   * where it can be edited or sent the other way.
+   */
+  miniToMain(): Promise<void> {
+    return call("Tolk.MiniToMain");
+  },
   /** OpenLink opens an http(s) link in the default browser. */
   openLink(url: string): Promise<void> {
     return call("Tolk.OpenLink", url);
@@ -372,9 +379,9 @@ export const Tolk = {
   pluginStatus(): Promise<State> {
     return call("Tolk.PluginStatus");
   },
-  /** ResizeMini fits the bubble to its content; the page reports the height. */
-  resizeMini(height: number): Promise<void> {
-    return call("Tolk.ResizeMini", height);
+  /** ResizeMini fits the bubble to its content; the page reports the size. */
+  resizeMini(width: number, height: number): Promise<void> {
+    return call("Tolk.ResizeMini", width, height);
   },
   /** SaveSettings writes the settings back to the shared config file. */
   saveSettings(u: SettingsUpdate): Promise<void> {

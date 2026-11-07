@@ -44,6 +44,8 @@ addEventListener("keydown", (e) => {
   if (e.key === "Escape") void Tolk.hideMini();
 });
 
+$("#to-main").addEventListener("click", () => void Tolk.miniToMain());
+
 $("#copy").addEventListener("click", async () => {
   if (body.classList.contains("error") || body.classList.contains("wait")) return;
   try {
@@ -54,10 +56,37 @@ $("#copy").addEventListener("click", async () => {
   }
 });
 
+// The bubble's width limits; mini.go clamps to the same ones.
+const MIN_W = 300;
+const MAX_W = 560;
+const bubble = $("#bubble");
+let width = MIN_W;
+
+// The window is a bit taller than the bubble: title bar chrome, borders.
+const height = () => Math.ceil(bubble.getBoundingClientRect().height) + 2;
+
 function fit() {
-  // The window is a bit taller than the bubble: title bar chrome, borders.
-  requestAnimationFrame(() => void Tolk.resizeMini(Math.ceil($("#bubble").getBoundingClientRect().height) + 2));
+  requestAnimationFrame(() => {
+    // Unwrapped, the text says how wide it wants to be; a long one stops at
+    // MAX_W and wraps. The height is then measured at the width it will get.
+    bubble.style.width = "max-content";
+    const natural = Math.ceil(bubble.getBoundingClientRect().width) + 4;
+    width = Math.max(MIN_W, Math.min(natural, MAX_W, screen.availWidth - 16));
+    bubble.style.width = `${width}px`;
+    const h = height();
+    bubble.style.width = "";
+    void Tolk.resizeMini(width, h);
+  });
 }
+
+// The page can end up a little narrower than asked (window borders, a small
+// screen): measure again at the real width so the last line is not cut off.
+// A width far from the one asked for means mini.go reset the bubble for a
+// new copy (still holding the old text); the fit() that follows sizes it.
+addEventListener("resize", () => {
+  if (Math.abs(innerWidth - width) > 4) return;
+  void Tolk.resizeMini(width, height());
+});
 
 events.mini.on((s) => {
   body.className = "mini-body";

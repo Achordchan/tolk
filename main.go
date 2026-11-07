@@ -89,11 +89,6 @@ func main() {
 		// Dock icon clicked. Not gated on "has visible windows": the Mini
 		// bubble counts as one while the main window is hidden.
 		mygo.App.OnActivate(func(bool) { showMain() })
-		translateInMain := func(text string) {
-			showMain()
-			_ = Copied.Emit(win, text)
-		}
-
 		// Ctrl/Cmd+Shift+C: translate the clipboard in the main window.
 		if err := mygo.GlobalShortcut.Register("CmdOrCtrl+Shift+C", func() {
 			translateInMain(strings.TrimSpace(mygo.Clipboard.ReadText()))
@@ -204,5 +199,13 @@ func watchDoubleCopy(fire func(text string)) {
 		if text, ok := d.Observe(seq, time.Now(), mygo.Clipboard.ReadText); ok {
 			fire(text)
 		}
+	}
+}
+
+// translateInMain brings the main window up and translates text there.
+func translateInMain(text string) {
+	if win := mainWindow.Load(); win != nil {
+		bringToFront(win)
+		_ = Copied.Emit(win, text)
 	}
 }

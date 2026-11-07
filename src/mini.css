@@ -15,6 +15,32 @@ body.mini { height: auto; min-height: 0; overflow: hidden; background: var(--car
   white-space: pre-wrap; word-break: break-word;
 }
 .mini-body.error { color: var(--err); font-size: 13px; }
-.mini-body.wait { color: var(--muted); }
+.mini-body.land { animation: mini-landed .32s cubic-bezier(.2, .8, .2, 1) both; }
+
+/* Translating: the main window's keycaps, small, on a tinted stage. */
+.mini-loading {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  margin: 2px 4px 0; padding: 14px 16px; border-radius: 12px;
+  background: var(--stage); color: var(--muted); font-size: 13px;
+}
+.mini-loading[hidden] { display: none; }
+.mini-loading .keys { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.mini-loading kbd {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 38px; height: 34px; padding: 0 10px;
+  border: 1px solid var(--control-stroke); border-bottom-width: 3px; border-radius: 8px;
+  background: var(--card); color: var(--fg); font: inherit; font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, .08);
+  animation: mini-key-busy 1s ease-in-out infinite; animation-delay: calc(var(--i) * 120ms);
+}
+.mini-wait i { font-style: normal; animation: mini-dot 1.2s ease-in-out infinite; }
+.mini-wait i:nth-child(2) { animation-delay: .2s; }
+.mini-wait i:nth-child(3) { animation-delay: .4s; }
+
+@keyframes mini-key-busy { 0%, 100% { background: var(--card); } 50% { background: color-mix(in srgb, var(--accent) 18%, var(--card)); } }
+@keyframes mini-dot { 0%, 100% { opacity: .2; } 40% { opacity: 1; } }
+@keyframes mini-landed { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .mini-loading kbd, .mini-wait i, .mini-body.land { animation: none; }
+}
 .mini-foot { padding: 0 10px; font-size: 11px; }
 .mini-foot:empty { display: none; }

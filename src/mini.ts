@@ -1,11 +1,19 @@
 import { Tolk, events } from "./mygo";
 import { initLook } from "./look";
 import { langName } from "./langname";
+import { drawKeys, playDouble } from "./keys";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const body = $("#body");
 const meta = $("#meta");
 const foot = $("#foot");
+const loading = $("#loading");
+const keys = $("#keys");
+
+// While it translates, the bubble shows the gesture that opened it, on the
+// main window's keycaps.
+const mac = /Mac/.test(navigator.userAgent);
+drawKeys(keys, [mac ? "⌘" : "Ctrl", "C"], !mac);
 
 const SHOWN: Record<string, string> = { 简体中文: "中文（简体）", 繁体中文: "中文（繁体）" };
 const shown = (name: string) => SHOWN[name] ?? name;
@@ -47,7 +55,7 @@ addEventListener("keydown", (e) => {
 $("#to-main").addEventListener("click", () => void Tolk.miniToMain());
 
 $("#copy").addEventListener("click", async () => {
-  if (body.classList.contains("error") || body.classList.contains("wait")) return;
+  if (body.classList.contains("error") || !loading.hidden) return;
   try {
     await navigator.clipboard.writeText(body.textContent ?? "");
     meta.textContent = "已复制";
@@ -88,13 +96,23 @@ addEventListener("resize", () => {
   void Tolk.resizeMini(width, height());
 });
 
+/** Restart a one-shot animation class. */
+function replay(el: Element, cls: string) {
+  el.classList.remove(cls);
+  void (el as HTMLElement).offsetWidth;
+  el.classList.add(cls);
+}
+
 events.mini.on((s) => {
+  const wasLoading = !loading.hidden;
   body.className = "mini-body";
   foot.textContent = "";
+  loading.hidden = s.state !== "translating";
+  body.hidden = !loading.hidden;
   if (s.state === "translating") {
-    body.classList.add("wait");
-    body.textContent = "翻译中…";
+    body.textContent = "";
     meta.textContent = "";
+    if (!wasLoading) playDouble(keys, 160, 80);
     stopDismiss();
     remaining = 0;
   } else if (s.state === "error") {
@@ -108,6 +126,7 @@ events.mini.on((s) => {
     meta.textContent = [from, `→ ${shown(s.target)}`].filter(Boolean).join(" ");
     scheduleDismiss(8000);
   }
+  if (wasLoading && s.state !== "translating") replay(body, "land");
   fit();
 });
 

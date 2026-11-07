@@ -25,6 +25,8 @@ interface Hooks {
 
 export interface MacPane {
   load(): Promise<void>;
+  /** Keep the pane's live status current while the sheet is open; called once it is. */
+  watch?(): void;
   save(): Promise<void>;
   /** Draft state no single form control holds, for spotting unsaved changes. */
   draft?(): string;
@@ -427,9 +429,19 @@ export function initSettings(h: Hooks) {
   async function open(pane = "service") {
     if (dlg.open) return show(pane);
     try {
-      cfg = await Tolk.getSettings();
-      saved = await Tolk.getPrefs();
-      const about = await Tolk.about();
+      // Asked all at once: the sheet waits for the slowest answer, not their sum.
+      const [settings, prefs, about, autostart, update, feedback] = await Promise.all([
+        Tolk.getSettings(),
+        Tolk.getPrefs(),
+        Tolk.about(),
+        Tolk.autostart(),
+        Tolk.updateStatus(),
+        Tolk.feedbackInfo(),
+        h.mac?.load(),
+        h.ia?.load(),
+      ]);
+      cfg = settings;
+      saved = prefs;
       fill(sEngine, engineList(h.os));
       sEngine.value = cfg.engine;
       drawEngines();
@@ -442,7 +454,7 @@ export function initSettings(h: Hooks) {
       showSpeed(cfg.prefs.doubleCopyMs);
       syncDc();
       sMini.checked = cfg.prefs.miniMode;
-      autostartWas = await Tolk.autostart();
+      autostartWas = autostart;
       sAuto.checked = autostartWas;
       draftTheme = saved.theme;
       sSrcFont.value = String(saved.sourceFont);
@@ -463,16 +475,16 @@ export function initSettings(h: Hooks) {
       $("#a-config").textContent = about.configPath;
       $("#a-helper-t").hidden = $("#a-helper").hidden = !about.helper;
       $("#a-helper").textContent = about.helper;
-      drawUpdate(await Tolk.updateStatus());
-      autoReport.checked = (await Tolk.feedbackInfo()).autoReport;
-      await h.mac?.load();
-      await h.ia?.load();
+      drawUpdate(update);
+      autoReport.checked = feedback.autoReport;
       syncSections();
       resetDirty();
       current = pane;
       show(pane);
       sError.hidden = true;
       dlg.showModal();
+      h.mac?.watch?.();
+      h.ia?.watch?.();
       // Keyboard focus starts on the sheet itself, not outlined on the first tab.
       dlg.focus();
       moveSlider(false);

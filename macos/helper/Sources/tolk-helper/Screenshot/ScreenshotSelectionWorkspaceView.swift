@@ -33,11 +33,17 @@ struct ScreenshotSelectionWorkspaceView: View {
                     selectionContent(size: geo.size)
                     if session.stage != .selecting {
                         toolbar(size: geo.size)
+                        // 框好以后提示回来，但只在盖不到选区和工具条的地方显示。
+                        if let center = selectedHintCenter(containerSize: geo.size) {
+                            hint(title: "右键可重新框选", detail: "Esc 退出。")
+                                .position(x: center.x, y: center.y)
+                        }
                     }
-                } else {
+                } else if dragStart == nil {
+                    // 按下鼠标开始框选就先收起，免得挡住要框的地方；松手后再回来。
                     let frame = displayFrame(containing: nil, containerSize: geo.size)
-                    hint
-                        .position(x: frame.midX, y: frame.minY + 56)
+                    hint(title: "拖动框选要翻译的区域", detail: "Esc 退出，右键清空选区。")
+                        .position(x: frame.midX, y: frame.minY + Self.hintCenterOffset)
                 }
 
                 if let toast = session.hudToast,
@@ -68,12 +74,42 @@ struct ScreenshotSelectionWorkspaceView: View {
         .ignoresSafeArea()
     }
 
-    private var hint: some View {
+    private static let hintCenterOffset: CGFloat = 56
+    /// 提示卡片大致的大小，判断会不会盖到选区和工具条时用，宁大勿小。
+    private static let hintSize = CGSize(width: 260, height: 64)
+
+    /// 框选完成后提示的位置：选区所在显示器顶部居中；会盖到选区或工具条时返回 nil，不显示。
+    private func selectedHintCenter(containerSize: CGSize) -> CGPoint? {
+        let selection = displayRectTopLeft(
+            baseRectTopLeft: rectToTopLeft(rectBottomLeft: session.selectionRect, containerSize: containerSize),
+            containerSize: containerSize
+        )
+        let frame = displayFrame(containing: selection, containerSize: containerSize)
+        let center = CGPoint(x: frame.midX, y: frame.minY + Self.hintCenterOffset)
+        let card = CGRect(
+            x: center.x - Self.hintSize.width / 2,
+            y: center.y - Self.hintSize.height / 2,
+            width: Self.hintSize.width,
+            height: Self.hintSize.height
+        ).insetBy(dx: -8, dy: -8)
+        let placement = toolbarPlacement(containerSize: containerSize)
+        let height = estimatedToolbarHeight(containerSize: containerSize)
+        let toolbar = CGRect(
+            x: placement.x,
+            y: placement.growsUpward ? placement.y - height : placement.y,
+            width: toolbarWidth(containerSize: containerSize),
+            height: height
+        )
+        if card.intersects(selection) || card.intersects(toolbar) { return nil }
+        return center
+    }
+
+    private func hint(title: String, detail: String) -> some View {
         VStack(spacing: 3) {
-            Text("拖动框选要翻译的区域")
+            Text(title)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(palette.fg)
-            Text("Esc 退出，右键清空选区。")
+            Text(detail)
                 .font(.system(size: 13))
                 .foregroundStyle(palette.muted)
         }

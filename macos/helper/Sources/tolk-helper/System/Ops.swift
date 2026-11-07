@@ -207,7 +207,9 @@ enum Ops {
         }
         // 没传或不认识就跟随系统：老版本主程序不带这个字段。
         let appearance = params["appearance"]?.stringValue.flatMap(InputAssistAppearance.init(rawValue:)) ?? .system
-        switch await screenshot.start(sourceLanguageCode: source, targetLanguageCode: target, mode: mode, appearance: appearance) {
+        // 没传就照旧框完自动翻译：老版本主程序不带这个字段。
+        let autoTranslate = params["autoTranslate"]?.boolValue ?? true
+        switch await screenshot.start(sourceLanguageCode: source, targetLanguageCode: target, mode: mode, appearance: appearance, autoTranslate: autoTranslate) {
         case .started:
             return [:]
         case .failed(let message, _):

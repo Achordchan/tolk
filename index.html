@@ -222,12 +222,14 @@
             <fieldset id="fs-shot-windows" hidden>
               <legend>截图翻译</legend>
               <label class="check"><input id="s-win-shot" type="checkbox" /><span>按住 Ctrl，550 毫秒内连按两次 X 截图<small class="muted">框选后在截图上回贴译文，可对照原文、提取文字、复制图片或钉到屏幕。Esc 或右键退出；第一次 Ctrl+X 保留剪切行为。</small></span></label>
+              <label class="check"><input id="s-win-shot-auto" type="checkbox" /><span>框选后自动翻译<small class="muted">关掉时框好选区先停下，点「翻译」再识别和翻译</small></span></label>
               <p>使用 Windows 本机 OCR，需安装对应语言的 OCR 语言包；不会上传截图，识别文字交给当前翻译服务。</p>
               <div class="actions left"><button type="button" id="p-shot-windows" class="ghost">框选截图翻译</button></div>
             </fieldset>
             <fieldset id="fs-shot" hidden>
               <legend>截图翻译</legend>
               <label class="check"><input id="s-hk-shot" type="checkbox" /><span>连按两次 ⌘X 框选屏幕上的文字翻译<small class="muted">需要「屏幕录制」权限</small></span></label>
+              <label class="check"><input id="s-mac-shot-auto" type="checkbox" /><span>框选后自动翻译<small class="muted">关掉时框好选区先停下，点「翻译」再识别和翻译</small></span></label>
               <div class="actions left"><button type="button" id="p-shot" class="ghost">现在试一下</button></div>
             </fieldset>
             <fieldset id="fs-ia-key" hidden>

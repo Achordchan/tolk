@@ -467,6 +467,8 @@ export function initSettings(h: Hooks) {
       $("#fs-shot").hidden = !mac;
       $("#fs-shot-windows").hidden = h.os !== "windows";
       $<HTMLInputElement>("#s-win-shot").checked = saved.screenshotHotkey;
+      $<HTMLInputElement>("#s-win-shot-auto").checked = saved.screenshotAutoTranslate;
+      $<HTMLInputElement>("#s-mac-shot-auto").checked = saved.screenshotAutoTranslate;
       $("#dc-system-row").hidden = !mac;
       $("#tab-ia").hidden = !h.ia;
       $("#fs-ia-key").hidden = !h.ia;
@@ -524,6 +526,10 @@ export function initSettings(h: Hooks) {
       await Tolk.setAppearance(draftTheme, Number(sSrcFont.value), Number(sDstFont.value));
       await h.mac?.save();
       if (h.os === "windows") await Tolk.setWindowsScreenshotHotkey($<HTMLInputElement>("#s-win-shot").checked);
+      if (h.os === "windows" || mac) {
+        const autoShot = $<HTMLInputElement>(mac ? "#s-mac-shot-auto" : "#s-win-shot-auto").checked;
+        if (autoShot !== saved.screenshotAutoTranslate) await Tolk.setScreenshotAutoTranslate(autoShot);
+      }
       await h.ia?.save();
       const next = await Tolk.getPrefs();
       saved = next;

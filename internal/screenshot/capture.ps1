@@ -119,6 +119,8 @@ $form.Add_MouseDown({
  if ($script:readTask -or $script:crop) { return }
  $script:start = $_.Location
  $form.SelectionScale=[CaptureDpi]::ScaleAt($bounds.X+$_.X,$bounds.Y+$_.Y)
+ # The hint card would cover the region being dragged; workspace.ps1 puts it back on mouse-up.
+ $form.SetHint('','',[Drawing.Rectangle]::Empty,1)
 })
 $form.Add_MouseMove({
  if ($null -eq $script:start) { return }

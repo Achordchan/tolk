@@ -19,11 +19,15 @@ type Prefs struct {
 	DoubleCopyMs int  `json:"doubleCopyMs"`
 	// macOS: listen for ⌘C⌘C system-wide through the helper (needs Accessibility)
 	// instead of watching the clipboard; and the double ⌘+key screenshot shortcut.
-	SystemHotkey      bool   `json:"systemHotkey"`
-	ScreenshotHotkey  bool   `json:"screenshotHotkey"`
-	ScreenshotKeyCode int    `json:"screenshotKeyCode"`
-	SourceLang        string `json:"sourceLang"`
-	TargetLang        string `json:"targetLang"`
+	SystemHotkey      bool `json:"systemHotkey"`
+	ScreenshotHotkey  bool `json:"screenshotHotkey"`
+	ScreenshotKeyCode int  `json:"screenshotKeyCode"`
+	// ScreenshotAutoTranslate translates as soon as a region is selected, on
+	// both platforms; off waits for the 翻译 button. Off by default: the
+	// manual flow is what Windows always did and what users preferred.
+	ScreenshotAutoTranslate bool   `json:"screenshotAutoTranslate"`
+	SourceLang              string `json:"sourceLang"`
+	TargetLang              string `json:"targetLang"`
 	// Theme is "system", "light", "dark" or "pink" (dazuo-win's three themes).
 	Theme      string `json:"theme"`
 	SourceFont int    `json:"sourceFont"`
@@ -134,6 +138,9 @@ func loadPrefs() Prefs {
 		if v, ok := t["screenshot_key_code"].(float64); ok && v >= 0 && v < 128 {
 			out.ScreenshotKeyCode = int(v)
 		}
+		if v, ok := t["screenshot_auto_translate"].(bool); ok {
+			out.ScreenshotAutoTranslate = v
+		}
 	}
 	if v, _ := m["theme"].(string); v == "light" || v == "dark" || v == "pink" {
 		out.Theme = v
@@ -211,6 +218,12 @@ func (Tolk) SetDoubleCopy(on bool, windowMs int) error {
 	}
 	macApplyHotkeys() // the helper's double-copy hotkey follows this switch too
 	return nil
+}
+
+// SetScreenshotAutoTranslate sets whether a screenshot translates as soon as
+// the region is selected. It applies from the next screenshot.
+func (Tolk) SetScreenshotAutoTranslate(on bool) error {
+	return setTolkPref(func(t map[string]any) { t["screenshot_auto_translate"] = on })
 }
 
 func setTolkPref(fn func(t map[string]any)) error {

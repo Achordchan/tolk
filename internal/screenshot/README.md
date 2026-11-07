@@ -22,17 +22,23 @@ rounded corners and layered shadows, with no blur or animation.
 
 Actions: translate, choose installed OCR language and target language, compare
 original, extract original text, inspect full translation, copy the displayed
-image, pin the image, reselect, exit. A pin closes selection but keeps its own
-window alive: borderless and topmost with only the system drop shadow; drag to
-move, drag an edge to resize at the image's aspect, double-click or Esc to close,
-right-click to copy or save. New selections can be opened while pins remain. Export is disabled
+image, pin the image, reselect, exit. Translation starts from the 翻译 button, or right after the
+selection when Settings > 框选后自动翻译 is on (`autoTranslate` in the start message, off by default).
+Row 2 of the toolbar shows icon and words; only a monitor too narrow for them turns buttons into
+icons with tooltips, one at a time. The top hint hides on mouse-down and comes back on mouse-up;
+with a selection it shows only where it covers neither the selection nor the toolbar.
+A pin closes selection but keeps its own
+window alive: borderless and topmost with only the system drop shadow; its edge flashes twice when
+it appears; drag to move, drag an edge to resize at the image's aspect, double-click or Esc to close.
+While the pointer is over it, a 置于最前 toggle and a close button show at its top-right (as on
+macOS); right-click to copy, save or toggle 置于最前. New selections can be opened while pins remain. Export is disabled
 during recognition/translation. Overflow that cannot fit without clipping
 retains the original image and exposes the complete translated text explicitly.
 
 Warm start: Tolk keeps one workspace process started ahead of time (5 s after launch when the
 shortcut is on, and again whenever a selection opens). It has PowerShell, the controls and OCR loaded
 and writes `{"warm":...}`, then waits on stdin; the screen is captured only when the start message
-(target language, theme, language list) arrives, so nothing it shows is stale. A spare that dies or
+(target language, theme, language list, auto-translate) arrives, so nothing it shows is stale. A spare that dies or
 fails to warm is not relaunched until the next screenshot, which then starts cold and reports the
 real error. Turning the shortcut off ends the spare.
 

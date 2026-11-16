@@ -81,8 +81,13 @@ func codes(pick func(lang) string) map[string]string {
 // unsupported says which engine cannot handle a language, instead of letting
 // it quietly translate into something else.
 func unsupported(engine, role, name string) error {
-	return fmt.Errorf("%s暂不支持%s语言：%s，请换一个翻译引擎", engine, role, name)
+	return &UnsupportedError{fmt.Sprintf("%s暂不支持%s语言：%s，请换一个翻译引擎", engine, role, name)}
 }
+
+// UnsupportedError means the engine does not offer a language; nothing was sent.
+type UnsupportedError struct{ msg string }
+
+func (e *UnsupportedError) Error() string { return e.msg }
 
 // LabelForCode returns the language label for a code an engine reported as
 // detected ("en", "zh-Hans", "EN"), or "" when it is not in the table.
@@ -107,6 +112,17 @@ func LabelForCode(code string) string {
 	}
 	if base == "zh" {
 		return "简体中文"
+	}
+	return ""
+}
+
+// CodeForLabel returns a code for a language label that LabelForCode maps
+// back to it, or "" for a label not in the table.
+func CodeForLabel(label string) string {
+	for _, l := range langTable {
+		if l.name == label {
+			return l.google
+		}
 	}
 	return ""
 }

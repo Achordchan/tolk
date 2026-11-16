@@ -1,6 +1,7 @@
-// Package direction picks the language pair for the Mini bubble, as bagayalu's
-// MiniTranslationDirectionResolver does: Chinese text goes out of Chinese,
-// anything else goes into Chinese. Language labels are the legacy Chinese ones.
+// Package direction reads the language off the text itself: which pair the
+// Mini bubble uses (as bagayalu's MiniTranslationDirectionResolver does) and
+// which source language mixed text is in (Detect). Both go by the same
+// script count (classify). Language labels are the legacy Chinese ones.
 package direction
 
 import (
@@ -15,9 +16,10 @@ type Pair struct{ Source, Target string }
 
 type scripts struct {
 	han, kana, hangul, bopomofo, letters bool
-	// nHan and nOther count Han characters and other letters (Latin,
-	// Cyrillic…), to tell Chinese text from, say, English with a Chinese name in it.
-	nHan, nOther int
+	// nHan, nKana, nHangul and nOther count characters of each script
+	// (other being Latin, Cyrillic…), to tell Chinese text from, say, English
+	// with a Chinese name in it.
+	nHan, nKana, nHangul, nOther int
 }
 
 func scan(text string) scripts {
@@ -29,8 +31,10 @@ func scan(text string) scripts {
 			s.nHan++
 		case unicode.Is(unicode.Hiragana, r), unicode.Is(unicode.Katakana, r):
 			s.kana, s.letters = true, true
+			s.nKana++
 		case unicode.Is(unicode.Hangul, r):
 			s.hangul, s.letters = true, true
+			s.nHangul++
 		case unicode.Is(unicode.Bopomofo, r):
 			s.bopomofo, s.letters = true, true
 		case unicode.IsLetter(r):
@@ -43,35 +47,25 @@ func scan(text string) scripts {
 
 func isChineseLabel(l string) bool { return strings.HasSuffix(l, "中文") }
 
-// Resolve returns the pair to use for text given the configured pair. Without
-// a language detector, text that is not Chinese, Japanese or Korean keeps the
-// "detect" source and lets the engine report the language.
+// Resolve returns the pair to use for text given the configured pair: Chinese
+// goes out of Chinese, anything else into it. Japanese and Korean are named
+// as the source; other languages keep "detect" and are left to the engine
+// (and to Detect).
 func Resolve(text, source, target string) Pair {
 	configured := Pair{source, target}
-	text = strings.TrimSpace(text)
-	if text == "" {
+	src := engine.Auto
+	switch classify(scan(strings.TrimSpace(text))) {
+	case scriptNone:
 		return configured
-	}
-	s := scan(text)
-	// A Han character is about a word, a Latin word about five letters: text
-	// counts as Chinese when its Han characters are not swamped by other
-	// letters, so "Meeting with 王总 at 3pm" still goes into Chinese.
-	chinese := s.bopomofo || (s.han && s.nHan*4 >= s.nOther)
-	if !s.kana && !s.hangul && chinese {
+	case scriptChinese:
 		back := "英语"
 		if source != engine.Auto && source != "" && !isChineseLabel(source) {
 			back = source
 		}
 		return Pair{engine.Auto, back}
-	}
-	if !s.letters {
-		return configured
-	}
-	src := engine.Auto
-	switch {
-	case s.kana:
+	case scriptJapanese:
 		src = "日语"
-	case s.hangul:
+	case scriptKorean:
 		src = "韩语"
 	}
 	tgt := "简体中文"

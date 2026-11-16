@@ -336,3 +336,30 @@ func TestPrepareWindowsKeepsCoreAcrossSuccessiveUpdates(t *testing.T) {
 		}
 	}
 }
+
+// A copy that cannot update itself is told before any download, and the
+// refusal is marked as lasting (ErrCannotInstall), not as a failure to retry.
+func TestInstallTargetRefusesCopiesItCannotReplace(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "Tolk.exe")
+	os.WriteFile(exe, nil, 0o700)
+	// A folder no installer made (on this platform none records a location).
+	if _, err := (&Checker{GOOS: "windows"}).installTarget(exe); !errors.Is(err, ErrCannotInstall) {
+		t.Fatalf("portable Windows copy: %v, want ErrCannotInstall", err)
+	}
+	// Outside an .app bundle on macOS.
+	if _, err := (&Checker{GOOS: "darwin"}).installTarget(exe); !errors.Is(err, ErrCannotInstall) {
+		t.Fatalf("macOS copy outside a bundle: %v, want ErrCannotInstall", err)
+	}
+	// An app bundle in a writable folder is fine.
+	app := filepath.Join(dir, "Tolk.app", "Contents", "MacOS")
+	os.MkdirAll(app, 0o700)
+	got, err := (&Checker{GOOS: "darwin"}).installTarget(filepath.Join(app, "Tolk"))
+	if err != nil || filepath.Base(got) != "Tolk.app" {
+		t.Fatalf("bundle: %q %v", got, err)
+	}
+	// Another system is unsupported, but not "install by hand".
+	if _, err := (&Checker{GOOS: "linux"}).installTarget(exe); err == nil || errors.Is(err, ErrCannotInstall) {
+		t.Fatalf("linux: %v", err)
+	}
+}

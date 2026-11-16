@@ -225,7 +225,8 @@ export interface UpdateState {
   /**
    * idle, checking, latest, available (found, download about to start),
    * downloading, ready (downloaded and verified; installs on restart or
-   * quit), installing, error
+   * quit), installing, manual (found, but this copy cannot update itself:
+   * Error says why, and the new version is installed by hand), error
    */
   state: string;
   version: string;
@@ -234,6 +235,8 @@ export interface UpdateState {
   percent: number;
   error: string;
   source: string;
+  /** Download is where to get the installer by hand (state manual). */
+  download: string;
 }
 
 /** Vendor presets, the same as dazuo-win's VENDOR_DEFAULTS. */

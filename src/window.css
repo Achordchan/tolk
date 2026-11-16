@@ -486,7 +486,7 @@ dialog.update-dialog h2 { font-size: 19px; }
 .ud-head { display: flex; align-items: center; gap: 14px; }
 .ud-notes { flex: 0 1 auto; min-height: 0; max-height: 300px; overflow: auto; margin: 0; padding: 0 6px 0 18px; font-size: 14px; line-height: 1.6; color: color-mix(in srgb, var(--fg) 82%, transparent); }
 .ud-notes li + li { margin-top: 6px; }
-dialog.update-dialog p.error { margin: 0; word-break: break-word; }
+dialog.update-dialog #ud-error { margin: 0; word-break: break-word; }
 .ud-progress { display: flex; align-items: center; gap: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
 .ud-track { flex: 1; height: 6px; border-radius: 3px; background: var(--control); overflow: hidden; }
 .ud-track i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }

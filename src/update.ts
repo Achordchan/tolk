@@ -7,7 +7,7 @@ type Update = Awaited<ReturnType<typeof Tolk.updateStatus>>;
 const message = (e: unknown) => String(e instanceof Error ? e.message : e);
 
 let dlg: HTMLDialogElement;
-let last: Update = { state: "idle", version: "", notes: "", force: false, percent: 0, error: "", source: "" };
+let last: Update = { state: "idle", version: "", notes: "", force: false, percent: 0, error: "", source: "", download: "" };
 // The version the user answered 稍后 to: not asked again until the next launch
 // (it installs when Tolk quits).
 let dismissed = "";
@@ -33,22 +33,27 @@ function draw(s: Update) {
   $("#ud-title").textContent =
     {
       available: `发现新版本 v${s.version}`,
+      manual: `发现新版本 v${s.version}`,
       downloading: `正在下载 v${s.version}`,
       ready: `新版本 v${s.version} 已下载好`,
       installing: "正在重启安装…",
       error: "更新失败",
     }[s.state] ?? "";
-  drawNotes(["available", "downloading", "ready"].includes(s.state) ? s.notes : "");
+  drawNotes(["available", "downloading", "ready", "manual"].includes(s.state) ? s.notes : "");
   $("#ud-hint").hidden = s.state !== "ready" || s.force;
+  // manual is not a failure: it says why this copy needs the installer.
   const err = $("#ud-error");
-  err.textContent = s.state === "error" ? s.error : "";
-  err.hidden = s.state !== "error";
+  const said = s.state === "error" || s.state === "manual";
+  err.textContent = said ? s.error.replace(/^无法自动更新：/, "") : "";
+  err.hidden = !said;
+  err.classList.toggle("error", s.state === "error");
+  err.classList.toggle("muted", s.state === "manual");
   $("#ud-progress").hidden = s.state !== "downloading";
   $("#ud-fill").style.width = `${s.percent}%`;
   $("#ud-percent").textContent = `${s.percent}%`;
   // A download goes on in the background after the dialog closes; only a
   // forced update or the restart itself cannot be waved away.
-  $("#ud-later").hidden = s.state === "installing" || (s.force && s.state !== "error");
+  $("#ud-later").hidden = s.state === "installing" || (s.force && s.state !== "error" && s.state !== "manual");
   $("#ud-later").textContent = s.state === "error" || s.state === "downloading" ? "关闭" : "稍后";
   // While downloading, 立即更新 asks for a restart as soon as it is done.
   const install = $<HTMLButtonElement>("#ud-install");
@@ -57,7 +62,7 @@ function draw(s: Update) {
   install.disabled = waiting;
   install.textContent = waiting
     ? "下载完自动重启"
-    : ({ ready: "重启更新", error: "重试", downloading: "下载完立即更新" }[s.state] ?? "立即更新");
+    : ({ ready: "重启更新", error: "重试", downloading: "下载完立即更新", manual: "下载安装包" }[s.state] ?? "立即更新");
 }
 
 /** Show the dialog for the update found last, whatever the user answered before. */
@@ -87,7 +92,8 @@ export async function initUpdate(toast: (m: string) => void) {
     // forgets it too).
     if (s.state === "error") queued = "";
     last = s;
-    if (s.state === "ready" && s.version !== dismissed) openUpdate();
+    // Ready to restart, or found but to be installed by hand: say so once.
+    if ((s.state === "ready" || s.state === "manual") && s.version !== dismissed) openUpdate();
     else if (dlg.open) draw(s);
     else if (s.force && (s.state === "downloading" || s.state === "installing")) openUpdate();
   };
@@ -101,6 +107,17 @@ export async function initUpdate(toast: (m: string) => void) {
     dlg.close();
   });
   $("#ud-install").addEventListener("click", async () => {
+    if (last.state === "manual") {
+      // The installer replaces this copy; the dialog has nothing left to do.
+      dismissed = last.version;
+      dlg.close();
+      try {
+        await Tolk.openLink(last.download);
+      } catch (e) {
+        toast(message(e));
+      }
+      return;
+    }
     try {
       await Tolk.installUpdate();
       if (last.state === "downloading") {

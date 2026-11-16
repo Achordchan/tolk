@@ -28,7 +28,8 @@ var PrefsChanged = mygo.NewEvent[Prefs]("prefsChanged")
 type UpdateState struct {
 	// idle, checking, latest, available (found, download about to start),
 	// downloading, ready (downloaded and verified; installs on restart or
-	// quit), installing, error
+	// quit), installing, manual (found, but this copy cannot update itself:
+	// Error says why, and the new version is installed by hand), error
 	State   string `json:"state"`
 	Version string `json:"version"`
 	Notes   string `json:"notes"`
@@ -36,6 +37,18 @@ type UpdateState struct {
 	Percent int    `json:"percent"`
 	Error   string `json:"error"`
 	Source  string `json:"source"`
+	// Download is where to get the installer by hand (state manual).
+	Download string `json:"download"`
+}
+
+// installerURL is the download of the latest installer for goos on the
+// website, which always points at the newest release (Windows installer,
+// macOS disk image) through the faster mirror.
+func installerURL(goos string) string {
+	if goos == "darwin" {
+		return "https://tolk.achord.cn/download/mac?via=mirror"
+	}
+	return "https://tolk.achord.cn/download/win?via=mirror"
 }
 
 // UpdateChanged is broadcast whenever the update state changes.
@@ -223,10 +236,14 @@ func downloadUpdate(info *update.Info, install bool) {
 		startDownload(newer, install || newer.Force)
 		return
 	}
+	if errors.Is(err, update.ErrCannotInstall) {
+		needsManualInstall(info, err)
+		return
+	}
 	if err != nil {
 		Logs.Errorf("下载更新失败：%v", err)
 		setUpdate(UpdateState{State: "error", Version: info.Version, Notes: info.Notes, Force: info.Force, Error: err.Error()})
-		if !install && !errors.Is(err, update.ErrCannotInstall) {
+		if !install {
 			// A background download that broke tries again later by itself.
 			time.AfterFunc(30*time.Minute, func() { _, _ = checkUpdate() })
 		}
@@ -240,7 +257,22 @@ func downloadUpdate(info *update.Info, install bool) {
 	setUpdate(UpdateState{State: "ready", Version: info.Version, Notes: info.Notes, Force: info.Force, Source: info.Source})
 }
 
+// needsManualInstall reports a new version this copy cannot put in by itself
+// (not installed by the installer, or in a folder it cannot write). It is how
+// this copy was installed, not a fault, so it is a warning and never reported
+// automatically; the user is pointed at the installer instead of 重试.
+func needsManualInstall(info *update.Info, err error) {
+	Logs.Warnf("v%s 需要手动安装：%v", info.Version, err)
+	setUpdate(UpdateState{State: "manual", Version: info.Version, Notes: info.Notes, Force: info.Force, Error: err.Error(), Source: info.Source, Download: installerURL(runtime.GOOS)})
+}
+
 func prepareUpdate(info *update.Info) (*update.Pending, error) {
+	c := newChecker()
+	// Settled before the download starts, so the state never says
+	// "downloading" for an update that cannot be installed.
+	if err := c.Installable(); err != nil {
+		return nil, err
+	}
 	dirs, err := update.DefaultDirs()
 	if err != nil {
 		return nil, err
@@ -251,7 +283,7 @@ func prepareUpdate(info *update.Info) (*update.Pending, error) {
 	last := -1
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	return newChecker().Prepare(ctx, info, dirs, func(done, total int64) {
+	return c.Prepare(ctx, info, dirs, func(done, total int64) {
 		if total <= 0 {
 			return
 		}
@@ -301,7 +333,11 @@ func applyUpdate(relaunch bool) {
 		setUpdate(UpdateState{State: "installing", Version: p.Info.Version})
 	}
 	if err := p.Apply(relaunch); err != nil {
-		Logs.Errorf("安装更新失败：%v", err)
+		if errors.Is(err, update.ErrCannotInstall) {
+			Logs.Warnf("安装更新失败：%v", err)
+		} else {
+			Logs.Errorf("安装更新失败：%v", err)
+		}
 		if !relaunch {
 			// Tolk is quitting and no swap script will report: leave the
 			// reason for the next launch.
@@ -311,7 +347,11 @@ func applyUpdate(relaunch bool) {
 		upd.applied = false
 		upd.mu.Unlock()
 		if relaunch {
-			setUpdate(UpdateState{State: "error", Version: p.Info.Version, Error: err.Error()})
+			s := UpdateState{State: "error", Version: p.Info.Version, Notes: p.Info.Notes, Error: err.Error()}
+			if errors.Is(err, update.ErrCannotInstall) {
+				s.State, s.Download = "manual", installerURL(runtime.GOOS)
+			}
+			setUpdate(s)
 		}
 		return
 	}
@@ -329,8 +369,16 @@ func installOnQuit() {
 }
 
 // writeUpdateFailure records, in the file the swap scripts write, that the
-// update promised for quitting did not start.
+// update promised for quitting did not start. A copy that needs the
+// installer (ErrCannotInstall) is not a failure, and the next launch would
+// report it automatically: nothing is written. The reason is not lost: a
+// downloaded update lives only in memory, so the next launch downloads it
+// again, and update.Checker.Prepare runs the same foreignFiles check that
+// refused it here, which ends in the manual prompt.
 func writeUpdateFailure(version string, err error) {
+	if errors.Is(err, update.ErrCannotInstall) {
+		return
+	}
 	dirs, derr := update.DefaultDirs()
 	if derr != nil {
 		return

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"tolk/internal/logbuf"
 	"tolk/internal/update"
@@ -168,5 +169,58 @@ func TestApplyUpdateWithNothingWaiting(t *testing.T) {
 	}()
 	if applyUpdate(true) {
 		t.Fatal("nothing to swap in, yet a swap started")
+	}
+}
+
+// A swap still being started by another caller settles who reopens only
+// once it has started or failed: the quit handler waits for that instead of
+// taking the claim as a started swap (which would leave Tolk closed if the
+// launch then failed).
+func TestStartSwapWaitsForALaunchUnderWay(t *testing.T) {
+	upd.mu.Lock()
+	pending, applied, reopens, closed, launching := upd.pending, upd.applied, upd.reopens, upd.closed, upd.launching
+	upd.mu.Unlock()
+	defer func() {
+		upd.mu.Lock()
+		upd.pending, upd.applied, upd.reopens, upd.closed, upd.launching = pending, applied, reopens, closed, launching
+		upd.mu.Unlock()
+	}()
+
+	for _, launchWorks := range []bool{false, true} {
+		ch := make(chan struct{})
+		upd.mu.Lock()
+		upd.pending, upd.applied, upd.reopens, upd.closed, upd.launching = nil, true, true, false, ch
+		upd.mu.Unlock()
+
+		type answer struct {
+			out     swapOutcome
+			reopens bool
+		}
+		got := make(chan answer, 1)
+		go func() {
+			out, r := startSwap(true, true)
+			got <- answer{out, r}
+		}()
+		select {
+		case a := <-got:
+			t.Fatalf("answered %v before the launch under way settled", a)
+		case <-time.After(50 * time.Millisecond):
+		}
+		// The other caller's launch finishes: started, or failed and released.
+		upd.mu.Lock()
+		if !launchWorks {
+			upd.applied, upd.reopens = false, false
+		}
+		upd.launching = nil
+		upd.mu.Unlock()
+		close(ch)
+
+		a := <-got
+		if launchWorks && (a.out != swapBusy || !a.reopens) {
+			t.Errorf("launch started: %v, want busy and reopening", a)
+		}
+		if !launchWorks && a.out != swapNone {
+			t.Errorf("launch failed, nothing left to put in: %v, want none (so Tolk reopens itself)", a)
+		}
 	}
 }

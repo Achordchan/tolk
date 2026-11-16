@@ -107,6 +107,9 @@ var upd struct {
 	applied     bool // a swap script is running; nothing more to do
 	reopens     bool // the running swap opens Tolk again when it is done
 	closed      bool // the quit handler has decided; no swap starts after it
+	// launching is closed once the swap claimed in applied has started or
+	// failed to; until then whether it reopens Tolk is not settled.
+	launching chan struct{}
 	// reopen is the app bundle to open again once Tolk has quit (relaunchApp).
 	// Only the quit handler acts on it, so one place decides who reopens.
 	reopen string
@@ -358,6 +361,15 @@ const (
 // and nothing may start a swap after it (closed).
 func startSwap(relaunch, quitting bool) (swapOutcome, bool) {
 	upd.mu.Lock()
+	// Another caller is still starting its swap: wait for it to have started
+	// or failed, since only then is it known who reopens Tolk. Its failure
+	// releases the claim, and this call goes on as if it had not been there.
+	for upd.applied && upd.launching != nil {
+		ch := upd.launching
+		upd.mu.Unlock()
+		<-ch
+		upd.mu.Lock()
+	}
 	p := upd.pending
 	switch {
 	case upd.applied:
@@ -369,11 +381,18 @@ func startSwap(relaunch, quitting bool) (swapOutcome, bool) {
 		upd.mu.Unlock()
 		return swapNone, false
 	}
-	upd.applied, upd.reopens = true, relaunch
+	launched := make(chan struct{})
+	upd.applied, upd.reopens, upd.launching = true, relaunch, launched
 	if quitting {
 		upd.closed = true
 	}
 	upd.mu.Unlock()
+	defer func() {
+		upd.mu.Lock()
+		upd.launching = nil
+		upd.mu.Unlock()
+		close(launched)
+	}()
 	if !quitting {
 		setUpdate(UpdateState{State: "installing", Version: p.Info.Version})
 	}

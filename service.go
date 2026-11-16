@@ -123,7 +123,7 @@ func runEngineContext(parent context.Context, eng engine.Engine, api, text, sour
 	r, err := runEngineOnce(parent, eng, api, text, source, target)
 	// The engine read the language wrong and handed the text back: translate
 	// it once more from what the text says.
-	if err == nil && g.Misread(text, r.Text, r.Detected) {
+	if err == nil && g.Misread(text, r.Text, r.Detected, target) {
 		if r2, err2 := runEngineOnce(parent, eng, api, text, g.Label, target); err2 == nil {
 			r2.Detected = engine.CodeForLabel(g.Label)
 			r2.DurationMs += r.DurationMs

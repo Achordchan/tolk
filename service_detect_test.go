@@ -57,6 +57,7 @@ func TestRunEngineResolvesMixedText(t *testing.T) {
 		{"weak guess leaves a good translation alone", "Meeting with 王总 at 3pm", nil, "en", true, "", []string{engine.Auto}, "自动译文", "en"},
 		{"chinese mixed text is left to the engine when it translates", "这个 PR 修复了 React 的 cleanup 问题", nil, "en", true, "英语", []string{engine.Auto}, "自动译文", "en"},
 		{"chinese mixed text handed back is retried as chinese", "这个 PR 修复了 React 的 cleanup 问题", nil, "en", false, "英语", []string{engine.Auto, "简体中文"}, "译文", "zh-CN"},
+		{"japanese already in the target is kept", "東京大学 ABC", nil, "ja", false, "日语", []string{engine.Auto}, "東京大学 ABC", "ja"},
 		{"unsupported source falls back to detection", long, map[string]bool{"英语": true}, "", false, "", []string{"英语", engine.Auto}, long, "zh-CN"},
 		{"plain text is left to the engine", "你好世界", nil, "", false, "", []string{engine.Auto}, "你好世界", "zh-CN"},
 	}

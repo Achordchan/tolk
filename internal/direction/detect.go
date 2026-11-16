@@ -100,19 +100,29 @@ func Detect(text string) Guess {
 	return Guess{}
 }
 
-// Misread says the engine got the language of text wrong: it handed the text
-// back unchanged, or read text carried by other letters as Chinese, Japanese
-// or Korean. detected is what the engine reported, a code or a label.
-func (g Guess) Misread(text, out, detected string) bool {
+// Misread says the engine got the language of text wrong, so translating to
+// target again from g.Label is worth it. detected is what the engine
+// reported, a code or a label.
+//
+// Text read as Chinese, Japanese or Korean while other letters carry it is
+// always wrong. Text handed back unchanged is wrong only when the engine's
+// language contradicts the script: unchanged text can simply be in target
+// already ("東京大学 ABC" into Japanese, which kanji alone would guess as
+// Chinese). With no language reported, a CJK guess does not overrule a CJK
+// target for the same reason.
+func (g Guess) Misread(text, out, detected, target string) bool {
 	if g.Label == "" {
 		return false
-	}
-	if strings.Join(strings.Fields(out), " ") == strings.Join(strings.Fields(text), " ") {
-		return true
 	}
 	l := detected
 	if engine.CodeForLabel(l) == "" {
 		l = engine.LabelForCode(detected)
+	}
+	if strings.Join(strings.Fields(out), " ") == strings.Join(strings.Fields(text), " ") {
+		if l == "" {
+			return !(g.CJK && IsCJKLabel(target))
+		}
+		return IsCJKLabel(l) != g.CJK
 	}
 	return !g.CJK && IsCJKLabel(l)
 }

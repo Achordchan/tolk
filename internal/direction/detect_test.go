@@ -54,22 +54,26 @@ func TestDetect(t *testing.T) {
 func TestMisread(t *testing.T) {
 	en := Guess{Label: "英语"}
 	zh := Guess{Label: "简体中文", CJK: true}
+	ja := Guess{Label: "简体中文", CJK: true} // what kanji-only Japanese guesses
 	cases := []struct {
-		name                string
-		g                   Guess
-		text, out, detected string
-		want                bool
+		name                        string
+		g                           Guess
+		text, out, detected, target string
+		want                        bool
 	}{
-		{"handed back unchanged, no language reported", en, "Meeting with 王总", " Meeting  with 王总 ", "", true},
-		{"latin text read as chinese", en, "Meeting with 王总", "与王总会面", "zh-CN", true},
-		{"latin text read as chinese, label reported", en, "Meeting with 王总", "与王总会面", "简体中文", true},
-		{"translated and read as english", en, "Meeting with 王总", "与王总会面", "en", false},
-		{"chinese text read as english but translated", zh, "我用 iPhone 拍的照片", "Photos I took with my iPhone", "en", false},
-		{"chinese text handed back", zh, "我用 iPhone 拍的照片", "我用 iPhone 拍的照片", "en", true},
-		{"no guess", Guess{}, "hello", "hello", "", false},
+		{"handed back unchanged, no language reported", en, "Meeting with 王总", " Meeting  with 王总 ", "", "简体中文", true},
+		{"latin text read as chinese", en, "Meeting with 王总", "与王总会面", "zh-CN", "简体中文", true},
+		{"latin text read as chinese, label reported", en, "Meeting with 王总", "与王总会面", "简体中文", "简体中文", true},
+		{"translated and read as english", en, "Meeting with 王总", "与王总会面", "en", "简体中文", false},
+		{"chinese text read as english but translated", zh, "我用 iPhone 拍的照片", "Photos I took with my iPhone", "en", "英语", false},
+		{"chinese text read as english and handed back", zh, "我用 iPhone 拍的照片", "我用 iPhone 拍的照片", "en", "英语", true},
+		{"japanese already in the target is kept", ja, "東京大学 ABC", "東京大学 ABC", "ja", "日语", false},
+		{"japanese already in the target, no language reported", ja, "東京大学 ABC", "東京大学 ABC", "", "日语", false},
+		{"chinese handed back with no language reported", zh, "我用 iPhone 拍的照片", "我用 iPhone 拍的照片", "", "英语", true},
+		{"no guess", Guess{}, "hello", "hello", "", "英语", false},
 	}
 	for _, c := range cases {
-		if got := c.g.Misread(c.text, c.out, c.detected); got != c.want {
+		if got := c.g.Misread(c.text, c.out, c.detected, c.target); got != c.want {
 			t.Errorf("%s: got %v want %v", c.name, got, c.want)
 		}
 	}

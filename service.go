@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/egoist/mygo"
 
+	"tolk/internal/direction"
 	"tolk/internal/engine"
 	"tolk/internal/legacy"
 )
@@ -93,7 +95,45 @@ func translate(text, source, target string) (TranslateResult, error) {
 func runEngine(eng engine.Engine, api, text, source, target string) (TranslateResult, error) {
 	return runEngineContext(context.Background(), eng, api, text, source, target)
 }
+
+// runEngineContext runs one translation. With the source on 自动检测 it first
+// asks the text itself (direction.Detect): engines detect a whole text as one
+// language, and mixed text fools them into returning it untranslated.
 func runEngineContext(parent context.Context, eng engine.Engine, api, text, source, target string) (TranslateResult, error) {
+	if source != engine.Auto {
+		return runEngineOnce(parent, eng, api, text, source, target)
+	}
+	g := direction.Detect(text)
+	if g.Label == "" || g.Label == target {
+		return runEngineOnce(parent, eng, api, text, source, target)
+	}
+	if g.Sure {
+		r, err := runEngineOnce(parent, eng, api, text, g.Label, target)
+		if err == nil {
+			r.Detected = engine.CodeForLabel(g.Label)
+			return r, nil
+		}
+		// The engine does not offer that source language: let it detect.
+		var unsup *engine.UnsupportedError
+		if errors.As(err, &unsup) {
+			return runEngineOnce(parent, eng, api, text, source, target)
+		}
+		return r, err
+	}
+	r, err := runEngineOnce(parent, eng, api, text, source, target)
+	// The engine read the language wrong and handed the text back: translate
+	// it once more from what the text says.
+	if err == nil && g.Misread(text, r.Text, r.Detected, target) {
+		if r2, err2 := runEngineOnce(parent, eng, api, text, g.Label, target); err2 == nil {
+			r2.Detected = engine.CodeForLabel(g.Label)
+			r2.DurationMs += r.DurationMs
+			return r2, nil
+		}
+	}
+	return r, err
+}
+
+func runEngineOnce(parent context.Context, eng engine.Engine, api, text, source, target string) (TranslateResult, error) {
 	// Apple's on-device translator may be waiting on the user to approve a
 	// language-pack download, which can take minutes; network engines keep 30s.
 	timeout := 30 * time.Second

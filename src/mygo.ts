@@ -134,6 +134,12 @@ export interface Prefs {
   systemHotkey: boolean;
   screenshotHotkey: boolean;
   screenshotKeyCode: number;
+  /**
+   * ScreenshotAutoTranslate translates as soon as a region is selected, on
+   * both platforms; off waits for the 翻译 button. Off by default: the
+   * manual flow is what Windows always did and what users preferred.
+   */
+  screenshotAutoTranslate: boolean;
   sourceLang: string;
   targetLang: string;
   /** Theme is "system", "light", "dark" or "pink" (dazuo-win's three themes). */
@@ -219,7 +225,8 @@ export interface UpdateState {
   /**
    * idle, checking, latest, available (found, download about to start),
    * downloading, ready (downloaded and verified; installs on restart or
-   * quit), installing, error
+   * quit), installing, manual (found, but this copy cannot update itself:
+   * Error says why, and the new version is installed by hand), error
    */
   state: string;
   version: string;
@@ -228,6 +235,8 @@ export interface UpdateState {
   percent: number;
   error: string;
   source: string;
+  /** Download is where to get the installer by hand (state manual). */
+  download: string;
 }
 
 /** Vendor presets, the same as dazuo-win's VENDOR_DEFAULTS. */
@@ -358,6 +367,13 @@ export const Tolk = {
   miniReady(): Promise<void> {
     return call("Tolk.MiniReady");
   },
+  /**
+   * MiniToMain closes the bubble and translates its text in the main window,
+   * where it can be edited or sent the other way.
+   */
+  miniToMain(): Promise<void> {
+    return call("Tolk.MiniToMain");
+  },
   /** OpenLink opens an http(s) link in the default browser. */
   openLink(url: string): Promise<void> {
     return call("Tolk.OpenLink", url);
@@ -372,9 +388,9 @@ export const Tolk = {
   pluginStatus(): Promise<State> {
     return call("Tolk.PluginStatus");
   },
-  /** ResizeMini fits the bubble to its content; the page reports the height. */
-  resizeMini(height: number): Promise<void> {
-    return call("Tolk.ResizeMini", height);
+  /** ResizeMini fits the bubble to its content; the page reports the size. */
+  resizeMini(width: number, height: number): Promise<void> {
+    return call("Tolk.ResizeMini", width, height);
   },
   /** SaveSettings writes the settings back to the shared config file. */
   saveSettings(u: SettingsUpdate): Promise<void> {
@@ -424,6 +440,13 @@ export const Tolk = {
   /** SetMini turns the Mini bubble on or off. */
   setMini(on: boolean): Promise<void> {
     return call("Tolk.SetMini", on);
+  },
+  /**
+   * SetScreenshotAutoTranslate sets whether a screenshot translates as soon as
+   * the region is selected. It applies from the next screenshot.
+   */
+  setScreenshotAutoTranslate(on: boolean): Promise<void> {
+    return call("Tolk.SetScreenshotAutoTranslate", on);
   },
   setWindowsScreenshotHotkey(arg0: boolean): Promise<void> {
     return call("Tolk.SetWindowsScreenshotHotkey", arg0);

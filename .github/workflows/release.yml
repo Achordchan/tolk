@@ -64,7 +64,20 @@ jobs:
               [ "$REPLACE_PUBLISHED" = "true" ] || { echo "$TAG 已经发布过，请提升版本号（试跑可勾选 replace_published）。" >&2; exit 1; }
             fi
             # 旧草稿的标签会停在它创建时的提交上，所以一律删掉重建，让标签指向这次构建的提交。
-            gh release delete "$TAG" --cleanup-tag --yes
+            # 草稿可能在打标签前就被取消，这时没有标签，只删草稿（--cleanup-tag 会因此报 422）。
+            # ls-remote --exit-code：0 有标签，2 没有，其它是查询失败，不能当成没有标签。
+            # 先查再删：查询失败时草稿还在，下次重跑仍会走到这里处理标签。
+            rc=0; git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null || rc=$?
+            case "$rc" in
+              0|2) ;;
+              *) echo "查询标签 $TAG 失败（git ls-remote 退出码 $rc）" >&2; exit "$rc" ;;
+            esac
+            gh release delete "$TAG" --yes
+            if [ "$rc" = 0 ]; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG"
+            else
+              echo "$TAG 还没有标签，只删草稿。"
+            fi
           fi
           gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Tolk $TAG" --notes "构建中…"
 

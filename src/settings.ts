@@ -25,6 +25,8 @@ interface Hooks {
 
 export interface MacPane {
   load(): Promise<void>;
+  /** Keep the pane's live status current while the sheet is open; called once it is. */
+  watch?(): void;
   save(): Promise<void>;
   /** Draft state no single form control holds, for spotting unsaved changes. */
   draft?(): string;
@@ -361,7 +363,7 @@ export function initSettings(h: Hooks) {
   // The dialog in update.ts does the talking; 关于 only says where things stand.
   function drawUpdate(s: Update) {
     check.disabled = s.state === "checking" || s.state === "installing";
-    const found = ["available", "downloading", "ready"].includes(s.state);
+    const found = ["available", "downloading", "ready", "manual"].includes(s.state);
     check.textContent = found ? "查看更新" : "检查更新";
     aStatus.textContent =
       {
@@ -371,6 +373,7 @@ export function initSettings(h: Hooks) {
         downloading: `正在后台下载 v${s.version}　${s.percent}%`,
         ready: `v${s.version} 已下载好，重启或退出 Tolk 时安装`,
         installing: "正在重启安装…",
+        manual: `发现新版本 v${s.version}，这份 Tolk 需要用安装包更新`,
         error: s.version ? `下载 v${s.version} 失败：${s.error}` : `检查更新失败：${s.error}`,
       }[s.state] ?? "";
     aStatus.hidden = !aStatus.textContent;
@@ -414,10 +417,10 @@ export function initSettings(h: Hooks) {
     }
   });
   check.addEventListener("click", async () => {
-    if (["available", "downloading", "ready"].includes((await Tolk.updateStatus()).state)) return openUpdate();
+    if (["available", "downloading", "ready", "manual"].includes((await Tolk.updateStatus()).state)) return openUpdate();
     try {
       const s = (await Tolk.checkUpdate()) as Update;
-      if (["available", "downloading", "ready"].includes(s.state)) openUpdate();
+      if (["available", "downloading", "ready", "manual"].includes(s.state)) openUpdate();
     } catch (e) {
       h.toast(message(e));
     }
@@ -427,9 +430,19 @@ export function initSettings(h: Hooks) {
   async function open(pane = "service") {
     if (dlg.open) return show(pane);
     try {
-      cfg = await Tolk.getSettings();
-      saved = await Tolk.getPrefs();
-      const about = await Tolk.about();
+      // Asked all at once: the sheet waits for the slowest answer, not their sum.
+      const [settings, prefs, about, autostart, update, feedback] = await Promise.all([
+        Tolk.getSettings(),
+        Tolk.getPrefs(),
+        Tolk.about(),
+        Tolk.autostart(),
+        Tolk.updateStatus(),
+        Tolk.feedbackInfo(),
+        h.mac?.load(),
+        h.ia?.load(),
+      ]);
+      cfg = settings;
+      saved = prefs;
       fill(sEngine, engineList(h.os));
       sEngine.value = cfg.engine;
       drawEngines();
@@ -442,7 +455,7 @@ export function initSettings(h: Hooks) {
       showSpeed(cfg.prefs.doubleCopyMs);
       syncDc();
       sMini.checked = cfg.prefs.miniMode;
-      autostartWas = await Tolk.autostart();
+      autostartWas = autostart;
       sAuto.checked = autostartWas;
       draftTheme = saved.theme;
       sSrcFont.value = String(saved.sourceFont);
@@ -455,6 +468,8 @@ export function initSettings(h: Hooks) {
       $("#fs-shot").hidden = !mac;
       $("#fs-shot-windows").hidden = h.os !== "windows";
       $<HTMLInputElement>("#s-win-shot").checked = saved.screenshotHotkey;
+      $<HTMLInputElement>("#s-win-shot-auto").checked = saved.screenshotAutoTranslate;
+      $<HTMLInputElement>("#s-mac-shot-auto").checked = saved.screenshotAutoTranslate;
       $("#dc-system-row").hidden = !mac;
       $("#tab-ia").hidden = !h.ia;
       $("#fs-ia-key").hidden = !h.ia;
@@ -463,16 +478,16 @@ export function initSettings(h: Hooks) {
       $("#a-config").textContent = about.configPath;
       $("#a-helper-t").hidden = $("#a-helper").hidden = !about.helper;
       $("#a-helper").textContent = about.helper;
-      drawUpdate(await Tolk.updateStatus());
-      autoReport.checked = (await Tolk.feedbackInfo()).autoReport;
-      await h.mac?.load();
-      await h.ia?.load();
+      drawUpdate(update);
+      autoReport.checked = feedback.autoReport;
       syncSections();
       resetDirty();
       current = pane;
       show(pane);
       sError.hidden = true;
       dlg.showModal();
+      h.mac?.watch?.();
+      h.ia?.watch?.();
       // Keyboard focus starts on the sheet itself, not outlined on the first tab.
       dlg.focus();
       moveSlider(false);
@@ -512,6 +527,10 @@ export function initSettings(h: Hooks) {
       await Tolk.setAppearance(draftTheme, Number(sSrcFont.value), Number(sDstFont.value));
       await h.mac?.save();
       if (h.os === "windows") await Tolk.setWindowsScreenshotHotkey($<HTMLInputElement>("#s-win-shot").checked);
+      if (h.os === "windows" || mac) {
+        const autoShot = $<HTMLInputElement>(mac ? "#s-mac-shot-auto" : "#s-win-shot-auto").checked;
+        if (autoShot !== saved.screenshotAutoTranslate) await Tolk.setScreenshotAutoTranslate(autoShot);
+      }
       await h.ia?.save();
       const next = await Tolk.getPrefs();
       saved = next;

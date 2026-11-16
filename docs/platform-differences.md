@@ -9,7 +9,8 @@
 | 翻译引擎 | Google、微软、DeepL、AI 翻译（OpenAI 兼容）、Achord 内置引擎 |
 | 语言 | 37 种，同一张语言表 |
 | 主窗口翻译 | 自动检测源语言、交换语言、复制译文 |
-| 复制两次呼出翻译 | Windows 是 Ctrl+C 两次，macOS 是 ⌘C 两次（默认靠剪贴板变化检测，间隔可调） |
+| 复制两次呼出翻译 | Windows 是 Ctrl+C+C，macOS 是 ⌘+C+C（按住修饰键连按两下 C），间隔可调；检测方式见下表 |
+| 截图翻译 | Ctrl+X+X（macOS 是 ⌘+X+X）框选屏幕区域，在本机识别文字，译文贴回图片原来的位置；可以对照原文、提取原文、复制图片、钉到屏幕上。截图不上传，只有识别出的文字发给翻译服务 |
 | 全局快捷键 | Ctrl/⌘ + Shift + C：翻译剪贴板里的文字 |
 | Mini 模式 | 在鼠标旁弹出气泡显示译文 |
 | 输入助手 | 选中文字 → 快捷键 → 多语言候选 → 替换回去（见下表） |
@@ -22,11 +23,18 @@
 | 功能 | 原因 |
 |---|---|
 | Apple 本地翻译（离线，不用 API Key） | 依赖系统的 Translation 框架（macOS 15.1+） |
-| 截图翻译 / 截图识别文字 | 依赖系统的屏幕录制和 Vision 文字识别 |
-| 系统级 ⌘C⌘C、连按两次 ⌘X 截图 | 靠事件监听（CGEventTap），需要辅助功能权限；Windows 用剪贴板变化检测，不需要权限 |
 | 权限引导 | 只对 macOS 有意义 |
 
-这些都由 `macos/helper` 里的 Swift 小助手提供，Windows 版没有对应的原生小助手。
+这些由 `macos/helper` 里的 Swift 小助手提供。
+
+## 复制两次与截图：两端的做法
+
+| | macOS | Windows |
+|---|---|---|
+| 复制两次的检测 | 默认看剪贴板变化，不需要权限；打开「系统级 ⌘+C+C」后改由小助手的事件监听（CGEventTap）看按键，需要辅助功能权限 | 低级键盘钩子看按键，不需要权限（`doublecopy_windows.go`）；钩子装不上、或前台是以管理员身份运行的窗口时，临时退回剪贴板变化检测 |
+| 截图快捷键 | ⌘+X+X，小助手的事件监听，需要辅助功能权限 | Ctrl+X+X，和复制两次共用同一个键盘钩子（`screenshot_hotkey_windows.go`）；第一次 Ctrl+X 照常剪切 |
+| 截屏与界面 | 小助手，需要录屏权限 | PowerShell 截图界面（`internal/screenshot`）；控件编译后缓存在 `%LocalAppData%\Tolk\screenshot`，快捷键开着时提前预热 |
+| 文字识别 | Vision | Windows 自带的 `Windows.Media.Ocr`，需要系统里装有对应语言的 OCR 语言包 |
 
 ## 只有 Windows 有的
 

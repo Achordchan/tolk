@@ -73,6 +73,8 @@ export function macPane(toast: (m: string) => void, close: () => void): MacPane 
         system.closest("fieldset")!.append(hkNote);
       }
       await refresh();
+    },
+    watch() {
       window.clearInterval(timer);
       timer = window.setInterval(() => {
         if (!$("#settings").hasAttribute("open")) return window.clearInterval(timer);

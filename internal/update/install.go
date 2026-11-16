@@ -61,6 +61,50 @@ func (c *Checker) Install(ctx context.Context, info *Info, dirs Dirs, progress f
 // is; trying again later will not change that.
 var ErrCannotInstall = errors.New("无法自动更新")
 
+// Installable says whether this copy of Tolk can update itself where it is,
+// before anything is downloaded. A refusal wraps ErrCannotInstall: it is
+// lasting, and the user has to install the new version by hand.
+func (c *Checker) Installable() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		return err
+	}
+	_, err = c.installTarget(exe)
+	return err
+}
+
+// installTarget is what an update replaces for the app at exe: its folder on
+// Windows, its bundle on macOS.
+func (c *Checker) installTarget(exe string) (string, error) {
+	switch c.GOOS {
+	case "windows":
+		target := filepath.Dir(exe)
+		if err := writable(target); err != nil {
+			return "", fmt.Errorf("%w：当前安装目录没有写入权限，无法静默替换更新。请先用安装包安装到用户目录，之后即可使用静默更新", ErrCannotInstall)
+		}
+		// The swap makes the folder exactly the package (plus the
+		// uninstaller), so it must be a folder the installer made for Tolk,
+		// not wherever a copy of the exe happens to sit (Downloads…).
+		if !installedDir(target) {
+			return "", fmt.Errorf("%w：Tolk 没有用安装包安装（所在文件夹里没有卸载程序），不能自动更新。请用安装包安装一次，之后就能自动更新", ErrCannotInstall)
+		}
+		return target, nil
+	case "darwin":
+		target, err := bundlePath(exe)
+		if err != nil {
+			return "", fmt.Errorf("%w：%v", ErrCannotInstall, err)
+		}
+		if err := writable(filepath.Dir(target)); err != nil {
+			return "", fmt.Errorf("%w：应用所在的文件夹不可写：%s。请把应用放到「应用程序」文件夹后再更新", ErrCannotInstall, filepath.Dir(target))
+		}
+		return target, nil
+	}
+	return "", errors.New("这个系统暂不支持自动更新")
+}
+
 // Prepare downloads, verifies and unpacks an update without touching the
 // running app.
 func (c *Checker) Prepare(ctx context.Context, info *Info, dirs Dirs, progress func(done, total int64)) (*Pending, error) {
@@ -74,31 +118,12 @@ func (c *Checker) Prepare(ctx context.Context, info *Info, dirs Dirs, progress f
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return nil, err
 	}
-	if c.GOOS != "windows" && c.GOOS != "darwin" {
-		return nil, errors.New("这个系统暂不支持自动更新")
-	}
 	// Whether this copy can update itself at all is known before anything is
 	// downloaded; such a refusal is lasting (ErrCannotInstall), not worth
 	// retrying.
 	p := &Pending{Info: info, goos: c.GOOS, dirs: dirs}
-	if c.GOOS == "windows" {
-		p.target = filepath.Dir(exe)
-		if err := writable(p.target); err != nil {
-			return nil, fmt.Errorf("%w：当前安装目录没有写入权限，无法静默替换更新。请先用安装包安装到用户目录，之后即可使用静默更新", ErrCannotInstall)
-		}
-		// The swap makes the folder exactly the package (plus the
-		// uninstaller), so it must be a folder the installer made for Tolk,
-		// not wherever a copy of the exe happens to sit (Downloads…).
-		if !installedDir(p.target) {
-			return nil, fmt.Errorf("%w：Tolk 没有用安装包安装（所在文件夹里没有卸载程序），不能自动更新。请用安装包安装一次，之后就能自动更新", ErrCannotInstall)
-		}
-	} else {
-		if p.target, err = bundlePath(exe); err != nil {
-			return nil, fmt.Errorf("%w：%v", ErrCannotInstall, err)
-		}
-		if err := writable(filepath.Dir(p.target)); err != nil {
-			return nil, fmt.Errorf("%w：应用所在的文件夹不可写：%s。请把应用放到「应用程序」文件夹后再更新", ErrCannotInstall, filepath.Dir(p.target))
-		}
+	if p.target, err = c.installTarget(exe); err != nil {
+		return nil, err
 	}
 	path, err := c.Download(ctx, info, dirs.Cache, progress)
 	if err != nil {

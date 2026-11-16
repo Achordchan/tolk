@@ -18,7 +18,7 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
     private let onRequestClose: () -> Void
     private let onRequestCloseAll: () -> Void
 
-    init(image: NSImage, initialRect: CGRect, palette: ScreenshotPalette, onRequestClose: @escaping () -> Void, onRequestCloseAll: @escaping () -> Void) {
+    init(image: NSImage, initialRect: CGRect, onRequestClose: @escaping () -> Void, onRequestCloseAll: @escaping () -> Void) {
         self.model = Model()
         self.onRequestClose = onRequestClose
         self.onRequestCloseAll = onRequestCloseAll
@@ -47,7 +47,6 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
         let view = PinnedScreenshotView(
             image: image,
             model: model,
-            accent: palette.accent,
             onClose: { [weak self] in
                 self?.close()
             },
@@ -88,14 +87,13 @@ final class PinnedScreenshotWindow: NSWindow, NSWindowDelegate {
 struct PinnedScreenshotView: View {
     let image: NSImage
     @ObservedObject var model: PinnedScreenshotWindow.Model
-    let accent: Color
     let onClose: () -> Void
     let onCloseAll: () -> Void
     let onToggleAlwaysOnTop: () -> Void
 
     @State private var isHovering: Bool = false
-    @State private var glowOn: Bool = false
-    @State private var glowPulseTask: Task<Void, Never>? = nil
+    /// 钉上那一刻边框闪两下，让人看到已经钉好了。
+    @State private var flashOpacity: Double = 0
 
     @State private var exportDocument = PNGDocument(data: Data())
     @State private var exportFilename: String = "PinnedScreenshot.png"
@@ -106,7 +104,6 @@ struct PinnedScreenshotView: View {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
-                .padding(6)
 
             HStack(spacing: 8) {
                 Button {
@@ -116,7 +113,7 @@ struct PinnedScreenshotView: View {
                         .font(.system(size: 14, weight: .semibold))
                 }
                 .buttonStyle(.plain)
-                .help("置顶")
+                .help(model.isAlwaysOnTop ? "取消置于最前" : "置于最前")
 
                 Button {
                     onClose()
@@ -133,32 +130,19 @@ struct PinnedScreenshotView: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
             )
-            .opacity((isHovering || model.isFocused) ? 1.0 : 0.0)
+            // 和 Windows 一样：鼠标在图上才显示，移开就收起（钉上时窗口是 key，不能按焦点算）。
+            .opacity(isHovering ? 1.0 : 0.0)
         }
+        // 图铺满窗口，平时不加描边：和背后内容的区分只靠窗口阴影；只在钉上时闪一下强调色。
         .overlay(
             Rectangle()
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.14), lineWidth: 1)
+                .strokeBorder(Color(nsColor: .controlAccentColor), lineWidth: 3)
+                .opacity(flashOpacity)
+                .allowsHitTesting(false)
         )
-        .overlay(
-            Rectangle()
-                .strokeBorder(accent.opacity(0.9), lineWidth: (model.isAlwaysOnTop && glowOn) ? 2 : 0)
-        )
+        .task { await flashBorder() }
         .onHover { hovering in
             isHovering = hovering
-        }
-        .onAppear {
-            if model.isAlwaysOnTop {
-                startGlowPulse()
-            }
-        }
-        .onChange(of: model.isAlwaysOnTop) { enabled in
-            if enabled {
-                startGlowPulse()
-            } else {
-                glowPulseTask?.cancel()
-                glowPulseTask = nil
-                glowOn = false
-            }
         }
         .contextMenu {
             Button("复制") {
@@ -185,24 +169,12 @@ struct PinnedScreenshotView: View {
         ) { _ in }
     }
 
-    private func startGlowPulse() {
-        glowPulseTask?.cancel()
-        glowPulseTask = Task { @MainActor in
-            glowOn = false
-            // 只闪两下：2 次“亮->灭”。
-            for _ in 0..<2 {
-                withAnimation(.easeInOut(duration: 0.42)) {
-                    glowOn = true
-                }
-                try? await Task.sleep(nanoseconds: 420_000_000)
-                if Task.isCancelled { return }
-
-                withAnimation(.easeInOut(duration: 0.42)) {
-                    glowOn = false
-                }
-                try? await Task.sleep(nanoseconds: 420_000_000)
-                if Task.isCancelled { return }
-            }
+    private func flashBorder() async {
+        for _ in 0..<2 {
+            withAnimation(.easeOut(duration: 0.16)) { flashOpacity = 1 }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            withAnimation(.easeIn(duration: 0.2)) { flashOpacity = 0 }
+            try? await Task.sleep(nanoseconds: 220_000_000)
         }
     }
 

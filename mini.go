@@ -12,8 +12,12 @@ import (
 	"tolk/internal/engine"
 )
 
+// The bubble widens with the translation so a long one is not a narrow
+// column; past miniMaxWidth it wraps and grows taller instead. src/mini.ts
+// uses the same limits.
 const (
-	miniWidth     = 380
+	miniMinWidth  = 300
+	miniMaxWidth  = 560
 	miniMinHeight = 96
 	miniMaxHeight = 420
 )
@@ -35,7 +39,10 @@ var (
 	miniMu  sync.Mutex
 	miniWin *mygo.Window
 	miniSeq int
+	miniW   = miniMinWidth
 	miniH   = miniMinHeight
+	// miniText is the copied text the bubble is translating, for 在主窗口翻译.
+	miniText string
 	// miniAt is the cursor when the copy happened; the bubble stays there
 	// while it grows, even if the mouse has moved on.
 	miniAt mygo.Point
@@ -71,7 +78,7 @@ func createMini() {
 	miniWin = mygo.NewWindow(mygo.WindowOptions{
 		Title:           miniTitle,
 		URL:             "/mini.html",
-		Width:           miniWidth,
+		Width:           miniMinWidth,
 		Height:          miniMinHeight,
 		Hidden:          true,
 		Frameless:       true,
@@ -84,15 +91,23 @@ func createMini() {
 	})
 }
 
-// placeMini puts the bubble next to where the copy happened, kept inside the work area.
-func placeMini(h int) {
+// miniWorkArea is the work area of the display the copy happened on.
+func miniWorkArea() mygo.Rectangle {
 	miniMu.Lock()
 	pt := miniAt
 	miniMu.Unlock()
-	wa := mygo.Screen.DisplayNearestPoint(pt).WorkArea
+	return mygo.Screen.DisplayNearestPoint(pt).WorkArea
+}
+
+// placeMini puts the bubble next to where the copy happened, kept inside the work area.
+func placeMini(w, h int) {
+	miniMu.Lock()
+	pt := miniAt
+	miniMu.Unlock()
+	wa := miniWorkArea()
 	x, y := int(pt.X)+14, int(pt.Y)+18
-	if x+miniWidth > int(wa.X+wa.Width) {
-		x = int(wa.X+wa.Width) - miniWidth - 8
+	if x+w > int(wa.X+wa.Width) {
+		x = int(wa.X+wa.Width) - w - 8
 	}
 	if y+h > int(wa.Y+wa.Height) {
 		y = int(pt.Y) - h - 14
@@ -123,13 +138,14 @@ func showMiniOnMain(text string) {
 	miniMu.Lock()
 	miniSeq++
 	mine := miniSeq
-	miniH = miniMinHeight
+	miniW, miniH = miniMinWidth, miniMinHeight
+	miniText = text
 	miniAt = mygo.Screen.CursorScreenPoint()
 	miniShown = true
 	miniMu.Unlock()
 
-	miniWin.SetSize(miniWidth, miniMinHeight)
-	placeMini(miniMinHeight)
+	miniWin.SetSize(miniMinWidth, miniMinHeight)
+	placeMini(miniMinWidth, miniMinHeight)
 	miniMu.Lock()
 	miniState = MiniState{State: "translating", Smart: smart, Source: pair.Source, Target: pair.Target}
 	ready, state := miniPageReady, miniState
@@ -183,24 +199,36 @@ func showMiniOnMain(text string) {
 	}()
 }
 
-// ResizeMini fits the bubble to its content; the page reports the height.
-func (Tolk) ResizeMini(height int) {
+// ResizeMini fits the bubble to its content; the page reports the size.
+func (Tolk) ResizeMini(width, height int) {
 	if miniWin == nil {
 		return
 	}
-	if height < miniMinHeight {
-		height = miniMinHeight
+	width = min(max(width, miniMinWidth), miniMaxWidth)
+	// A narrow screen: still leave the margin placeMini keeps.
+	if wa := miniWorkArea().Width - 16; width > wa {
+		width = max(wa, miniMinWidth)
 	}
-	if height > miniMaxHeight {
-		height = miniMaxHeight
-	}
+	height = min(max(height, miniMinHeight), miniMaxHeight)
 	miniMu.Lock()
-	changed := height != miniH
-	miniH = height
+	changed := width != miniW || height != miniH
+	miniW, miniH = width, height
 	miniMu.Unlock()
 	if changed {
-		miniWin.SetSize(miniWidth, height)
-		placeMini(height)
+		miniWin.SetSize(width, height)
+		placeMini(width, height)
+	}
+}
+
+// MiniToMain closes the bubble and translates its text in the main window,
+// where it can be edited or sent the other way.
+func (Tolk) MiniToMain() {
+	miniMu.Lock()
+	text := miniText
+	miniMu.Unlock()
+	Tolk{}.HideMini()
+	if text != "" {
+		translateInMain(text)
 	}
 }
 

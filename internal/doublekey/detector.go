@@ -6,6 +6,8 @@ import "time"
 type Detector struct {
 	Last time.Time
 	Down bool
+	// Window is the longest gap between the two presses; zero means 550 ms.
+	Window time.Duration
 }
 
 func (d *Detector) Observe(x, down, modifiers bool, now time.Time) bool {
@@ -27,7 +29,11 @@ func (d *Detector) Observe(x, down, modifiers bool, now time.Time) bool {
 		d.Last = time.Time{}
 		return false
 	}
-	if !d.Last.IsZero() && now.Sub(d.Last) <= 550*time.Millisecond {
+	window := d.Window
+	if window <= 0 {
+		window = 550 * time.Millisecond
+	}
+	if !d.Last.IsZero() && now.Sub(d.Last) <= window {
 		d.Last = time.Time{}
 		return true
 	}

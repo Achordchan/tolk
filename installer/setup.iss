@@ -39,7 +39,9 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl"
+; Inno Setup 6 自带的语言里没有简体中文，用仓库里这份（取自 issrc 的 is-6_7_1 标签，
+; 和 CI 上的 6.7.1 对应）。先读 Default.isl，新版加了词条而译文没跟上时也不会编译失败。
+Name: "chinesesimplified"; MessagesFile: "compiler:Default.isl,ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"

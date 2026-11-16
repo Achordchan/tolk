@@ -3,4 +3,5 @@ node_modules/
 /build/
 /.mygo/
 mygo_windows_*.syso
+cmd/tolk-watch/rsrc_windows_*.syso
 /resources/darwin-universal/

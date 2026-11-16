@@ -73,6 +73,7 @@ enum ParentApp {
 final class PermissionGuideModel: ObservableObject {
     @Published var needsAccessibility = !AXIsProcessTrusted()
     @Published var needsScreenRecording = !CGPreflightScreenCaptureAccess()
+    @Published var screenRecordingNeedsRelaunch = false
     @Published var appearance: InputAssistAppearance = .system
     private var timer: Timer?
 
@@ -93,6 +94,8 @@ final class PermissionGuideModel: ObservableObject {
         let screen = !CGPreflightScreenCaptureAccess()
         if accessibility != needsAccessibility { needsAccessibility = accessibility }
         if screen != needsScreenRecording { needsScreenRecording = screen }
+        let relaunch = screen && ScreenCapturePermission.grantedPendingRelaunch()
+        if relaunch != screenRecordingNeedsRelaunch { screenRecordingNeedsRelaunch = relaunch }
     }
 }
 
@@ -100,6 +103,7 @@ final class PermissionGuideModel: ObservableObject {
 final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let model = PermissionGuideModel()
+    private let dragPanel = PermissionDragPanelController()
 
     func show(appearance: InputAssistAppearance) {
         model.refresh()
@@ -111,7 +115,9 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
         }
         let root = PermissionGuideContainer(
             model: model,
-            onClose: { [weak self] in self?.close() }
+            onOpenSettings: { [weak self] kind in self?.openSettings(kind) },
+            onClose: { [weak self] in self?.close() },
+            onRelaunch: { await PermissionGuideWindowController.relaunchTolk() }
         )
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = [] // 窗口尺寸写死；不让它把标题栏的安全区再算进窗口高度
@@ -139,8 +145,23 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
     }
 
     /// 跟随 Tolk 的主题。「跟随系统」时 `nsAppearance` 为 nil，系统切换深浅色会自己传下来。
+    /// 打开系统设置，并让能拖的图标贴在系统设置窗口底下跟着走。
+    private func openSettings(_ kind: PermissionKind) {
+        PermissionRequester.openSettings(kind)
+        dragPanel.follow(kind, appearance: model.appearance)
+    }
+
+    /// 请 Tolk 退出再打开（屏幕录制要这样才生效）。Go 端记下「重新打开后再显示引导」。
+    /// 成功时 Tolk 随即退出、helper 跟着退出；失败返回给用户看的原因。
+    static func relaunchTolk() async -> String? {
+        let reply = await Bridge.shared.request(op: "app.relaunch", params: ["reopenGuide": .bool(true)], timeout: 15)
+        guard case .response(_, let ok, _, let error) = reply else { return "Tolk 没有回应，请手动退出再打开。" }
+        return ok ? nil : (error ?? "没能重新打开，请手动退出再打开 Tolk。")
+    }
+
     func apply(appearance: InputAssistAppearance) {
         model.appearance = appearance
+        dragPanel.apply(appearance: appearance)
         guard let window else { return }
         window.appearance = appearance.nsAppearance
         window.backgroundColor = NSColor(name: nil) { current in
@@ -151,6 +172,7 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
 
     func close() {
         model.stopRefreshing()
+        dragPanel.stop()
         window?.orderOut(nil)
         window?.contentView = nil
         window = nil
@@ -158,6 +180,7 @@ final class PermissionGuideWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         model.stopRefreshing()
+        dragPanel.stop()
         window = nil
     }
 }
@@ -166,17 +189,21 @@ import SwiftUI
 
 private struct PermissionGuideContainer: View {
     @ObservedObject var model: PermissionGuideModel
+    let onOpenSettings: (PermissionKind) -> Void
     let onClose: () -> Void
+    let onRelaunch: () async -> String?
 
     var body: some View {
         PermissionGuideView(
             needsAccessibility: model.needsAccessibility,
             needsScreenRecording: model.needsScreenRecording,
             showsScreenRecordingPermission: true,
+            screenRecordingNeedsRelaunch: model.screenRecordingNeedsRelaunch,
             appearance: model.appearance,
-            onOpenAccessibility: { PermissionRequester.openSettings(.accessibility) },
-            onOpenScreenRecording: { PermissionRequester.openSettings(.screenRecording) },
-            onClose: onClose
+            onOpenAccessibility: { onOpenSettings(.accessibility) },
+            onOpenScreenRecording: { onOpenSettings(.screenRecording) },
+            onClose: onClose,
+            onRelaunch: onRelaunch
         )
     }
 }

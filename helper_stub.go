@@ -23,3 +23,7 @@ func macApplyHotkeys() {}
 func macApplePacks([]string) (map[string]string, error) { return nil, errNoHelper }
 
 func macAppleDownload(string) error { return errNoHelper }
+
+// startReopen: reopening after a quit (for a macOS permission) is macOS only;
+// nothing asks for it elsewhere.
+func startReopen(string) error { return errors.New("这个系统不需要重新打开 Tolk") }

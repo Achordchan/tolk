@@ -105,6 +105,14 @@ var upd struct {
 	downloading bool
 	installNow  bool // the user asked to install while it was downloading
 	applied     bool // a swap script is running; nothing more to do
+	reopens     bool // the running swap opens Tolk again when it is done
+	closed      bool // the quit handler has decided; no swap starts after it
+	// launching is closed once the swap claimed in applied has started or
+	// failed to; until then whether it reopens Tolk is not settled.
+	launching chan struct{}
+	// reopen is the app bundle to open again once Tolk has quit (relaunchApp).
+	// Only the quit handler acts on it, so one place decides who reopens.
+	reopen string
 }
 
 func setUpdate(s UpdateState) {
@@ -318,54 +326,150 @@ func (Tolk) InstallUpdate() error {
 	return nil
 }
 
-// applyUpdate starts the swap of the pending update. relaunch is false when
-// Tolk is quitting anyway; otherwise this quits Tolk so the swap can run.
-func applyUpdate(relaunch bool) {
-	upd.mu.Lock()
-	p := upd.pending
-	if p == nil || upd.applied {
-		upd.mu.Unlock()
-		return
+// applyUpdate swaps in the pending update now: it quits Tolk so the swap can
+// run, and the new version opens afterwards. It reports whether a swap
+// started.
+func applyUpdate(relaunch bool) bool {
+	if out, _ := startSwap(relaunch, false); out != swapStarted {
+		return false
 	}
-	upd.applied = true
-	upd.mu.Unlock()
 	if relaunch {
+		time.Sleep(600 * time.Millisecond)
+		mygo.App.Quit()
+	}
+	return true
+}
+
+// applyPending starts the swap script of p; tests stand in for it.
+var applyPending = func(p *update.Pending, relaunch bool) error { return p.Apply(relaunch) }
+
+// swapOutcome is what startSwap did.
+type swapOutcome int
+
+const (
+	swapNone    swapOutcome = iota // nothing downloaded, or Tolk is past its quit decision
+	swapStarted                    // the swap script is on its way
+	swapFailed                     // there was an update, but it could not start
+	swapBusy                       // a swap had already started
+)
+
+// startSwap starts the script that swaps in the pending update once this
+// process exits; relaunch opens the new version afterwards. It also reports
+// whether the swap now under way (this one or an earlier one) opens Tolk
+// again. Checking for and claiming the swap happen under one lock, so two
+// callers never both start one, and each learns which case it is in.
+//
+// quitting says it is the quit handler asking: the screen is not updated, a
+// failure is left for the next launch since no swap script will report it,
+// and nothing may start a swap after it (closed).
+func startSwap(relaunch, quitting bool) (swapOutcome, bool) {
+	upd.mu.Lock()
+	// Another caller is still starting its swap: wait for it to have started
+	// or failed, since only then is it known who reopens Tolk. Its failure
+	// releases the claim, and this call goes on as if it had not been there.
+	for upd.applied && upd.launching != nil {
+		ch := upd.launching
+		upd.mu.Unlock()
+		<-ch
+		upd.mu.Lock()
+	}
+	p := upd.pending
+	switch {
+	case upd.applied:
+		reopens := upd.reopens
+		upd.mu.Unlock()
+		return swapBusy, reopens
+	case upd.closed || p == nil:
+		upd.closed = upd.closed || quitting
+		upd.mu.Unlock()
+		return swapNone, false
+	}
+	launched := make(chan struct{})
+	upd.applied, upd.reopens, upd.launching = true, relaunch, launched
+	if quitting {
+		upd.closed = true
+	}
+	upd.mu.Unlock()
+	// Settled, one way or the other: let waiters look again. Only this
+	// call's own channel is cleared; a failure below has already released it
+	// together with the claim, and a newer claim may own the field by now.
+	defer func() {
+		upd.mu.Lock()
+		if upd.launching == launched {
+			upd.launching = nil
+		}
+		upd.mu.Unlock()
+		close(launched)
+	}()
+	if !quitting {
 		setUpdate(UpdateState{State: "installing", Version: p.Info.Version})
 	}
-	if err := p.Apply(relaunch); err != nil {
+	if err := applyPending(p, relaunch); err != nil {
 		if errors.Is(err, update.ErrCannotInstall) {
 			Logs.Warnf("安装更新失败：%v", err)
 		} else {
 			Logs.Errorf("安装更新失败：%v", err)
 		}
-		if !relaunch {
-			// Tolk is quitting and no swap script will report: leave the
-			// reason for the next launch.
+		if quitting {
 			writeUpdateFailure(p.Info.Version, err)
 		}
+		// The claim and its launch channel go together, so no newer claim
+		// can be made while this one's channel is still in the field.
 		upd.mu.Lock()
-		upd.applied = false
+		upd.applied, upd.reopens, upd.launching = false, false, nil
 		upd.mu.Unlock()
-		if relaunch {
+		if !quitting {
 			s := UpdateState{State: "error", Version: p.Info.Version, Notes: p.Info.Notes, Error: err.Error()}
 			if errors.Is(err, update.ErrCannotInstall) {
 				s.State, s.Download = "manual", installerURL(runtime.GOOS)
 			}
 			setUpdate(s)
 		}
-		return
+		return swapFailed, false
 	}
 	Logs.Infof("正在安装 v%s", p.Info.Version)
-	if relaunch {
-		time.Sleep(600 * time.Millisecond)
-		mygo.App.Quit()
-	}
+	return swapStarted, relaunch
 }
 
-// installOnQuit puts a downloaded update in when the user quits, without
-// starting Tolk again.
+// reopenAfterQuit asks for Tolk to be opened again once it has quit (a newly
+// granted macOS permission only applies to a fresh process).
+func reopenAfterQuit(app string) {
+	upd.mu.Lock()
+	upd.reopen = app
+	upd.mu.Unlock()
+}
+
+// installOnQuit puts a downloaded update in when Tolk quits. It is also the
+// one place that reopens Tolk after a quit (reopenAfterQuit): a swap replaces
+// the bundle after this process exits, so opening it separately would race
+// the swap and could open the old version, or nothing. Deciding here, at
+// quit, nothing can turn up in between: with an update to put in, the swap
+// script opens the new version itself; without, a wait-and-open starts.
 func installOnQuit() {
-	mygo.App.OnQuit(func() { applyUpdate(false) })
+	mygo.App.OnQuit(func() { quitHandler(startSwap, startReopen) })
+}
+
+func quitHandler(swap func(relaunch, quitting bool) (swapOutcome, bool), reopen func(app string) error) {
+	upd.mu.Lock()
+	app := upd.reopen
+	upd.reopen = ""
+	upd.mu.Unlock()
+	// One call both claims the swap and says who owns reopening; after it no
+	// other swap can start (closed), so the answer stays true until exit.
+	out, reopens := swap(app != "", true)
+	switch {
+	case app == "" || out == swapStarted:
+	case out == swapBusy:
+		// 重启更新 started a swap just before: it replaces the bundle after
+		// this process exits, and opening it as well would race that.
+		if !reopens {
+			Logs.Warnf("更新正在安装，装好后请手动打开 Tolk")
+		}
+	default: // nothing to put in, or it could not start: open it ourselves
+		if err := reopen(app); err != nil {
+			Logs.Errorf("%v", err)
+		}
+	}
 }
 
 // writeUpdateFailure records, in the file the swap scripts write, that the
@@ -423,7 +527,6 @@ func (Tolk) UpdateNotice() string {
 // background; a release marked update=1 installs by itself once its signature
 // has verified.
 func watchUpdates() {
-	installOnQuit()
 	time.Sleep(3 * time.Second)
 	for failures := 0; ; {
 		s, _ := checkUpdate()

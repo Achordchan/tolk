@@ -10,11 +10,15 @@ struct PermissionGuideView: View {
     let needsAccessibility: Bool
     let needsScreenRecording: Bool
     let showsScreenRecordingPermission: Bool
+    /// 屏幕录制在系统设置里已经打开，但要 Tolk 重新打开一次才生效。
+    let screenRecordingNeedsRelaunch: Bool
     let appearance: InputAssistAppearance
 
     let onOpenAccessibility: () -> Void
     let onOpenScreenRecording: () -> Void
     let onClose: () -> Void
+    /// 让 Tolk 重新打开；失败时回一句给用户看的原因。
+    let onRelaunch: () async -> String?
 
     fileprivate enum Page: Hashable {
         case accessibility, screenRecording, done
@@ -32,23 +36,29 @@ struct PermissionGuideView: View {
     @State private var question: Question?
     @State private var movingForward = true
     @State private var appeared = false
+    @State private var relaunching = false
+    @State private var relaunchError: String?
 
     init(
         needsAccessibility: Bool,
         needsScreenRecording: Bool,
         showsScreenRecordingPermission: Bool,
+        screenRecordingNeedsRelaunch: Bool,
         appearance: InputAssistAppearance,
         onOpenAccessibility: @escaping () -> Void,
         onOpenScreenRecording: @escaping () -> Void,
-        onClose: @escaping () -> Void
+        onClose: @escaping () -> Void,
+        onRelaunch: @escaping () async -> String?
     ) {
         self.needsAccessibility = needsAccessibility
         self.needsScreenRecording = needsScreenRecording
         self.showsScreenRecordingPermission = showsScreenRecordingPermission
+        self.screenRecordingNeedsRelaunch = screenRecordingNeedsRelaunch
         self.appearance = appearance
         self.onOpenAccessibility = onOpenAccessibility
         self.onOpenScreenRecording = onOpenScreenRecording
         self.onClose = onClose
+        self.onRelaunch = onRelaunch
         let first: Page
         if needsAccessibility {
             first = .accessibility
@@ -82,6 +92,19 @@ struct PermissionGuideView: View {
     }
 
     private var waitingForDrag: Bool { opened.contains(page) }
+
+    /// 屏幕录制这一页：已经打开、只差重新打开 Tolk。
+    private var needsRelaunch: Bool {
+        page == .screenRecording && needsScreenRecording && screenRecordingNeedsRelaunch
+    }
+
+    /// 主按钮换成「重新打开 Tolk」：检测到只差重新打开时；或者检测不出来、用户点开了「已经开启，为什么还是未授权？」时。
+    private var offersRelaunch: Bool {
+        needsRelaunch || (page == .screenRecording && needsScreenRecording && question == .stillNotGranted)
+    }
+
+    /// 已授权或只差重新打开时，这一页不再需要常见问题和「跳过」。
+    private var pageSettled: Bool { isGranted(page) || needsRelaunch }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -133,6 +156,7 @@ struct PermissionGuideView: View {
         let to = steps.firstIndex(of: next) ?? steps.count
         // 方向要在翻页之前落定，被换下去的那一页才会朝同一边走。
         movingForward = to >= from
+        relaunchError = nil
         DispatchQueue.main.async {
             withAnimation(reduceMotion ? .easeOut(duration: 0.01) : .easeOut(duration: 0.22)) {
                 question = nil
@@ -173,7 +197,8 @@ struct PermissionGuideView: View {
                     PermissionStage(
                         symbol: "rectangle.dashed.badge.record",
                         name: "屏幕录制",
-                        isGranted: !needsScreenRecording,
+                        isGranted: !needsScreenRecording || screenRecordingNeedsRelaunch,
+                        grantedLabel: needsScreenRecording ? "待重新打开" : "已授权",
                         waitingForDrag: waitingForDrag,
                         palette: palette,
                         onDroppedHere: markOpened
@@ -218,7 +243,7 @@ struct PermissionGuideView: View {
                             .tracking(-0.2)
                         Text(description)
                             .font(.system(size: 14))
-                            .foregroundStyle(palette.muted)
+                            .foregroundStyle(relaunchError == nil ? palette.muted : palette.err)
                             .lineSpacing(5)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
@@ -239,7 +264,7 @@ struct PermissionGuideView: View {
     }
 
     private var copyKey: String {
-        "\(question.map { "\($0)" } ?? "-")|\(waitingForDrag)|\(isGranted(page))"
+        "\(question.map { "\($0)" } ?? "-")|\(waitingForDrag)|\(isGranted(page))|\(needsRelaunch)|\(relaunchError ?? "")"
     }
 
     private var heading: String {
@@ -248,6 +273,7 @@ struct PermissionGuideView: View {
         case .stillNotGranted: return "已经开启，为什么还是未授权？"
         case nil: break
         }
+        if needsRelaunch { return "重新打开 Tolk 就能用了" }
         switch page {
         case .accessibility:
             return needsAccessibility ? "允许 Tolk 使用辅助功能" : "辅助功能已开启"
@@ -259,18 +285,21 @@ struct PermissionGuideView: View {
     }
 
     private var description: String {
+        if let relaunchError { return relaunchError }
         switch question {
         case .withoutPermission:
             return page == .screenRecording
                 ? "可以。只有截图翻译和截图取字用不了，\n其他功能都不受影响。"
                 : "可以。复制文字后在 Tolk 里翻译照常能用，\n只是无法复制的网页或控件翻译不了。"
         case .stillNotGranted:
-            return "通常是旧版本留下了一条对不上的权限记录。\n在系统设置里删掉旧条目，再把左边的图标拖进去并打开开关。"
+            return page == .screenRecording
+                ? "屏幕录制打开后，要重新打开 Tolk 才会生效，点下面的按钮就行。\n重新打开后还是这样，就在系统设置里删掉旧条目再拖一次。"
+                : "通常是旧版本留下了一条对不上的权限记录。\n在系统设置里删掉旧条目，再把左边的图标拖进去并打开开关。"
         case nil:
             break
         }
         let next = "先打开系统设置，下一步把图标拖进去。"
-        let drag = "把左边的图标拖进系统设置的列表，再打开开关。\n开好后，这里会自动变成已授权。"
+        let drag = "系统设置窗口下方会跟着出现 Tolk 图标，\n把它拖进列表、打开开关，这里会自动变成已授权。"
         switch page {
         case .accessibility:
             if !needsAccessibility { return "选中文字连按两次 ⌘C 就能翻译了。" }
@@ -280,7 +309,8 @@ struct PermissionGuideView: View {
                 : "在任何软件里选中文字，连按两次 ⌘C 就能翻译。\n\(next)"
         case .screenRecording:
             if !needsScreenRecording { return "截图翻译和截图取字可以用了。" }
-            if waitingForDrag { return drag }
+            if needsRelaunch { return "屏幕录制已经打开，macOS 要 Tolk 重新打开一次才会生效。\n重新打开后，这里会接着往下走。" }
+            if waitingForDrag { return "系统设置窗口下方会跟着出现 Tolk 图标，\n把它拖进列表、打开开关，再按提示重新打开 Tolk。" }
             return "截图翻译和截图取字要用它，Tolk 只读取你框选的区域。\n\(next)"
         case .done:
             return showsScreenRecordingPermission
@@ -312,9 +342,9 @@ struct PermissionGuideView: View {
                 questionButton("暂不授权还能用吗？", .withoutPermission)
                 questionButton("已经开启，为什么还是未授权？", .stillNotGranted)
             }
-            .opacity(isGranted(page) ? 0 : 1)
-            .allowsHitTesting(!isGranted(page))
-            .accessibilityHidden(isGranted(page))
+            .opacity(pageSettled ? 0 : 1)
+            .allowsHitTesting(!pageSettled)
+            .accessibilityHidden(pageSettled)
         }
     }
 
@@ -360,7 +390,7 @@ struct PermissionGuideView: View {
 
             Spacer()
 
-            if page != .done, !isGranted(page), let otherMissing {
+            if page != .done, !pageSettled, let otherMissing {
                 Button("跳过这一项") { go(to: otherMissing) }
                     .buttonStyle(GuideButtonStyle(kind: .ghost, palette: palette))
             }
@@ -368,6 +398,7 @@ struct PermissionGuideView: View {
             Button(primaryTitle, action: primaryAction)
                 .buttonStyle(GuideButtonStyle(kind: .primary, palette: palette))
                 .keyboardShortcut(.defaultAction)
+                .disabled(relaunching)
         }
         .padding(.horizontal, 24)
         .padding(.top, 10)
@@ -375,6 +406,7 @@ struct PermissionGuideView: View {
     }
 
     private var primaryTitle: String {
+        if offersRelaunch { return relaunching ? "正在重新打开…" : "重新打开 Tolk" }
         switch page {
         case .accessibility where needsAccessibility:
             return "打开辅助功能设置"
@@ -388,6 +420,10 @@ struct PermissionGuideView: View {
     }
 
     private func primaryAction() {
+        if offersRelaunch {
+            relaunch()
+            return
+        }
         switch page {
         case .accessibility where needsAccessibility:
             onOpenAccessibility()
@@ -399,6 +435,20 @@ struct PermissionGuideView: View {
             onClose()
         default:
             go(to: otherMissing ?? .done)
+        }
+    }
+}
+
+extension PermissionGuideView {
+    private func relaunch() {
+        relaunching = true
+        relaunchError = nil
+        Task { @MainActor in
+            // 成功时 Tolk 马上退出，这个窗口随之关闭；只有失败才会回到这里。
+            if let error = await onRelaunch() {
+                relaunching = false
+                withAnimation(.easeOut(duration: 0.14)) { relaunchError = error }
+            }
         }
     }
 }
@@ -421,6 +471,7 @@ private struct PermissionStage: View {
     let symbol: String
     let name: String
     let isGranted: Bool
+    var grantedLabel = "已授权"
     let waitingForDrag: Bool
     let palette: ScreenshotPalette
     let onDroppedHere: () -> Void
@@ -558,7 +609,7 @@ private struct PermissionStage: View {
                 Text(name)
                     .font(.system(size: 13, weight: .semibold))
                 Spacer(minLength: 0)
-                StatusChip(text: isGranted ? "已授权" : "未授权", isGranted: isGranted, palette: palette)
+                StatusChip(text: isGranted ? grantedLabel : "未授权", isGranted: isGranted, palette: palette)
             }
             .frame(height: 24)
 

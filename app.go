@@ -371,8 +371,10 @@ func installOnQuit() {
 // writeUpdateFailure records, in the file the swap scripts write, that the
 // update promised for quitting did not start. A copy that needs the
 // installer (ErrCannotInstall) is not a failure, and the next launch would
-// report it automatically: nothing is written, and the next check finds the
-// same reason and says so as manual.
+// report it automatically: nothing is written. The reason is not lost: a
+// downloaded update lives only in memory, so the next launch downloads it
+// again, and update.Checker.Prepare runs the same foreignFiles check that
+// refused it here, which ends in the manual prompt.
 func writeUpdateFailure(version string, err error) {
 	if errors.Is(err, update.ErrCannotInstall) {
 		return

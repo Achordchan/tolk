@@ -37,6 +37,7 @@ func TestDetect(t *testing.T) {
 		{"chinese with code words", "这个 PR 修复了 React useEffect 的 cleanup 问题", cjk("简体中文")},
 		{"traditional chinese with a brand name", "這個 iPhone 的電池還能用嗎？我們明天再說。", cjk("繁体中文")},
 		{"japanese with english", "このプロジェクトは React と TypeScript で書かれています", cjk("日语")},
+		{"kanji-heavy japanese with english", "東京都内の不動産売買情報 2026 Spring Edition", cjk("日语")},
 		{"korean with english", "이 프로젝트는 React로 작성되었습니다", cjk("韩语")},
 		{"plain english is left to the engine", "Hello, how are you today?", Guess{}},
 		{"plain chinese is left to the engine", "你好，今天天气不错", Guess{}},

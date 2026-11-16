@@ -33,11 +33,12 @@ func classify(s scripts) script {
 		return scriptChinese
 	case cjk == 0 || cjk*4 < s.nOther:
 		return scriptOther
-	// Japanese mixes kana into its kanji; a stray kana word in Chinese does
-	// not make it Japanese.
-	case s.nKana > 0 && s.nKana*5 >= s.nHan:
+	// Chinese has no kana and no Hangul, so even one makes CJK text Japanese
+	// ("東京都内の不動産売買情報") or Korean. A Japanese word in English
+	// never gets here: the check above already found it swamped.
+	case s.nKana > 0:
 		return scriptJapanese
-	case s.nHangul > 0 && s.nHangul >= s.nHan:
+	case s.nHangul > 0:
 		return scriptKorean
 	}
 	return scriptChinese

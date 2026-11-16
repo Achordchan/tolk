@@ -16,6 +16,7 @@ func TestResolve(t *testing.T) {
 		{"english with a chinese name goes to chinese", "Please send the contract to 王总 before Friday.", "自动检测", "简体中文", Pair{"自动检测", "简体中文"}},
 		{"chinese with a brand name stays chinese", "我用 iPhone 拍的照片", "自动检测", "简体中文", Pair{"自动检测", "英语"}},
 		{"english with a japanese word is not japanese", "We visited Tokyo and ate at a place called すし every night.", "自动检测", "简体中文", Pair{"自动检测", "简体中文"}},
+		{"kanji-heavy japanese is japanese", "東京都内の不動産売買情報", "自动检测", "简体中文", Pair{"日语", "简体中文"}},
 		{"japanese written in kanji alone reads as chinese", "東京都港区港南", "自动检测", "简体中文", Pair{"自动检测", "英语"}},
 		{"digits keep the configured pair", "12345", "英语", "日语", Pair{"英语", "日语"}},
 		{"empty keeps the configured pair", "  ", "英语", "日语", Pair{"英语", "日语"}},

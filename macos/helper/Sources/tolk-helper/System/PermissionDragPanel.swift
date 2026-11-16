@@ -69,7 +69,9 @@ final class PermissionDragPanelController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false // 阴影由 SwiftUI 画，贴着圆角
-        panel.collectionBehavior = [.fullScreenAuxiliary, .transient, .ignoresCycle]
+        // 系统设置可能开在另一个桌面空间，打开设置时会切过去；浮条要在每个空间都能出现，
+        // 不然会留在引导窗口原来的空间里。只在系统设置或 Tolk 在前台时才显示，所以不会到处露面。
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         panel.isReleasedWhenClosed = false
         panel.alphaValue = 0
         return panel
@@ -143,23 +145,11 @@ final class PermissionDragPanelController {
     }
 
     /// 窗口正下方、和窗口一样宽（有上下限）。下面放不下就收进窗口底部里面。
+    /// 窗口跨两块屏幕时按重叠面积最大的那块来限位（PanelPlacement）。
     static func panelFrame(below window: CGRect) -> CGRect {
-        let width = min(max(window.width - 40, 340), 520)
-        var frame = CGRect(
-            x: window.midX - width / 2,
-            y: window.minY - gap - height,
-            width: width,
-            height: height
-        )
-        let screen = NSScreen.screens.first { $0.frame.intersects(window) } ?? NSScreen.main
-        if let visible = screen?.visibleFrame {
-            if frame.minY < visible.minY {
-                frame.origin.y = window.minY + 14
-            }
-            frame.origin.x = min(max(frame.minX, visible.minX + 8), visible.maxX - width - 8)
-        }
-        frame.origin = CGPoint(x: frame.minX.rounded(), y: frame.minY.rounded())
-        return frame
+        let screens = NSScreen.screens.map { PanelPlacement.Screen(frame: $0.frame, visible: $0.visibleFrame) }
+        let fallback = NSScreen.main.map { PanelPlacement.Screen(frame: $0.frame, visible: $0.visibleFrame) }
+        return PanelPlacement.frame(below: window, height: height, gap: gap, screens: screens, fallback: fallback)
     }
 }
 

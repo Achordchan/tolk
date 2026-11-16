@@ -37,4 +37,12 @@ final class PanelPlacementTests: XCTestCase {
         XCTAssertEqual(f.minX, 8)
         XCTAssertEqual(f.width, 460)
     }
+
+    func testStripStaysOnScreenWhenTheWindowHangsBelowIt() {
+        // 系统设置被拖到屏幕下沿以外，只露出上半截。
+        let window = CGRect(x: 200, y: -200, width: 600, height: 500)
+        let f = PanelPlacement.frame(below: window, height: 72, gap: 4, screens: [primary, secondary], fallback: primary)
+        XCTAssertEqual(f.minY, 8)
+        XCTAssertTrue(primary.visible.contains(f))
+    }
 }

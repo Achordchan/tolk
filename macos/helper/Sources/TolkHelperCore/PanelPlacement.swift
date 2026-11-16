@@ -27,7 +27,7 @@ public enum PanelPlacement {
     }
 
     /// 窗口正下方、和窗口一样宽（340–520），水平居中。下面放不下就收进窗口底部里面；
-    /// 左右不出窗口所在屏幕的可用范围。
+    /// 上下左右都不出窗口所在屏幕的可用范围。
     public static func frame(below window: CGRect, height: CGFloat, gap: CGFloat,
                              screens: [Screen], fallback: Screen?) -> CGRect {
         let width = min(max(window.width - 40, 340), 520)
@@ -35,7 +35,8 @@ public enum PanelPlacement {
                            width: width, height: height)
         if let visible = (screen(for: window, among: screens) ?? fallback)?.visible {
             if frame.minY < visible.minY {
-                frame.origin.y = window.minY + 14
+                // 收进窗口底部里面；窗口被拖到屏幕下沿以外时，也不出屏幕的可用范围。
+                frame.origin.y = min(max(window.minY + 14, visible.minY + 8), visible.maxY - height - 8)
             }
             frame.origin.x = min(max(frame.minX, visible.minX + 8), visible.maxX - width - 8)
         }

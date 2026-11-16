@@ -105,6 +105,9 @@ var upd struct {
 	downloading bool
 	installNow  bool // the user asked to install while it was downloading
 	applied     bool // a swap script is running; nothing more to do
+	// reopen is the app bundle to open again once Tolk has quit (relaunchApp).
+	// Only the quit handler acts on it, so one place decides who reopens.
+	reopen string
 }
 
 func setUpdate(s UpdateState) {
@@ -318,10 +321,25 @@ func (Tolk) InstallUpdate() error {
 	return nil
 }
 
-// applyUpdate starts the swap of the pending update. relaunch is false when
-// Tolk is quitting anyway; otherwise this quits Tolk so the swap can run and
-// opens the new version afterwards. It reports whether a swap started.
+// applyUpdate swaps in the pending update now: it quits Tolk so the swap can
+// run, and the new version opens afterwards. It reports whether a swap
+// started.
 func applyUpdate(relaunch bool) bool {
+	if !startSwap(relaunch, false) {
+		return false
+	}
+	if relaunch {
+		time.Sleep(600 * time.Millisecond)
+		mygo.App.Quit()
+	}
+	return true
+}
+
+// startSwap starts the script that swaps in the pending update once this
+// process exits; relaunch opens the new version afterwards. quitting says
+// Tolk is on its way out (the quit handler): the screen is not updated, and a
+// failure is left for the next launch since no swap script will report it.
+func startSwap(relaunch, quitting bool) bool {
 	upd.mu.Lock()
 	p := upd.pending
 	if p == nil || upd.applied {
@@ -330,7 +348,7 @@ func applyUpdate(relaunch bool) bool {
 	}
 	upd.applied = true
 	upd.mu.Unlock()
-	if relaunch {
+	if !quitting {
 		setUpdate(UpdateState{State: "installing", Version: p.Info.Version})
 	}
 	if err := p.Apply(relaunch); err != nil {
@@ -339,15 +357,13 @@ func applyUpdate(relaunch bool) bool {
 		} else {
 			Logs.Errorf("安装更新失败：%v", err)
 		}
-		if !relaunch {
-			// Tolk is quitting and no swap script will report: leave the
-			// reason for the next launch.
+		if quitting {
 			writeUpdateFailure(p.Info.Version, err)
 		}
 		upd.mu.Lock()
 		upd.applied = false
 		upd.mu.Unlock()
-		if relaunch {
+		if !quitting {
 			s := UpdateState{State: "error", Version: p.Info.Version, Notes: p.Info.Notes, Error: err.Error()}
 			if errors.Is(err, update.ErrCannotInstall) {
 				s.State, s.Download = "manual", installerURL(runtime.GOOS)
@@ -357,24 +373,38 @@ func applyUpdate(relaunch bool) bool {
 		return false
 	}
 	Logs.Infof("正在安装 v%s", p.Info.Version)
-	if relaunch {
-		time.Sleep(600 * time.Millisecond)
-		mygo.App.Quit()
-	}
 	return true
 }
 
-// updateWaiting says a downloaded update will be swapped in when Tolk quits.
-func updateWaiting() bool {
+// reopenAfterQuit asks for Tolk to be opened again once it has quit (a newly
+// granted macOS permission only applies to a fresh process).
+func reopenAfterQuit(app string) {
 	upd.mu.Lock()
-	defer upd.mu.Unlock()
-	return upd.pending != nil && !upd.applied
+	upd.reopen = app
+	upd.mu.Unlock()
 }
 
-// installOnQuit puts a downloaded update in when the user quits, without
-// starting Tolk again.
+// installOnQuit puts a downloaded update in when Tolk quits. It is also the
+// one place that reopens Tolk after a quit (reopenAfterQuit): a swap replaces
+// the bundle after this process exits, so opening it separately would race
+// the swap and could open the old version, or nothing. Deciding here, at
+// quit, nothing can turn up in between: with an update to put in, the swap
+// script opens the new version itself; without, a wait-and-open starts.
 func installOnQuit() {
-	mygo.App.OnQuit(func() { applyUpdate(false) })
+	mygo.App.OnQuit(func() { quitHandler(startSwap, startReopen) })
+}
+
+func quitHandler(swap func(relaunch, quitting bool) bool, reopen func(app string) error) {
+	upd.mu.Lock()
+	app := upd.reopen
+	upd.reopen = ""
+	upd.mu.Unlock()
+	if swap(app != "", true) || app == "" {
+		return
+	}
+	if err := reopen(app); err != nil {
+		Logs.Errorf("%v", err)
+	}
 }
 
 // writeUpdateFailure records, in the file the swap scripts write, that the
@@ -432,7 +462,6 @@ func (Tolk) UpdateNotice() string {
 // background; a release marked update=1 installs by itself once its signature
 // has verified.
 func watchUpdates() {
-	installOnQuit()
 	time.Sleep(3 * time.Second)
 	for failures := 0; ; {
 		s, _ := checkUpdate()

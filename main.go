@@ -108,6 +108,9 @@ func main() {
 		// on a weak PC. They, and whatever may show them, start once the
 		// main window is up.
 		afterFirstShow(func() {
+			// Before the helper starts: its 重新打开 Tolk relies on the quit
+			// handler (installOnQuit) to reopen.
+			installOnQuit()
 			createMini()
 			createInputAssistPanel()
 			go keepEngineWarm()

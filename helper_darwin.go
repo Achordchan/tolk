@@ -517,13 +517,9 @@ func reopenGuideMarker() (string, error) {
 }
 
 // relaunchApp quits Tolk and opens it again: macOS applies a newly granted
-// Screen Recording permission only to a fresh process. A detached shell waits
-// for this process to exit, then opens the bundle.
-//
-// A downloaded update is swapped in when Tolk quits, by a script that replaces
-// the bundle after this process exits; opening the bundle at the same time
-// would race it (the old version, or nothing, could open). So with an update
-// waiting, the updater's own restart does the reopening, after the swap.
+// Screen Recording permission only to a fresh process. The reopening is left
+// to the quit handler (installOnQuit), which also puts in a downloaded
+// update; deciding both there, at quit, means only one of them opens the app.
 func relaunchApp(reopenGuide bool) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -533,33 +529,12 @@ func relaunchApp(reopenGuide bool) error {
 	if i < 0 {
 		return errors.New("Tolk 不是从应用包启动的，请手动退出再打开")
 	}
-	app := exe[:i+len(".app")]
 	if reopenGuide {
 		if marker, err := reopenGuideMarker(); err == nil {
 			_ = os.WriteFile(marker, nil, 0o600)
 		}
 	}
-	if updateWaiting() {
-		Logs.Infof("重新打开 Tolk，让屏幕录制权限生效：先装好已下载的更新，再由更新程序打开")
-		go func() {
-			time.Sleep(300 * time.Millisecond) // let the reply reach the helper first
-			if applyUpdate(true) {
-				return // it quits Tolk and opens the new version after the swap
-			}
-			// The update could not start (its reason is on screen and in the
-			// log): reopen as usual. Quitting retries it on quit, where it
-			// fails the same way before touching the bundle.
-			if err := startReopen(app); err != nil {
-				Logs.Errorf("%v", err)
-				return
-			}
-			mygo.App.Quit()
-		}()
-		return nil
-	}
-	if err := startReopen(app); err != nil {
-		return err
-	}
+	reopenAfterQuit(exe[:i+len(".app")])
 	Logs.Infof("重新打开 Tolk，让屏幕录制权限生效")
 	go func() {
 		time.Sleep(300 * time.Millisecond) // let the reply reach the helper first

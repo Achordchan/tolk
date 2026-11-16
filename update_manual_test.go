@@ -67,9 +67,49 @@ func TestWriteUpdateFailureSkipsCopiesThatNeedTheInstaller(t *testing.T) {
 	}
 }
 
-// relaunchApp hands the reopening to the updater only when an update is
-// waiting; with none, applyUpdate starts nothing (and quits nothing), so
-// relaunchApp's own reopen runs.
+// Reopening Tolk after a quit (relaunchApp) is decided in the quit handler,
+// together with putting in a downloaded update, so only one of them opens the
+// app: the swap script when an update goes in, otherwise a wait-and-open.
+func TestQuitHandlerLetsOneThingReopen(t *testing.T) {
+	cases := []struct {
+		name       string
+		reopen     string
+		swapStarts bool
+		wantSwap   []bool // relaunch passed to swap
+		wantReopen []string
+	}{
+		{"plain quit, nothing to put in", "", false, []bool{false}, nil},
+		{"plain quit puts the update in, no reopen", "", true, []bool{false}, nil},
+		{"reopen with an update: the swap script reopens", "/Applications/Tolk.app", true, []bool{true}, nil},
+		{"reopen without an update: wait-and-open", "/Applications/Tolk.app", false, []bool{true}, []string{"/Applications/Tolk.app"}},
+	}
+	for _, c := range cases {
+		reopenAfterQuit(c.reopen)
+		var swaps []bool
+		var reopens []string
+		quitHandler(
+			func(relaunch, quitting bool) bool {
+				if !quitting {
+					t.Errorf("%s: the quit handler swaps as quitting", c.name)
+				}
+				swaps = append(swaps, relaunch)
+				return c.swapStarts
+			},
+			func(app string) error { reopens = append(reopens, app); return nil },
+		)
+		if fmt.Sprint(swaps) != fmt.Sprint(c.wantSwap) || fmt.Sprint(reopens) != fmt.Sprint(c.wantReopen) {
+			t.Errorf("%s: swaps %v reopens %v, want %v %v", c.name, swaps, reopens, c.wantSwap, c.wantReopen)
+		}
+		upd.mu.Lock()
+		left := upd.reopen
+		upd.mu.Unlock()
+		if left != "" {
+			t.Errorf("%s: the reopen request outlived the quit", c.name)
+		}
+	}
+}
+
+// With nothing downloaded, applyUpdate starts no swap and quits nothing.
 func TestApplyUpdateWithNothingWaiting(t *testing.T) {
 	upd.mu.Lock()
 	saved := upd.pending
@@ -80,9 +120,6 @@ func TestApplyUpdateWithNothingWaiting(t *testing.T) {
 		upd.pending = saved
 		upd.mu.Unlock()
 	}()
-	if updateWaiting() {
-		t.Fatal("no update downloaded, none waiting")
-	}
 	if applyUpdate(true) {
 		t.Fatal("nothing to swap in, yet a swap started")
 	}

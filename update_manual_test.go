@@ -68,47 +68,43 @@ func TestWriteUpdateFailureSkipsCopiesThatNeedTheInstaller(t *testing.T) {
 }
 
 // Reopening Tolk after a quit (relaunchApp) is decided in the quit handler,
-// together with putting in a downloaded update, so only one of them opens the
-// app: the swap script when an update goes in, otherwise a wait-and-open.
+// from the one call that claims the swap, so only one thing opens the app:
+// the swap script when a swap is (or already was) under way and reopens,
+// otherwise a wait-and-open.
 func TestQuitHandlerLetsOneThingReopen(t *testing.T) {
+	const app = "/Applications/Tolk.app"
 	cases := []struct {
 		name       string
 		reopen     string
-		running    bool // a swap started before the quit (重启更新)
-		swapStarts bool
+		out        swapOutcome
+		reopens    bool
 		wantSwap   []bool // relaunch passed to swap
 		wantReopen []string
 	}{
-		{"reopen while a swap is already running: that swap reopens", "/Applications/Tolk.app", true, false, nil, nil},
-		{"plain quit while a swap is already running", "", true, false, nil, nil},
-		{"plain quit, nothing to put in", "", false, false, []bool{false}, nil},
-		{"plain quit puts the update in, no reopen", "", false, true, []bool{false}, nil},
-		{"reopen with an update: the swap script reopens", "/Applications/Tolk.app", false, true, []bool{true}, nil},
-		{"reopen without an update: wait-and-open", "/Applications/Tolk.app", false, false, []bool{true}, []string{"/Applications/Tolk.app"}},
+		{"plain quit, nothing to put in", "", swapNone, false, []bool{false}, nil},
+		{"plain quit puts the update in, no reopen", "", swapStarted, false, []bool{false}, nil},
+		{"reopen with an update: the swap script reopens", app, swapStarted, true, []bool{true}, nil},
+		{"reopen while 重启更新 runs: that swap reopens", app, swapBusy, true, []bool{true}, nil},
+		{"reopen while a swap that does not reopen runs: no racing open", app, swapBusy, false, []bool{true}, nil},
+		{"reopen without an update: wait-and-open", app, swapNone, false, []bool{true}, []string{app}},
+		{"reopen when the update could not start: wait-and-open", app, swapFailed, false, []bool{true}, []string{app}},
 	}
-	defer func() {
-		upd.mu.Lock()
-		upd.applied, upd.reopens = false, false
-		upd.mu.Unlock()
-	}()
 	for _, c := range cases {
 		reopenAfterQuit(c.reopen)
-		upd.mu.Lock()
-		upd.applied, upd.reopens = c.running, c.running
-		upd.mu.Unlock()
 		var swaps []bool
 		var reopens []string
 		quitHandler(
-			func(relaunch, quitting bool) bool {
+			func(relaunch, quitting bool) (swapOutcome, bool) {
 				if !quitting {
 					t.Errorf("%s: the quit handler swaps as quitting", c.name)
 				}
 				swaps = append(swaps, relaunch)
-				return c.swapStarts
+				return c.out, c.reopens
 			},
 			func(app string) error { reopens = append(reopens, app); return nil },
 		)
-		if len(swaps) != len(c.wantSwap) || fmt.Sprint(swaps) != fmt.Sprint(c.wantSwap) || fmt.Sprint(reopens) != fmt.Sprint(c.wantReopen) {
+		if len(swaps) != len(c.wantSwap) || fmt.Sprint(swaps) != fmt.Sprint(c.wantSwap) ||
+			len(reopens) != len(c.wantReopen) || fmt.Sprint(reopens) != fmt.Sprint(c.wantReopen) {
 			t.Errorf("%s: swaps %v reopens %v, want %v %v", c.name, swaps, reopens, c.wantSwap, c.wantReopen)
 		}
 		upd.mu.Lock()
@@ -117,6 +113,45 @@ func TestQuitHandlerLetsOneThingReopen(t *testing.T) {
 		if left != "" {
 			t.Errorf("%s: the reopen request outlived the quit", c.name)
 		}
+	}
+}
+
+// startSwap claims the swap and reports which case it is in under one lock,
+// and once the quit handler has asked, nothing starts a swap any more: a
+// download finishing during the quit cannot slip in after the decision.
+func TestStartSwapClaimsAndCloses(t *testing.T) {
+	upd.mu.Lock()
+	pending, applied, reopens, closed := upd.pending, upd.applied, upd.reopens, upd.closed
+	upd.pending, upd.applied, upd.reopens, upd.closed = nil, false, false, false
+	upd.mu.Unlock()
+	defer func() {
+		upd.mu.Lock()
+		upd.pending, upd.applied, upd.reopens, upd.closed = pending, applied, reopens, closed
+		upd.mu.Unlock()
+	}()
+
+	upd.mu.Lock()
+	upd.applied, upd.reopens = true, true
+	upd.mu.Unlock()
+	if out, reopens := startSwap(true, true); out != swapBusy || !reopens {
+		t.Fatalf("a swap under way: %v %v, want busy and reopening", out, reopens)
+	}
+
+	upd.mu.Lock()
+	upd.applied, upd.reopens = false, false
+	upd.mu.Unlock()
+	if out, _ := startSwap(true, true); out != swapNone {
+		t.Fatalf("nothing downloaded at quit: %v", out)
+	}
+	// A download finishes after the quit decision: it must not start.
+	upd.mu.Lock()
+	upd.pending = &update.Pending{Info: &update.Info{Version: "9.9.9"}}
+	upd.mu.Unlock()
+	if out, _ := startSwap(true, false); out != swapNone {
+		t.Fatalf("a swap started after the quit decision: %v", out)
+	}
+	if applyUpdate(true) {
+		t.Fatal("applyUpdate started a swap after the quit decision")
 	}
 }
 

@@ -340,6 +340,9 @@ func applyUpdate(relaunch bool) bool {
 	return true
 }
 
+// applyPending starts the swap script of p; tests stand in for it.
+var applyPending = func(p *update.Pending, relaunch bool) error { return p.Apply(relaunch) }
+
 // swapOutcome is what startSwap did.
 type swapOutcome int
 
@@ -387,16 +390,21 @@ func startSwap(relaunch, quitting bool) (swapOutcome, bool) {
 		upd.closed = true
 	}
 	upd.mu.Unlock()
+	// Settled, one way or the other: let waiters look again. Only this
+	// call's own channel is cleared; a failure below has already released it
+	// together with the claim, and a newer claim may own the field by now.
 	defer func() {
 		upd.mu.Lock()
-		upd.launching = nil
+		if upd.launching == launched {
+			upd.launching = nil
+		}
 		upd.mu.Unlock()
 		close(launched)
 	}()
 	if !quitting {
 		setUpdate(UpdateState{State: "installing", Version: p.Info.Version})
 	}
-	if err := p.Apply(relaunch); err != nil {
+	if err := applyPending(p, relaunch); err != nil {
 		if errors.Is(err, update.ErrCannotInstall) {
 			Logs.Warnf("安装更新失败：%v", err)
 		} else {
@@ -405,8 +413,10 @@ func startSwap(relaunch, quitting bool) (swapOutcome, bool) {
 		if quitting {
 			writeUpdateFailure(p.Info.Version, err)
 		}
+		// The claim and its launch channel go together, so no newer claim
+		// can be made while this one's channel is still in the field.
 		upd.mu.Lock()
-		upd.applied, upd.reopens = false, false
+		upd.applied, upd.reopens, upd.launching = false, false, nil
 		upd.mu.Unlock()
 		if !quitting {
 			s := UpdateState{State: "error", Version: p.Info.Version, Notes: p.Info.Notes, Error: err.Error()}

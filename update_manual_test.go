@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -222,5 +223,82 @@ func TestStartSwapWaitsForALaunchUnderWay(t *testing.T) {
 		if !launchWorks && a.out != swapNone {
 			t.Errorf("launch failed, nothing left to put in: %v, want none (so Tolk reopens itself)", a)
 		}
+	}
+}
+
+// A failed launch releases its claim and launch channel together, and its
+// cleanup leaves a newer claim's channel alone: a quit arriving while that
+// newer launch is still starting waits for it, and when it too fails, Tolk
+// reopens itself instead of exiting closed.
+func TestFailedLaunchDoesNotClearANewerOne(t *testing.T) {
+	// The quit's failed attempt leaves its result for the next launch.
+	t.Setenv("TOLK_HOME", t.TempDir())
+	upd.mu.Lock()
+	pending, applied, reopens, closed, launching := upd.pending, upd.applied, upd.reopens, upd.closed, upd.launching
+	upd.pending, upd.applied, upd.reopens, upd.closed, upd.launching = &update.Pending{Info: &update.Info{Version: "9.9.9"}}, false, false, false, nil
+	upd.mu.Unlock()
+	savedApply := applyPending
+	defer func() {
+		applyPending = savedApply
+		upd.mu.Lock()
+		upd.pending, upd.applied, upd.reopens, upd.closed, upd.launching = pending, applied, reopens, closed, launching
+		upd.mu.Unlock()
+	}()
+
+	// Each launch blocks until released, then fails.
+	release := map[int]chan struct{}{1: make(chan struct{}), 2: make(chan struct{})}
+	entered := make(chan int, 2)
+	calls := 0
+	var mu sync.Mutex
+	applyPending = func(*update.Pending, bool) error {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		entered <- n
+		if ch, ok := release[n]; ok {
+			<-ch
+		}
+		return errors.New("磁盘已满")
+	}
+
+	first := make(chan swapOutcome, 1)
+	go func() { out, _ := startSwap(true, false); first <- out }()
+	if n := <-entered; n != 1 {
+		t.Fatalf("launch %d first", n)
+	}
+	// The first fails; a second caller claims at once and starts launching.
+	second := make(chan swapOutcome, 1)
+	close(release[1])
+	if out := <-first; out != swapFailed {
+		t.Fatalf("first launch: %v", out)
+	}
+	go func() { out, _ := startSwap(true, false); second <- out }()
+	if n := <-entered; n != 2 {
+		t.Fatalf("launch %d second", n)
+	}
+	upd.mu.Lock()
+	ok := upd.applied && upd.launching != nil
+	upd.mu.Unlock()
+	if !ok {
+		t.Fatal("the first launch's cleanup cleared the second one's claim")
+	}
+
+	// A quit arrives while the second is still starting: it must wait, and
+	// after that launch fails it tries itself (failing too) and reopens.
+	quit := make(chan swapOutcome, 1)
+	go func() { out, _ := startSwap(true, true); quit <- out }()
+	select {
+	case out := <-quit:
+		t.Fatalf("quit answered %v while a launch was still starting", out)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release[2])
+	if out := <-second; out != swapFailed {
+		t.Fatalf("second launch: %v", out)
+	}
+	<-entered // the quit's own attempt
+	if out := <-quit; out != swapFailed {
+		t.Fatalf("quit after the launch failed: %v, want failed (so Tolk reopens itself)", out)
 	}
 }

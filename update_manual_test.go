@@ -66,3 +66,24 @@ func TestWriteUpdateFailureSkipsCopiesThatNeedTheInstaller(t *testing.T) {
 		t.Fatalf("a real failure must still be recorded: %v", err)
 	}
 }
+
+// relaunchApp hands the reopening to the updater only when an update is
+// waiting; with none, applyUpdate starts nothing (and quits nothing), so
+// relaunchApp's own reopen runs.
+func TestApplyUpdateWithNothingWaiting(t *testing.T) {
+	upd.mu.Lock()
+	saved := upd.pending
+	upd.pending = nil
+	upd.mu.Unlock()
+	defer func() {
+		upd.mu.Lock()
+		upd.pending = saved
+		upd.mu.Unlock()
+	}()
+	if updateWaiting() {
+		t.Fatal("no update downloaded, none waiting")
+	}
+	if applyUpdate(true) {
+		t.Fatal("nothing to swap in, yet a swap started")
+	}
+}

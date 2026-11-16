@@ -519,6 +519,11 @@ func reopenGuideMarker() (string, error) {
 // relaunchApp quits Tolk and opens it again: macOS applies a newly granted
 // Screen Recording permission only to a fresh process. A detached shell waits
 // for this process to exit, then opens the bundle.
+//
+// A downloaded update is swapped in when Tolk quits, by a script that replaces
+// the bundle after this process exits; opening the bundle at the same time
+// would race it (the old version, or nothing, could open). So with an update
+// waiting, the updater's own restart does the reopening, after the swap.
 func relaunchApp(reopenGuide bool) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -534,7 +539,39 @@ func relaunchApp(reopenGuide bool) error {
 			_ = os.WriteFile(marker, nil, 0o600)
 		}
 	}
-	// Give up waiting after 30 s; opening then just brings the old window forward.
+	if updateWaiting() {
+		Logs.Infof("重新打开 Tolk，让屏幕录制权限生效：先装好已下载的更新，再由更新程序打开")
+		go func() {
+			time.Sleep(300 * time.Millisecond) // let the reply reach the helper first
+			if applyUpdate(true) {
+				return // it quits Tolk and opens the new version after the swap
+			}
+			// The update could not start (its reason is on screen and in the
+			// log): reopen as usual. Quitting retries it on quit, where it
+			// fails the same way before touching the bundle.
+			if err := startReopen(app); err != nil {
+				Logs.Errorf("%v", err)
+				return
+			}
+			mygo.App.Quit()
+		}()
+		return nil
+	}
+	if err := startReopen(app); err != nil {
+		return err
+	}
+	Logs.Infof("重新打开 Tolk，让屏幕录制权限生效")
+	go func() {
+		time.Sleep(300 * time.Millisecond) // let the reply reach the helper first
+		mygo.App.Quit()
+	}()
+	return nil
+}
+
+// startReopen starts a detached shell that waits for this process to exit
+// (giving up after 30 s, when opening just brings the old window forward),
+// then opens app.
+func startReopen(app string) error {
 	cmd := exec.Command("/bin/sh", "-c",
 		`i=0; while kill -0 "$0" 2>/dev/null && [ $i -lt 150 ]; do i=$((i+1)); sleep 0.2; done; open "$1"`,
 		strconv.Itoa(os.Getpid()), app)
@@ -543,10 +580,5 @@ func relaunchApp(reopenGuide bool) error {
 		return fmt.Errorf("没能重新打开 Tolk：%v", err)
 	}
 	_ = cmd.Process.Release()
-	Logs.Infof("重新打开 Tolk，让屏幕录制权限生效")
-	go func() {
-		time.Sleep(300 * time.Millisecond) // let the reply reach the helper first
-		mygo.App.Quit()
-	}()
 	return nil
 }

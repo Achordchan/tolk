@@ -319,13 +319,14 @@ func (Tolk) InstallUpdate() error {
 }
 
 // applyUpdate starts the swap of the pending update. relaunch is false when
-// Tolk is quitting anyway; otherwise this quits Tolk so the swap can run.
-func applyUpdate(relaunch bool) {
+// Tolk is quitting anyway; otherwise this quits Tolk so the swap can run and
+// opens the new version afterwards. It reports whether a swap started.
+func applyUpdate(relaunch bool) bool {
 	upd.mu.Lock()
 	p := upd.pending
 	if p == nil || upd.applied {
 		upd.mu.Unlock()
-		return
+		return false
 	}
 	upd.applied = true
 	upd.mu.Unlock()
@@ -353,13 +354,21 @@ func applyUpdate(relaunch bool) {
 			}
 			setUpdate(s)
 		}
-		return
+		return false
 	}
 	Logs.Infof("正在安装 v%s", p.Info.Version)
 	if relaunch {
 		time.Sleep(600 * time.Millisecond)
 		mygo.App.Quit()
 	}
+	return true
+}
+
+// updateWaiting says a downloaded update will be swapped in when Tolk quits.
+func updateWaiting() bool {
+	upd.mu.Lock()
+	defer upd.mu.Unlock()
+	return upd.pending != nil && !upd.applied
 }
 
 // installOnQuit puts a downloaded update in when the user quits, without

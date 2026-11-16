@@ -1,6 +1,10 @@
 package main
 
 import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -41,5 +45,24 @@ func TestDownloadUpdateOfCopyThatCannotInstall(t *testing.T) {
 		if strings.Contains(e.Text, "开始下载") {
 			t.Fatalf("started a download it could not install: %q", e.Text)
 		}
+	}
+}
+
+// An update that cannot go in on quit because the copy needs the installer
+// leaves no failed result behind: the next launch would report that
+// automatically (reportPreviousRun).
+func TestWriteUpdateFailureSkipsCopiesThatNeedTheInstaller(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("TOLK_HOME", home)
+	result := filepath.Join(home, "update_state", "last_update_result.json")
+
+	writeUpdateFailure("9.9.9", fmt.Errorf("%w：安装目录里有不属于 Tolk 的文件", update.ErrCannotInstall))
+	if _, err := os.Stat(result); !os.IsNotExist(err) {
+		t.Fatalf("a manual-only update left %s behind (%v)", result, err)
+	}
+
+	writeUpdateFailure("9.9.9", errors.New("磁盘已满"))
+	if _, err := os.Stat(result); err != nil {
+		t.Fatalf("a real failure must still be recorded: %v", err)
 	}
 }

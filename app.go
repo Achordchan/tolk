@@ -369,8 +369,14 @@ func installOnQuit() {
 }
 
 // writeUpdateFailure records, in the file the swap scripts write, that the
-// update promised for quitting did not start.
+// update promised for quitting did not start. A copy that needs the
+// installer (ErrCannotInstall) is not a failure, and the next launch would
+// report it automatically: nothing is written, and the next check finds the
+// same reason and says so as manual.
 func writeUpdateFailure(version string, err error) {
+	if errors.Is(err, update.ErrCannotInstall) {
+		return
+	}
 	dirs, derr := update.DefaultDirs()
 	if derr != nil {
 		return

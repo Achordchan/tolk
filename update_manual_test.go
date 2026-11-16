@@ -74,17 +74,28 @@ func TestQuitHandlerLetsOneThingReopen(t *testing.T) {
 	cases := []struct {
 		name       string
 		reopen     string
+		running    bool // a swap started before the quit (重启更新)
 		swapStarts bool
 		wantSwap   []bool // relaunch passed to swap
 		wantReopen []string
 	}{
-		{"plain quit, nothing to put in", "", false, []bool{false}, nil},
-		{"plain quit puts the update in, no reopen", "", true, []bool{false}, nil},
-		{"reopen with an update: the swap script reopens", "/Applications/Tolk.app", true, []bool{true}, nil},
-		{"reopen without an update: wait-and-open", "/Applications/Tolk.app", false, []bool{true}, []string{"/Applications/Tolk.app"}},
+		{"reopen while a swap is already running: that swap reopens", "/Applications/Tolk.app", true, false, nil, nil},
+		{"plain quit while a swap is already running", "", true, false, nil, nil},
+		{"plain quit, nothing to put in", "", false, false, []bool{false}, nil},
+		{"plain quit puts the update in, no reopen", "", false, true, []bool{false}, nil},
+		{"reopen with an update: the swap script reopens", "/Applications/Tolk.app", false, true, []bool{true}, nil},
+		{"reopen without an update: wait-and-open", "/Applications/Tolk.app", false, false, []bool{true}, []string{"/Applications/Tolk.app"}},
 	}
+	defer func() {
+		upd.mu.Lock()
+		upd.applied, upd.reopens = false, false
+		upd.mu.Unlock()
+	}()
 	for _, c := range cases {
 		reopenAfterQuit(c.reopen)
+		upd.mu.Lock()
+		upd.applied, upd.reopens = c.running, c.running
+		upd.mu.Unlock()
 		var swaps []bool
 		var reopens []string
 		quitHandler(
@@ -97,7 +108,7 @@ func TestQuitHandlerLetsOneThingReopen(t *testing.T) {
 			},
 			func(app string) error { reopens = append(reopens, app); return nil },
 		)
-		if fmt.Sprint(swaps) != fmt.Sprint(c.wantSwap) || fmt.Sprint(reopens) != fmt.Sprint(c.wantReopen) {
+		if len(swaps) != len(c.wantSwap) || fmt.Sprint(swaps) != fmt.Sprint(c.wantSwap) || fmt.Sprint(reopens) != fmt.Sprint(c.wantReopen) {
 			t.Errorf("%s: swaps %v reopens %v, want %v %v", c.name, swaps, reopens, c.wantSwap, c.wantReopen)
 		}
 		upd.mu.Lock()

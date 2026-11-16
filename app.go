@@ -105,6 +105,7 @@ var upd struct {
 	downloading bool
 	installNow  bool // the user asked to install while it was downloading
 	applied     bool // a swap script is running; nothing more to do
+	reopens     bool // the running swap opens Tolk again when it is done
 	// reopen is the app bundle to open again once Tolk has quit (relaunchApp).
 	// Only the quit handler acts on it, so one place decides who reopens.
 	reopen string
@@ -372,6 +373,9 @@ func startSwap(relaunch, quitting bool) bool {
 		}
 		return false
 	}
+	upd.mu.Lock()
+	upd.reopens = relaunch
+	upd.mu.Unlock()
 	Logs.Infof("正在安装 v%s", p.Info.Version)
 	return true
 }
@@ -398,7 +402,17 @@ func quitHandler(swap func(relaunch, quitting bool) bool, reopen func(app string
 	upd.mu.Lock()
 	app := upd.reopen
 	upd.reopen = ""
+	running, reopens := upd.applied, upd.reopens
 	upd.mu.Unlock()
+	if running {
+		// A swap already started (重启更新 just before): it replaces the
+		// bundle after this process exits, and opening it as well would race
+		// that. It opens the new version itself when it was asked to.
+		if app != "" && !reopens {
+			Logs.Warnf("更新正在安装，装好后请手动打开 Tolk")
+		}
+		return
+	}
 	if swap(app != "", true) || app == "" {
 		return
 	}

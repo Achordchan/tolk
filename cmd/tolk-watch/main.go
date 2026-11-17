@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,13 @@ func main() {
 	if err != nil {
 		return
 	}
+	// A launcher copied out without its core (downloaded alone, or unpacked
+	// file by file by a virus scanner) is not a crash: say what is wrong and
+	// leave no report and no ~/.tolk behind.
+	if _, err = os.Stat(corePath(exe)); errors.Is(err, fs.ErrNotExist) {
+		showCoreMissing(corePath(exe))
+		return
+	}
 	if _, err = legacy.MigrateHome(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
@@ -90,10 +98,7 @@ func main() {
 	// Initialize consent before the child starts, without overwriting an existing preference.
 	store := report.NewStore(dir)
 	st := store.Get()
-	child := filepath.Join(filepath.Dir(exe), "Tolk-core.exe")
-	if runtime.GOOS != "windows" {
-		child = filepath.Join(filepath.Dir(exe), "Tolk")
-	}
+	child := corePath(exe)
 	cmd := exec.Command(child, os.Args[1:]...)
 	cmd.Env = append(os.Environ(), "TOLK_LAUNCHER_PATH="+exe, "TOLK_SUPERVISOR_PID="+fmt.Sprint(os.Getpid()), "TOLK_SUPERVISED=1", "TOLK_HOME="+home)
 	cmd.Stdout = logs
@@ -122,6 +127,12 @@ func main() {
 	if err == nil {
 		allowForeground(cmd)
 		err = cmd.Wait()
+	} else if errors.Is(err, fs.ErrNotExist) {
+		// The core vanished after the check above; still not a crash.
+		cancel()
+		_ = os.Remove(logPath)
+		showCoreMissing(child)
+		return
 	}
 	if err != nil {
 		logs.mu.Lock()
@@ -206,8 +217,24 @@ func crashDiagnostic(body, fallback string) string {
 	return fallback
 }
 
+// corePath is the main program the launcher runs, next to the launcher.
+func corePath(exe string) string {
+	if runtime.GOOS != "windows" {
+		return filepath.Join(filepath.Dir(exe), "Tolk")
+	}
+	return filepath.Join(filepath.Dir(exe), "Tolk-core.exe")
+}
+
+// showCoreMissing is replaceable so tests on Windows do not block on a message box.
+var showCoreMissing = coreMissing
+
+// coreMissingMessage tells the user how to get a complete copy of Tolk.
+func coreMissingMessage(child string) string {
+	return fmt.Sprintf("Tolk 不完整，无法启动：找不到 %s。\n\n请到 https://tolk.achord.cn 下载安装包，重新安装 Tolk。", filepath.Base(child))
+}
+
 func launchWithoutMonitoring(exe string, cause error) {
-	child := filepath.Join(filepath.Dir(exe), "Tolk-core.exe")
+	child := corePath(exe)
 	cmd := exec.Command(child, os.Args[1:]...)
 	cmd.Env = append(os.Environ(), "TOLK_MONITOR_ERROR="+cause.Error())
 	prepare(cmd)

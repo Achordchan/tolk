@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,5 +65,48 @@ func TestExitSummary(t *testing.T) {
 	title, description, source = exitSummary(exit, "")
 	if title != "[异常退出] 主程序没有留下崩溃信息" || !strings.Contains(description, "未响应") || source != "主程序启动或运行失败："+exit.Error() {
 		t.Fatalf("silent exit: %q %q %q", title, description, source)
+	}
+}
+
+func TestCoreMissingMessageNamesTheFile(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "Tolk.exe")
+	msg := coreMissingMessage(corePath(exe))
+	if !strings.Contains(msg, filepath.Base(corePath(exe))) || !strings.Contains(msg, "安装包") {
+		t.Fatal(msg)
+	}
+}
+
+// A launcher without its core must not report a crash or create ~/.tolk.
+func TestLauncherWithoutCoreLeavesNoReport(t *testing.T) {
+	if os.Getenv("TOLK_WATCH_MAIN") == "1" {
+		showCoreMissing = func(child string) { fmt.Fprintln(os.Stderr, coreMissingMessage(child)) }
+		main()
+		return
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	lonely := filepath.Join(dir, filepath.Base(self))
+	b, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(lonely, b, 0755); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(dir, "home")
+	cmd := exec.Command(lonely, "-test.run=^TestLauncherWithoutCoreLeavesNoReport$")
+	cmd.Env = append(os.Environ(), "TOLK_WATCH_MAIN=1", "TOLK_HOME="+home, "HOME="+home, "USERPROFILE="+home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "安装包") {
+		t.Fatalf("no message: %s", out)
+	}
+	if _, err = os.Stat(home); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("launcher touched its home: %v", err)
 	}
 }

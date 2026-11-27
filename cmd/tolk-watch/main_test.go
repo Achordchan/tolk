@@ -110,3 +110,19 @@ func TestLauncherWithoutCoreLeavesNoReport(t *testing.T) {
 		t.Fatalf("launcher touched its home: %v", err)
 	}
 }
+
+// Only the status Windows ends a process with at shutdown is spared; other
+// failures still report.
+func TestEndedBySystemOnlyMatchesSessionEnd(t *testing.T) {
+	if endedBySystem(nil) || endedBySystem(errors.New("start failed")) {
+		t.Fatal("non-exit errors are not a session end")
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit := exec.Command(self, "-test.run=^$", "-test.badflag").Run()
+	if exit == nil || endedBySystem(exit) {
+		t.Fatalf("an ordinary failed exit must still report: %v", exit)
+	}
+}

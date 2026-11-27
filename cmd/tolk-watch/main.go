@@ -134,6 +134,13 @@ func main() {
 		showCoreMissing(child)
 		return
 	}
+	if endedBySystem(err) {
+		// Windows ended Tolk while shutting down or signing out: not a crash,
+		// and the launcher must not hold up the session end with a delivery.
+		cancel()
+		_ = os.Remove(logPath)
+		return
+	}
 	if err != nil {
 		logs.mu.Lock()
 		body := logs.body
@@ -203,6 +210,19 @@ func exitSummary(err error, headline string) (title, description, source string)
 		return "[异常退出] 主程序没有留下崩溃信息", failure + "\n没有崩溃信息：可能是界面未响应后被关闭、被强制结束，或原生代码崩溃。", failure
 	}
 	return "[崩溃] 主程序无法启动", failure, failure
+}
+
+// dbgTerminateProcess is the exit status Windows gives a process it ends at
+// shutdown, restart or sign-out once its windows have answered WM_ENDSESSION
+// (a debugger ending a process uses it too). Task Manager and taskkill end a
+// process with 1 instead, so those still report.
+const dbgTerminateProcess = 0x40010004
+
+// endedBySystem reports whether the core was ended from outside rather than
+// crashing, so the launcher leaves no crash report for the run.
+func endedBySystem(err error) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && uint32(exit.ExitCode()) == dbgTerminateProcess
 }
 
 // Use the panic/fatal headline rather than generic exit status or volatile logs.
